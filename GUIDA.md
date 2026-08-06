@@ -4,9 +4,8 @@ Piattaforma per inviare messaggi WhatsApp e newsletter email a partire da una ru
 Funziona sul tuo Mac: i dati restano qui, non su server esterni.
 
 > Questa è **iStudio BETA**, la versione singola e completa: gira solo sul tuo Mac e non dipende
-> da nient'altro. (Esiste un secondo progetto separato, l'«Amministratore dei iStudio client» in
-> `~/Documents/iStudio-Admin`, che serve **solo** se iStudio viene installata anche sui Mac di
-> altre persone da attivare a distanza. Per l'uso tuo di ogni giorno non c'entra.)
+> da nient'altro. È lo stesso programma che viene installato sui Mac di altre persone: là serve
+> un seriale di abbonamento per usarlo, qui no. Per l'uso tuo di ogni giorno non cambia niente.
 
 ---
 
@@ -117,8 +116,6 @@ WhatsApp**, poi riprendi l'invio col ▶️. **Nessun destinatario viene perso.*
 > **🔁 Rimetti in coda**: quelle persone tornano fra quelle «ancora da fare» e il ▶️ le serve.
 > Gli errori veri (numeri senza WhatsApp) restano come sono.
 
-Se WhatsApp si scollega a metà invio (linea internet che salta, telefono spento),
-iStudio **mette in pausa da sola e riparte da sola** appena il collegamento torna.
 Se invece è stata chiusa iStudio o si è spento il Mac, al riavvio l'invio resta **In pausa**
 e riparte quando premi tu ▶️: così non parte niente a tua insaputa.
 
@@ -184,6 +181,25 @@ richiesta può sfuggire: il pulsante 🚫 a mano resta la rete di sicurezza.
 Le richieste nei **gruppi** vengono ignorate, e così i messaggi scritti da te.
 - Gli **omonimi sono ammessi**, ma **telefono ed email devono essere unici**:
   se provi a inserire un doppione, iStudio te lo segnala indicando a chi appartiene già
+
+### Profilo (solo sulle copie in abbonamento)
+
+Il pulsante **👤 Profilo** in alto a destra, accanto alle spie WhatsApp ed Email. Compare solo
+se questa copia di iStudio funziona ad abbonamento; sulla versione personale non c'è.
+
+Dentro trovi:
+
+- il tuo **codice installazione** (es. `IST-4K7P-9XQ2`) — è quello da comunicare per farsi
+  mandare un seriale nuovo
+- **fino a quando** l'abbonamento è valido e quanti giorni restano
+- il campo dove **incollare il seriale** per rinnovare
+
+Puoi rinnovare **anche prima della scadenza**: il nuovo periodo sostituisce quello in corso.
+Negli ultimi 7 giorni compare in cima a ogni pagina una fascia gialla che te lo ricorda.
+
+> Se l'abbonamento scade, iStudio si blocca ma **non perdi niente**: contatti, cronologia e
+> collegamento WhatsApp restano dove sono, e appena inserisci il seriale nuovo ritrovi tutto
+> come lo avevi lasciato.
 
 ### Impostazioni
 Collegamento WhatsApp (QR code), dati dell'account email, interruttore della Chat, le
@@ -302,9 +318,11 @@ motivo. Premi ▶️ per farlo ripartire da dove si era fermato, oppure 🗑️ 
 
 ## Pubblicare iStudio online
 
-È possibile, ma **non su un hosting condiviso classico** (Aruba, Altervista): serve un servizio
-che esegua container, come Railway o Render, oppure un VPS.
-Istruzioni dettagliate nel file **`DEPLOY.md`** in questa cartella.
+Tecnicamente si può, ma **non su un hosting classico** (Aruba, Altervista): servirebbe un
+servizio che esegua container, oppure un server dedicato.
 
-Se la pubblichi online **imposta obbligatoriamente una password** (variabile `ISTUDIO_PASSWORD`):
-senza, chiunque conosca l'indirizzo potrebbe usare il tuo WhatsApp e leggere i tuoi contatti.
+**È una strada che è stata valutata e messa da parte**, per un motivo che non è tecnico: online
+tutte le linee WhatsApp partirebbero dallo stesso indirizzo, ed è esattamente l'impronta che
+WhatsApp riconosce come invio automatico. Il rischio di blocco non solo salirebbe, ma
+riguarderebbe **tutti insieme** invece che uno per volta. Con iStudio installata su ogni
+computer, ognuno resta per conto suo.

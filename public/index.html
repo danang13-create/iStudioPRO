@@ -203,6 +203,10 @@
     <button class="badge rosso" id="badge-email">
       <span class="pallino"></span><span>Email</span>
     </button>
+    <!-- Profilo: compare solo sulle copie con abbonamento (lo mostra mostraAvvisoAbbonamento) -->
+    <button class="badge" id="badge-profilo" title="Il tuo abbonamento" style="display:none">
+      <span>👤</span><span>Profilo</span>
+    </button>
     <button class="badge" id="btn-esci" title="Esci dalla piattaforma" style="display:none">🚪 Esci</button>
   </div>
 </header>
@@ -214,9 +218,34 @@
   <button data-scheda="chat" id="nav-chat">Chat</button>
   <button data-scheda="anagrafiche">Rubrica</button>
   <button data-scheda="impostazioni">Impostazioni</button>
+  <!-- Il Profilo non sta qui ma nella barra in alto a destra, accanto alle spie:
+       è roba di account, non una scheda di lavoro. Questo pulsante resta nascosto
+       sempre e serve solo a far funzionare il meccanismo delle schede. -->
+  <button data-scheda="profilo" id="nav-profilo" style="display:none"></button>
 </nav>
 <main>
   <!-- IMPOSTAZIONI -->
+  <!-- PROFILO — solo sulle copie con abbonamento -->
+  <section id="scheda-profilo" class="scheda">
+    <div class="card">
+      <h2>Il tuo abbonamento</h2>
+      <div class="dettagli" id="profilo-dati"><p class="vuoto">Caricamento…</p></div>
+    </div>
+    <div class="card">
+      <h2>Rinnova</h2>
+      <p class="conteggio" style="margin-top:0">
+        Quando ricevi un seriale nuovo, incollalo qui. Puoi farlo anche prima della scadenza:
+        il nuovo periodo sostituisce quello in corso.
+      </p>
+      <textarea id="profilo-seriale" rows="3" placeholder="Incolla qui il seriale"
+        style="width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:.85rem"></textarea>
+      <div style="margin-top:10px">
+        <button class="btn" id="btn-rinnova">Attiva il seriale</button>
+      </div>
+      <div id="profilo-esito" style="margin-top:10px;font-size:.9rem"></div>
+    </div>
+  </section>
+
   <section id="scheda-impostazioni" class="scheda">
     <!-- Collegamento WhatsApp -->
     <div class="card">
@@ -727,6 +756,7 @@ document.querySelectorAll('nav button').forEach((b) => {
     if (b.dataset.scheda === 'impostazioni') { caricaImpostazioniEmail(); aggiornaConteggiImpostazioni(); caricaRitmo(); }
     if (b.dataset.scheda === 'email') { aggiornaAvvisoEmail(); disegnaEmailDestinatari(); }
     if (b.dataset.scheda === 'chat') caricaChats();
+    if (b.dataset.scheda === 'profilo') aggiornaProfilo();
   });
 });
 
@@ -832,6 +862,96 @@ function impostaBadge(id, colore, dettaglio) {
   b.title = dettaglio + ' — clicca per aprire le Impostazioni';
 }
 
+// ---------- Profilo (solo sulle copie con abbonamento) ----------
+// La scheda esiste nella pagina ma il pulsante nel menu resta nascosto finché
+// /api/status non conferma che questa copia ha un abbonamento. Sulle copie senza,
+// il cliente non vede niente di tutto questo.
+let profiloAttivo = false;
+
+async function aggiornaProfilo() {
+  if (!profiloAttivo) return;
+  const box = $('#profilo-dati');
+  try {
+    const d = await (await fetch('/api/abbonamento/stato')).json();
+    const g = d.giorniRimasti;
+    const colore = g == null ? 'var(--rosso)' : (g <= 7 ? '#a35a12' : '#1c7c4b');
+    const stato = d.valido
+      ? `<b style="color:${colore}">Attivo</b>`
+      : '<b style="color:var(--rosso)">Non attivo</b>';
+    const quanto = g == null ? '—'
+      : (g <= 0 ? '<b>scade oggi</b>' : `ancora <b>${g}</b> ${g === 1 ? 'giorno' : 'giorni'}`);
+    box.innerHTML =
+      `<div class="riga"><span>Stato</span><div>${stato}</div></div>` +
+      `<div class="riga"><span>Codice installazione</span>` +
+      `<div style="font-family:ui-monospace,Menlo,monospace;font-size:1.05rem">${esc(d.codice)}</div></div>` +
+      `<div class="riga"><span>Valido fino al</span><div>` +
+      (d.scadenza ? '<b>' + d.scadenza.split('-').reverse().join('/') + '</b>' : '—') + '</div></div>' +
+      `<div class="riga"><span>Tempo rimasto</span><div>${quanto}</div></div>` +
+      '<p class="conteggio" style="margin-top:12px">Per rinnovare, comunica il tuo ' +
+      '<b>codice installazione</b> a chi ti ha fornito iStudio: ti manderà un seriale nuovo.</p>';
+  } catch {
+    box.innerHTML = '<p class="vuoto">Non riesco a leggere i dati dell\'abbonamento.</p>';
+  }
+}
+
+// Il pulsante in alto a destra apre la scheda Profilo, che nel menu resta nascosta.
+$('#badge-profilo').addEventListener('click', () => vaiScheda('profilo'));
+
+$('#btn-rinnova').addEventListener('click', async () => {
+  const campo = $('#profilo-seriale'), esito = $('#profilo-esito'), btn = $('#btn-rinnova');
+  esito.textContent = ''; btn.disabled = true;
+  try {
+    const r = await fetch('/api/abbonamento/attiva', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seriale: campo.value }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      esito.innerHTML = '<span style="color:#1c7c4b">✅ Abbonamento rinnovato fino al <b>' +
+        d.scadenza.split('-').reverse().join('/') + '</b>.</span>';
+      campo.value = '';
+      toast('Abbonamento rinnovato');
+      aggiornaProfilo();
+    } else {
+      esito.innerHTML = '<span style="color:var(--rosso)">' + esc(d.error || 'Seriale non valido') + '</span>';
+    }
+  } catch {
+    esito.innerHTML = '<span style="color:var(--rosso)">Qualcosa non ha funzionato, riprova.</span>';
+  }
+  btn.disabled = false;
+});
+
+// Avviso di scadenza dell'abbonamento. Compare solo negli ultimi 7 giorni e solo sulle
+// copie con abbonamento: sulle altre `dati` è null e la fascia non esiste nemmeno.
+// Serve a non far trovare il cliente bloccato di sorpresa una mattina.
+function mostraAvvisoAbbonamento(dati) {
+  // La presenza stessa del dato dice che questa copia ha un abbonamento: è ciò che
+  // fa comparire «Profilo» nel menu. Sulle copie senza, `dati` è null e non compare.
+  if (dati && !profiloAttivo) {
+    profiloAttivo = true;
+    $('#badge-profilo').style.display = 'flex';
+    aggiornaProfilo();
+  }
+  const esistente = document.getElementById('fascia-abbonamento');
+  if (!dati || dati.giorniRimasti == null || dati.giorniRimasti > 7) {
+    if (esistente) esistente.remove();
+    return;
+  }
+  const g = dati.giorniRimasti;
+  const testo = g <= 0
+    ? 'Il tuo abbonamento a iStudio <b>scade oggi</b>.'
+    : `Il tuo abbonamento a iStudio scade fra <b>${g} ${g === 1 ? 'giorno' : 'giorni'}</b>, il ` +
+      `<b>${dati.scadenza.split('-').reverse().join('/')}</b>.`;
+  const html = `⏳ ${testo}`;
+  if (esistente) { esistente.innerHTML = html; return; }
+  const d = document.createElement('div');
+  d.id = 'fascia-abbonamento';
+  d.style.cssText = 'background:#fff8e6;border-bottom:1px solid #f0c36d;color:#7a5b12;' +
+    'padding:9px 16px;font-size:.88rem;text-align:center';
+  d.innerHTML = html;
+  document.body.insertBefore(d, document.body.firstChild);
+}
+
 // Il riquadro si ridisegnava ogni 3 secondi anche quando non era cambiato niente: così
 // cancellava all'istante il messaggio «Sto ripristinando…», e ricreava di continuo i
 // pulsanti (un clic capitato nell'attimo sbagliato andava perso). Ora si ridisegna solo
@@ -846,6 +966,7 @@ async function aggiornaStato() {
     const s = await (await fetch('/api/status')).json();
     // Va impostato sempre, anche quando il riquadro non si ridisegna.
     $('#btn-esci').style.display = s.authEnabled ? 'flex' : 'none';
+    mostraAvvisoAbbonamento(s.abbonamento);
     if (ripristinoInCorsoUI) return;
     const firma = s.status + '|' + (s.me || '') + '|' + (s.qr || '').slice(0, 40);
     if (firma === statoDisegnato) return;

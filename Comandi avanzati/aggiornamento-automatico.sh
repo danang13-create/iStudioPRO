@@ -47,7 +47,11 @@ if [ -z "$VERSIONE_REMOTA" ]; then
 fi
 [ "$VERSIONE_REMOTA" = "$VERSIONE_LOCALE" ] && exit 0
 
-echo "⏳ È disponibile la versione $VERSIONE_REMOTA (hai la ${VERSIONE_LOCALE:-sconosciuta}). La scarico…"
+# Il confronto è «diversa», non «più recente», ed è voluto: così ripubblicando una
+# versione precedente si fa tornare indietro tutti i clienti in un colpo solo, che è
+# il modo più rapido di rimediare a un rilascio sbagliato. Il messaggio quindi non
+# promette «una versione più nuova»: dice solo che ci si allinea a quella pubblicata.
+echo "⏳ La versione pubblicata è $VERSIONE_REMOTA, qui c'è la ${VERSIONE_LOCALE:-sconosciuta}. Mi allineo…"
 
 # --- 2. scarico ed estraggo in una cartella temporanea ---
 TMP="$(mktemp -d)"
@@ -120,5 +124,5 @@ if ! cmp -s "$BACKUP/package.json" "$BASE_DIR/package.json" 2>/dev/null; then
 fi
 
 printf '%s\n' "$VERSIONE_REMOTA" > "$BASE_DIR/VERSIONE.txt"
-echo "   ✅ Aggiornata alla versione $VERSIONE_REMOTA."
+echo "   ✅ Ora è alla versione $VERSIONE_REMOTA."
 exit 10

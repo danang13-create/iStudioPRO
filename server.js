@@ -45,13 +45,6 @@ const PORT = process.env.PORT || 3100;
 // Su hosting: DATA_DIR punta al disco persistente, ISTUDIO_PASSWORD protegge l'accesso
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 const APP_PASSWORD = process.env.ISTUDIO_PASSWORD || '';
-// MODALITÀ LICENZA (per le copie installate sui Mac dei clienti).
-// Se questa variabile NON è impostata, iStudio funziona esattamente come sempre:
-// niente account, niente chiamate verso l'esterno. È il caso dell'uso personale.
-// Se è impostata, punta all'«Amministratore dei iStudio client», che decide se
-// questa installazione può funzionare. Vedi NOTE-TECNICHE.md.
-const LICENSE_SERVER_URL = (process.env.LICENSE_SERVER_URL || '').replace(/\/+$/, '');
-const modalitaLicenza = Boolean(LICENSE_SERVER_URL);
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // ---------- Database ----------
@@ -706,80 +699,170 @@ function controllaRiprese() {
 }
 setInterval(controllaRiprese, 60 * 1000);
 
-// ---------- Licenza (solo con LICENSE_SERVER_URL impostata: copie dei clienti) ----------
-// Lo stato conosciuto viene tenuto in memoria e ricontrollato all'avvio e ogni notte.
-// Regola voluta: se il server centrale NON risponde, iStudio CONTINUA a funzionare col
-// permesso precedente. Si blocca solo su un «bloccato» esplicito, perché un guasto di
-// rete o di hosting non deve fermare il lavoro di un cliente in regola.
-// Lo stato è anche SALVATO nel database: senza questo, un riavvio con il server centrale
-// irraggiungibile lascerebbe lo stato vuoto e bloccherebbe un cliente in regola.
-const licenza = {
-  stato: getSetting('licenza_stato') || null,
-  ultimoControllo: getSetting('licenza_ultimo_controllo') || null,
-  ultimoErrore: null,
-};
+// ---------- Abbonamento a seriale (solo sulle copie dei clienti) ----------
+// Qui non c'è nessun server da tenere acceso e nessuna chiamata verso l'esterno: il
+// permesso viaggia in un seriale firmato che l'amministratore genera sul proprio Mac
+// e manda al cliente.
+//
+// Fino al 6 agosto 2026 c'era invece una «modalità licenza» che chiedeva il permesso a
+// un server centrale a ogni avvio, ogni ora e a mezzanotte. È stata tolta del tutto: il
+// server andava tenuto acceso e raggiungibile, ed era proprio quello l'ostacolo.
+// Se serve rivederla, sta nella storia di git (commit «Modalita' licenza»).
+//
+// Si accende SOLO se nella cartella del programma c'è «copia-cliente.txt», che ci mette
+// lo script di pubblicazione. Sul Mac di chi sviluppa non c'è, quindi iStudio funziona
+// esattamente come sempre.
+const modalitaAbbonamento = fs.existsSync(path.join(__dirname, 'copia-cliente.txt'));
 
-function tokenLicenza() { return getSetting('licenza_token'); }
-function licenzaValida() { return licenza.stato === 'approvato'; }
+// Alfabeto senza caratteri che si confondono a voce o a occhio: niente 0/O, 1/I/L.
+// Il codice va letto al telefono, e «zero o lettera O?» è la domanda da evitare.
+const ALFABETO_CODICE = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 
-async function chiediAlServerLicenze(percorso, opzioni = {}) {
-  const controllore = new AbortController();
-  const scadenza = setTimeout(() => controllore.abort(), 10000); // 10 s e non di più
-  try {
-    const risposta = await fetch(LICENSE_SERVER_URL + percorso, { ...opzioni, signal: controllore.signal });
-    const dati = await risposta.json().catch(() => ({}));
-    return { ok: risposta.ok, stato: risposta.status, dati };
-  } finally {
-    clearTimeout(scadenza);
-  }
+function codiceInstallazione() {
+  let codice = getSetting('abbonamento_codice');
+  if (codice) return codice;
+  const gruppo = () => Array.from(crypto.randomBytes(4))
+    .map((b) => ALFABETO_CODICE[b % ALFABETO_CODICE.length]).join('');
+  codice = `IST-${gruppo()}-${gruppo()}`;
+  setSetting('abbonamento_codice', codice);
+  return codice;
 }
 
-// Ricontrolla se questa installazione può funzionare. Restituisce lo stato letto,
-// oppure null se il server non è raggiungibile (e in quel caso non cambia nulla).
-async function verificaLicenza(motivo) {
-  const token = tokenLicenza();
-  if (!token) { licenza.stato = null; return null; }
-  try {
-    const r = await chiediAlServerLicenze('/api/licenza/stato?token=' + encodeURIComponent(token));
-    const stato = (r.dati && r.dati.status) || (r.ok ? null : 'sconosciuto');
-    licenza.stato = stato;
-    licenza.ultimoControllo = new Date().toISOString();
-    licenza.ultimoErrore = null;
-    setSetting('licenza_stato', stato || '');
-    setSetting('licenza_ultimo_controllo', licenza.ultimoControllo);
-    console.log(`Licenza (${motivo}): ${stato}`);
-    // Se non è più valida, chi era dentro deve rifare l'accesso.
-    if (stato !== 'approvato') sessions.clear();
-    return stato;
-  } catch (err) {
-    licenza.ultimoErrore = err.message;
-    console.log(`Licenza (${motivo}): server non raggiungibile (${err.message}). ` +
-                `iStudio continua a funzionare con il permesso precedente.`);
-    return null;
-  }
-}
+// Verifica un seriale: firma valida, intestato a QUESTA installazione, non scaduto.
+// Restituisce sempre un oggetto con un motivo in italiano, così la schermata può
+// spiegare cosa non va invece di dire soltanto «non valido».
+function verificaSeriale(seriale) {
+  const pulito = String(seriale || '').trim().replace(/\s+/g, '');
+  if (!pulito) return { ok: false, motivo: 'Non hai inserito nessun seriale.' };
 
-// Ogni minuto si guarda se è cambiato il giorno: al primo giro dopo la mezzanotte
-// si ricontrolla la licenza e si chiudono le sessioni aperte, così anche un Mac lasciato
-// acceso si riallinea ogni giorno.
-// Stesso schema di controllaRiprese(); la data è quella LOCALE, come in serviteOggi().
-let giornoDelControllo = new Date().toLocaleDateString('sv-SE'); // aaaa-mm-gg
-function controllaLicenzaANuovoGiorno() {
-  if (!modalitaLicenza) return;
+  let chiavePubblica;
+  try {
+    chiavePubblica = crypto.createPublicKey(
+      fs.readFileSync(path.join(__dirname, 'chiave-seriali-pubblica.pem'))
+    );
+  } catch {
+    return { ok: false, motivo: 'Manca la chiave di verifica: avvisa chi ti ha dato iStudio.' };
+  }
+
+  const punto = pulito.lastIndexOf('.');
+  if (punto < 1) return { ok: false, motivo: 'Il seriale sembra incompleto: ricopialo tutto.' };
+  let payload, firma;
+  try {
+    payload = Buffer.from(pulito.slice(0, punto), 'base64url').toString('utf8');
+    firma = Buffer.from(pulito.slice(punto + 1), 'base64url');
+  } catch {
+    return { ok: false, motivo: 'Il seriale contiene caratteri strani: ricopialo tutto.' };
+  }
+
+  let valido = false;
+  try { valido = crypto.verify(null, Buffer.from(payload), chiavePubblica, firma); } catch { valido = false; }
+  if (!valido) return { ok: false, motivo: 'Questo seriale non è valido.' };
+
+  const [codice, scadenza] = payload.split('|');
+  if (codice !== codiceInstallazione()) {
+    return { ok: false, motivo: 'Questo seriale è di un\'altra installazione: chiedine uno per il tuo codice.' };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(scadenza || '')) {
+    return { ok: false, motivo: 'Il seriale è malformato.' };
+  }
+  // Data LOCALE come ovunque nel progetto: con l'ora UTC il giorno cambierebbe di notte.
   const oggi = new Date().toLocaleDateString('sv-SE');
-  if (oggi === giornoDelControllo) return;
-  giornoDelControllo = oggi;
-  sessions.clear(); // logout di mezzanotte: si rientra dopo il nuovo controllo
-  verificaLicenza('mezzanotte');
+  if (scadenza < oggi) {
+    return { ok: false, scaduto: true, scadenza, motivo: `Questo seriale è scaduto il ${scadenza.split('-').reverse().join('/')}.` };
+  }
+  return { ok: true, scadenza };
 }
-// Avvio e mezzanotte da soli non bastano: un blocco deciso alle 10 del mattino non
-// verrebbe notato fino alla mezzanotte successiva, e per un giorno intero il cliente
-// continuerebbe a lavorare. Con un controllo ogni ora il blocco arriva entro l'ora.
-const ORA_IN_MS = 60 * 60 * 1000;
-if (modalitaLicenza) {
-  setInterval(controllaLicenzaANuovoGiorno, 60 * 1000);
-  setInterval(() => { if (tokenLicenza()) verificaLicenza('controllo periodico'); }, ORA_IN_MS);
+
+const abbonamento = { valido: false, scadenza: null, giorniRimasti: null };
+
+function ricalcolaAbbonamento() {
+  if (!modalitaAbbonamento) { abbonamento.valido = true; return; }
+  const esito = verificaSeriale(getSetting('abbonamento_seriale'));
+  abbonamento.valido = esito.ok;
+  abbonamento.scadenza = esito.scadenza || null;
+  abbonamento.giorniRimasti = esito.ok
+    ? Math.round((new Date(esito.scadenza + 'T23:59:59') - Date.now()) / 86400000)
+    : null;
+  return esito;
 }
+
+if (modalitaAbbonamento) {
+  ricalcolaAbbonamento();
+  console.log(`Abbonamento: installazione ${codiceInstallazione()}, ` +
+    (abbonamento.valido ? `attivo fino al ${abbonamento.scadenza}` : 'da attivare'));
+  // Il seriale scade a una data, quindi basta ricontrollare al cambio di giorno.
+  // Stesso schema di controllaRiprese(): un giro al minuto, azione solo se cambia la data.
+  let giornoAbbonamento = new Date().toLocaleDateString('sv-SE');
+  setInterval(() => {
+    const oggi = new Date().toLocaleDateString('sv-SE');
+    if (oggi === giornoAbbonamento) return;
+    giornoAbbonamento = oggi;
+    ricalcolaAbbonamento();
+  }, 60 * 1000);
+}
+
+// Pagina mostrata finché l'abbonamento non è attivo. Serve a due situazioni — mai
+// attivato e scaduto — e la differenza la scopre il browser da /api/abbonamento/stato.
+const abbonamentoPage = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"><title>iStudio — Attivazione</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>%F0%9F%92%AC</text></svg>">
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;box-sizing:border-box}
+.box{background:#fff;border:1px solid #e0e4e8;border-radius:14px;padding:34px;width:440px;max-width:100%}
+h1{font-size:1.3rem;color:#128c7e;margin:0 0 6px;text-align:center}
+p{color:#667781;font-size:.92rem;margin:0 0 16px;line-height:1.6}
+.codice{background:#f0f2f5;border:2px dashed #c9d1d8;border-radius:10px;padding:18px;text-align:center;margin:18px 0}
+.codice b{display:block;font-size:1.7rem;letter-spacing:2px;color:#111b21;font-family:ui-monospace,Menlo,monospace}
+.codice span{font-size:.8rem;color:#667781}
+textarea{width:100%;padding:11px;border:1px solid #e0e4e8;border-radius:8px;font-size:.85rem;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;resize:vertical;min-height:78px}
+button{width:100%;padding:12px;background:#25d366;color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;font-family:inherit;margin-top:10px}
+button:hover{background:#128c7e}button:disabled{background:#a8d5bd;cursor:default}
+.err{color:#ea4335;font-size:.87rem;min-height:1.2em;margin-top:10px;text-align:center}
+.ok{color:#1c7c4b;font-size:.95rem;text-align:center;line-height:1.6}
+.avviso{background:#fff8e6;border:1px solid #f0c36d;border-radius:10px;padding:12px;font-size:.87rem;color:#7a5b12;margin-bottom:16px}</style></head>
+<body><div class="box">
+<h1>iStudio</h1>
+<div id="corpo"><p style="text-align:center">Un attimo…</p></div>
+</div>
+<script>
+const corpo = document.getElementById('corpo');
+async function mostra() {
+  const s = await (await fetch('/api/abbonamento/stato')).json();
+  if (s.valido) { location.reload(); return; }
+  corpo.innerHTML =
+    (s.scadenza ? '<div class="avviso">Il tuo abbonamento è scaduto il <b>' +
+       s.scadenza.split('-').reverse().join('/') + '</b>. I tuoi contatti e la cronologia sono al sicuro: ' +
+       'appena inserisci il seriale nuovo trovi tutto come lo avevi lasciato.</div>' : '') +
+    '<p>Per attivare iStudio serve un <b>seriale</b>. Comunica questo codice a chi ti ha fornito iStudio:</p>' +
+    '<div class="codice"><b>' + s.codice + '</b><span>il tuo codice installazione</span></div>' +
+    '<p>Poi incolla qui sotto il seriale che ricevi:</p>' +
+    '<textarea id="ser" placeholder="Incolla qui il seriale"></textarea>' +
+    '<button id="btn">Attiva iStudio</button><div class="err" id="err"></div>';
+  document.getElementById('btn').addEventListener('click', attiva);
+  document.getElementById('ser').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) attiva();
+  });
+}
+async function attiva() {
+  const btn = document.getElementById('btn'), err = document.getElementById('err');
+  err.textContent = ''; btn.disabled = true; btn.textContent = 'Controllo…';
+  try {
+    const r = await fetch('/api/abbonamento/attiva', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seriale: document.getElementById('ser').value }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      corpo.innerHTML = '<p class="ok">✅ iStudio è attiva fino al <b>' +
+        d.scadenza.split('-').reverse().join('/') + '</b>.<br>Sto aprendo la piattaforma…</p>';
+      setTimeout(() => location.reload(), 1600);
+      return;
+    }
+    err.textContent = d.error || 'Seriale non valido';
+  } catch { err.textContent = 'Qualcosa non ha funzionato, riprova.'; }
+  btn.disabled = false; btn.textContent = 'Attiva iStudio';
+}
+mostra();
+</script></body></html>`;
 
 // ---------- Autenticazione (attiva solo se ISTUDIO_PASSWORD è impostata) ----------
 const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 giorni
@@ -815,205 +898,43 @@ button:hover{background:#128c7e}.err{color:#ea4335;font-size:.85rem;min-height:1
 const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('p').value})});
 if(r.ok)location.reload();else document.getElementById('e').textContent='Password errata';});</script></body></html>`;
 
-// Pagina mostrata sulle copie con licenza finché l'installazione non è autorizzata.
-// Una pagina sola per tre situazioni: da registrare, in attesa, bloccata. Quale mostrare
-// lo decide il browser interrogando /api/licenza/mio-stato.
-const licenzaPage = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0"><title>iStudio — Accesso</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>%F0%9F%92%AC</text></svg>">
-<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-.box{background:#fff;border:1px solid #e0e4e8;border-radius:14px;padding:34px;width:330px;text-align:center}
-.box.larga{width:390px}
-h1{font-size:1.3rem;color:#128c7e;margin:0 0 6px}
-p{color:#667781;font-size:.9rem;margin:0 0 18px;line-height:1.6}
-input{width:100%;padding:11px;border:1px solid #e0e4e8;border-radius:8px;font-size:1rem;box-sizing:border-box;margin-bottom:12px}
-button{width:100%;padding:11px;background:#25d366;color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;font-family:inherit}
-button:hover{background:#128c7e}
-button.grigio{background:#e0e4e8;color:#111b21}button.grigio:hover{background:#cfd6db}
-.err{color:#ea4335;font-size:.85rem;min-height:1.2em;margin-top:10px}
-.msg{color:#128c7e;font-size:.85rem;min-height:1.2em;margin-top:10px}
-.link{margin-top:14px;font-size:.85rem;color:#667781;cursor:pointer;text-decoration:underline}
-.gruppo{text-align:left}
-.gruppo h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:#8696a0;margin:4px 0 10px;font-weight:600}
-#dati-persona,#titolo-accesso{display:none}
-.grande{font-size:2.5rem;margin:0 0 10px}
-#schermata-attesa,#schermata-bloccato{display:none}</style></head>
-<body>
-
-<form class="box" id="schermata-accesso">
-  <h1>iStudio</h1><p id="sottotitolo">Accedi al tuo account</p>
-  <div class="gruppo" id="dati-persona">
-    <h2>I tuoi dati</h2>
-    <input type="text" id="nome" placeholder="Nome" autocomplete="given-name">
-    <input type="text" id="cognome" placeholder="Cognome" autocomplete="family-name">
-    <input type="tel" id="telefono" placeholder="Telefono" autocomplete="tel">
-    <input type="email" id="email" placeholder="Email" autocomplete="email">
-  </div>
-  <div class="gruppo">
-    <h2 id="titolo-accesso">Dati per accedere a iStudio</h2>
-    <input type="text" id="u" placeholder="Username" autofocus autocomplete="username">
-    <input type="password" id="p" placeholder="Password" autocomplete="current-password">
-  </div>
-  <button type="submit" id="btn">Entra</button>
-  <div class="err" id="e"></div><div class="msg" id="m"></div>
-  <div class="link" id="switch">Non hai un account? Registrati</div>
-</form>
-
-<div class="box" id="schermata-attesa">
-  <p class="grande">⏳</p><h1>Account in attesa di attivazione</h1>
-  <p>Il tuo account <b id="nome-attesa"></b> è stato creato correttamente.
-  Deve essere attivato prima che tu possa usare iStudio.
-  Questa pagina si aggiorna da sola appena vieni attivato.</p>
-  <button class="grigio" onclick="esci()">Esci</button>
-</div>
-
-<div class="box" id="schermata-bloccato">
-  <p class="grande">🚫</p><h1>Account bloccato</h1>
-  <p>L'accesso a questo iStudio è stato sospeso. Contatta chi te l'ha fornito
-  per maggiori informazioni.</p>
-  <button class="grigio" onclick="esci()">Esci</button>
-</div>
-
-<script>
-const el = (id) => document.getElementById(id);
-let modalita = 'login';
-
-async function esci() {
-  await fetch('/api/licenza/esci', { method: 'POST' });
-  location.reload();
-}
-
-function mostra(quale) {
-  for (const s of ['accesso', 'attesa', 'bloccato']) {
-    el('schermata-' + s).style.display = s === quale ? (s === 'accesso' ? '' : 'block') : 'none';
-  }
-}
-
-function applicaModalita() {
-  const reg = modalita === 'registrati';
-  el('sottotitolo').textContent = reg ? 'Compila i tuoi dati per chiedere l\\'accesso' : 'Accedi al tuo account';
-  el('btn').textContent = reg ? 'Invia richiesta' : 'Entra';
-  el('switch').textContent = reg ? 'Hai già un account? Accedi' : 'Non hai un account? Registrati';
-  el('dati-persona').style.display = reg ? 'block' : 'none';
-  el('titolo-accesso').style.display = reg ? 'block' : 'none';
-  el('schermata-accesso').classList.toggle('larga', reg);
-  el('p').setAttribute('autocomplete', reg ? 'new-password' : 'current-password');
-  el('e').textContent = ''; el('m').textContent = '';
-}
-
-el('switch').addEventListener('click', () => {
-  modalita = modalita === 'login' ? 'registrati' : 'login';
-  applicaModalita();
-  el(modalita === 'registrati' ? 'nome' : 'u').focus();
-});
-
-el('schermata-accesso').addEventListener('submit', async (ev) => {
-  ev.preventDefault();
-  el('e').textContent = ''; el('m').textContent = '';
-  const corpo = { username: el('u').value.trim(), password: el('p').value };
-  if (modalita === 'registrati') {
-    corpo.nome = el('nome').value.trim();
-    corpo.cognome = el('cognome').value.trim();
-    corpo.telefono = el('telefono').value.trim();
-    corpo.email = el('email').value.trim();
-  }
-  const url = modalita === 'login' ? '/api/licenza/accesso' : '/api/licenza/registra';
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
-  const dati = await r.json().catch(() => ({}));
-  if (!r.ok) { el('e').textContent = dati.error || 'Si è verificato un errore'; return; }
-  if (modalita === 'registrati') {
-    modalita = 'login';
-    applicaModalita();
-    el('m').textContent = 'Richiesta inviata! Premi «Entra» per seguire l\\'attivazione.';
-    return;
-  }
-  if (dati.status === 'approvato') { location.reload(); return; }
-  controlla();
-});
-
-// Chiede al server come sta l'installazione e mostra la schermata giusta.
-async function controlla() {
-  try {
-    const s = await (await fetch('/api/licenza/mio-stato')).json();
-    if (s.stato === 'approvato') { location.reload(); return; }
-    if (s.stato === 'bloccato' || s.stato === 'sconosciuto') { mostra('bloccato'); return; }
-    if (s.stato === 'in_attesa') {
-      el('nome-attesa').textContent = s.username || '';
-      mostra('attesa');
-      return;
-    }
-    mostra('accesso'); // nessun account collegato: si accede o si registra
-  } catch { mostra('accesso'); }
-}
-controlla();
-setInterval(controlla, 15000); // l'attivazione si vede da sola entro 15 secondi
-</script></body></html>`;
-
 // ---------- API ----------
 const app = express();
 app.use(express.json({ limit: '25mb' })); // limite alto per le immagini allegate
 
-// ===== Rotte della licenza: fanno da ponte verso l'Amministratore dei iStudio client =====
-if (modalitaLicenza) {
-  app.post('/api/licenza/registra', async (req, res) => {
-    try {
-      const r = await chiediAlServerLicenze('/api/licenza/registra', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req.body),
-      });
-      res.status(r.stato).json(r.dati);
-    } catch (err) {
-      res.status(503).json({ error: 'Non riesco a contattare il server delle licenze: ' + err.message });
-    }
-  });
-
-  app.post('/api/licenza/accesso', async (req, res) => {
-    try {
-      const r = await chiediAlServerLicenze('/api/licenza/accesso', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req.body),
-      });
-      if (!r.ok) return res.status(r.stato).json(r.dati);
-      // Il token identifica questa installazione: si conserva nel database locale.
-      setSetting('licenza_token', r.dati.token);
-      setSetting('licenza_username', String(req.body.username || '').trim());
-      licenza.stato = r.dati.status;
-      setSetting('licenza_stato', r.dati.status || '');
-      res.json({ ok: true, status: r.dati.status });
-    } catch (err) {
-      res.status(503).json({ error: 'Non riesco a contattare il server delle licenze: ' + err.message });
-    }
-  });
-
-  // Stato di questa installazione, per la pagina di accesso. Prima riprova col server
-  // centrale, così l'attivazione appena concessa si vede subito.
-  app.get('/api/licenza/mio-stato', async (req, res) => {
-    if (tokenLicenza()) await verificaLicenza('richiesta dalla pagina');
+// ===== Abbonamento a seriale: nessun server da contattare, tutto in locale =====
+if (modalitaAbbonamento) {
+  // Queste due restano SEMPRE aperte, anche a iStudio bloccata: sono l'unico modo
+  // che il cliente ha per attivarsi.
+  app.get('/api/abbonamento/stato', (req, res) => {
     res.json({
-      stato: licenza.stato,
-      username: getSetting('licenza_username'),
-      ultimoControllo: licenza.ultimoControllo,
-      serverRaggiungibile: !licenza.ultimoErrore,
+      codice: codiceInstallazione(),
+      valido: abbonamento.valido,
+      scadenza: abbonamento.scadenza,
+      giorniRimasti: abbonamento.giorniRimasti,
     });
   });
 
-  // Scollega questa installazione dall'account (non tocca contatti né invii).
-  app.post('/api/licenza/esci', (req, res) => {
-    setSetting('licenza_token', '');
-    setSetting('licenza_stato', '');
-    licenza.stato = null;
-    sessions.clear();
-    res.json({ ok: true });
+  app.post('/api/abbonamento/attiva', (req, res) => {
+    const esito = verificaSeriale(req.body && req.body.seriale);
+    if (!esito.ok) return res.status(400).json({ error: esito.motivo });
+    setSetting('abbonamento_seriale', String(req.body.seriale).trim().replace(/\s+/g, ''));
+    ricalcolaAbbonamento();
+    console.log(`Abbonamento attivato fino al ${abbonamento.scadenza}`);
+    res.json({ ok: true, scadenza: abbonamento.scadenza });
   });
 
-  // Cancello della licenza: senza autorizzazione si vede solo la pagina di accesso.
+  // Il cancello. Sotto sta la pagina dove si incolla il seriale.
   app.use((req, res, next) => {
-    if (req.path.startsWith('/api/licenza/')) return next();
-    if (licenzaValida()) return next();
+    if (req.path.startsWith('/api/abbonamento/')) return next();
+    if (abbonamento.valido) return next();
     if (req.path.startsWith('/api/')) {
-      return res.status(403).json({ error: 'Questa copia di iStudio non è attiva', licenza: licenza.stato });
+      return res.status(403).json({ error: 'Abbonamento non attivo', abbonamento: false });
     }
-    res.send(licenzaPage);
+    res.send(abbonamentoPage);
   });
 }
+
 
 app.post('/api/login', (req, res) => {
   if (!APP_PASSWORD) return res.json({ ok: true });
@@ -1037,7 +958,13 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/status', (req, res) => {
-  res.json({ ...state, authEnabled: Boolean(APP_PASSWORD) });
+  // L'abbonamento viaggia qui perché questa rotta è già interrogata di continuo:
+  // così l'avviso di scadenza compare da qualunque scheda, non solo dalla Dashboard.
+  // Sulle copie senza abbonamento il campo non c'è proprio e il frontend lo ignora.
+  const abb = modalitaAbbonamento
+    ? { scadenza: abbonamento.scadenza, giorniRimasti: abbonamento.giorniRimasti }
+    : null;
+  res.json({ ...state, authEnabled: Boolean(APP_PASSWORD), abbonamento: abb });
 });
 
 // Uscita dalla piattaforma (chiude la sessione di accesso, solo con password attiva)
@@ -2205,13 +2132,6 @@ app.get('/api/campaigns/:id', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`iStudio in ascolto su http://localhost:${PORT}`);
-  // Controllo della licenza a ogni avvio (solo sulle copie dei clienti).
-  // Non blocca l'avvio: se il server centrale non risponde vale il permesso precedente.
-  if (modalitaLicenza) {
-    console.log('Modalità licenza attiva, server:', LICENSE_SERVER_URL);
-    if (tokenLicenza()) verificaLicenza('avvio');
-    else console.log('Licenza (avvio): nessun account collegato a questa installazione');
-  }
 });
 
 // ---------- Chiusura pulita ----------
