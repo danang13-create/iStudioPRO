@@ -860,26 +860,58 @@ button{width:100%;padding:12px;background:#25d366;color:#fff;border:none;border-
 button:hover{background:#128c7e}button:disabled{background:#a8d5bd;cursor:default}
 .err{color:#ea4335;font-size:.87rem;min-height:1.2em;margin-top:10px;text-align:center}
 .ok{color:#1c7c4b;font-size:.95rem;text-align:center;line-height:1.6}
-.avviso{background:#fff8e6;border:1px solid #f0c36d;border-radius:10px;padding:12px;font-size:.87rem;color:#7a5b12;margin-bottom:16px}</style></head>
+.avviso{background:#fff8e6;border:1px solid #f0c36d;border-radius:10px;padding:12px;font-size:.87rem;color:#7a5b12;margin-bottom:16px}
+.versione{text-align:center;color:#8696a0;font-size:.75rem;margin-top:18px;letter-spacing:.3px}
+.scelta{display:flex;gap:8px;align-items:center;margin-bottom:4px}
+.scelta select{flex:0 0 auto;padding:11px;border:1px solid #e0e4e8;border-radius:8px;font-size:.95rem;font-family:inherit;background:#fff}
+.scelta button{margin-top:0;flex:1}
+.oppure{text-align:center;color:#8696a0;font-size:.8rem;margin:20px 0 14px;position:relative}
+.oppure::before,.oppure::after{content:'';position:absolute;top:50%;width:36%;height:1px;background:#e0e4e8}
+.oppure::before{left:0}.oppure::after{right:0}</style></head>
 <body><div class="box">
 <h1>iStudio</h1>
 <div id="corpo"><p style="text-align:center">Un attimo…</p></div>
+<div class="versione" id="versione"></div>
 </div>
 <script>
 const corpo = document.getElementById('corpo');
 async function mostra() {
   const s = await (await fetch('/api/abbonamento/stato')).json();
   if (s.valido) { location.reload(); return; }
+  const scaduto = Boolean(s.scadenza);
+  // Con il numero dell'assistenza il codice non va dettato né ricopiato: parte dentro
+  // il messaggio. È il passaggio in cui si sbaglia — una lettera storta e il seriale
+  // non vale. Senza quel numero resta la richiesta a voce, come prima.
+  const richiesta = s.assistenza
+    ? '<div class="scelta">' +
+      '<select id="mesi"><option value="1">1 mese</option><option value="3">3 mesi</option>' +
+      '<option value="6">6 mesi</option><option value="12" selected>12 mesi</option></select>' +
+      '<button id="btn-chiedi">' + (scaduto ? 'Richiedi il rinnovo' : 'Richiedi attivazione') + '</button>' +
+      '</div><p style="font-size:.83rem;margin:6px 0 0">Si apre WhatsApp con il messaggio già ' +
+      'pronto, codice compreso: devi solo premere invio.</p>' +
+      '<div class="oppure">poi, quando ricevi il seriale</div>'
+    : '<p>Comunica questo codice a chi ti ha fornito iStudio, poi incolla qui sotto il seriale che ricevi:</p>';
   corpo.innerHTML =
-    (s.scadenza ? '<div class="avviso">Il tuo abbonamento è scaduto il <b>' +
+    (scaduto ? '<div class="avviso">Il tuo abbonamento è scaduto il <b>' +
        s.scadenza.split('-').reverse().join('/') + '</b>. I tuoi contatti e la cronologia sono al sicuro: ' +
        'appena inserisci il seriale nuovo trovi tutto come lo avevi lasciato.</div>' : '') +
-    '<p>Per attivare iStudio serve un <b>seriale</b>. Comunica questo codice a chi ti ha fornito iStudio:</p>' +
+    '<p>Per ' + (scaduto ? 'riattivare' : 'attivare') + ' iStudio serve un <b>seriale</b>.</p>' +
     '<div class="codice"><b>' + s.codice + '</b><span>il tuo codice installazione</span></div>' +
-    '<p>Poi incolla qui sotto il seriale che ricevi:</p>' +
+    richiesta +
     '<textarea id="ser" placeholder="Incolla qui il seriale"></textarea>' +
     '<button id="btn">Attiva iStudio</button><div class="err" id="err"></div>';
   document.getElementById('btn').addEventListener('click', attiva);
+  const bc = document.getElementById('btn-chiedi');
+  if (bc) bc.addEventListener('click', () => {
+    const m = Number(document.getElementById('mesi').value || 12);
+    const righe = ['Ciao! Vorrei ' + (scaduto ? 'rinnovare' : 'attivare') + ' iStudio.', '',
+      'Durata richiesta: ' + (m === 1 ? '1 mese' : m + ' mesi'),
+      'Codice installazione: ' + s.codice];
+    if (s.scadenza) righe.push('Scaduto il: ' + s.scadenza.split('-').reverse().join('/'));
+    window.open('https://wa.me/' + s.assistenza + '?text=' + encodeURIComponent(righe.join('\\n')),
+                '_blank', 'noopener');
+  });
+  if (s.versione) document.getElementById('versione').textContent = 'iStudio — versione ' + s.versione;
   document.getElementById('ser').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) attiva();
   });
@@ -955,6 +987,7 @@ if (modalitaAbbonamento) {
       scadenza: abbonamento.scadenza,
       giorniRimasti: abbonamento.giorniRimasti,
       assistenza: numeroAssistenza(),
+      versione: versioneInstallata(),
     });
   });
 
