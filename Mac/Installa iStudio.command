@@ -36,7 +36,7 @@ if [ -e "$DESTINAZIONE" ]; then
     echo "   Non la tocco: se la sovrascrivessi perderesti contatti e cronologia."
     echo
     echo "   Se vuoi aggiornarla, non serve reinstallare: iStudio si aggiorna da sola"
-    echo "   a ogni avvio. Ti basta fare doppio click su «Avvia iStudio»."
+    echo "   a ogni avvio. Ti basta fare doppio click su «Mac → Avvia iStudio»."
     echo
     read -r -p "Premi Invio per chiudere…"
     exit 1
@@ -84,8 +84,8 @@ if ! mv "$SORGENTE" "$DESTINAZIONE"; then
   echo "   ❌ Non riesco a creare la cartella. Controlla i permessi di Documenti."
   read -r -p "Premi Invio per chiudere…"; exit 1
 fi
-chmod +x "$DESTINAZIONE"/*.command 2>/dev/null
-chmod +x "$DESTINAZIONE/Comandi avanzati/"*.command "$DESTINAZIONE/Comandi avanzati/"*.sh 2>/dev/null
+chmod +x "$DESTINAZIONE/Mac/"*.command 2>/dev/null
+chmod +x "$DESTINAZIONE/Mac/"*.sh 2>/dev/null
 # macOS marchia come "scaricato da internet" tutto quello che arriva dalla rete e poi
 # si rifiuta di aprirlo. Qui lo si toglie, così i doppi click successivi funzionano
 # senza il giro di click destro → Apri.
@@ -121,8 +121,8 @@ echo "   ✅ fatto"
 # --- 4. Avvio ---
 echo "⏳ [4/4] Avvio iStudio…"
 echo
-if ! "$DESTINAZIONE/Avvia iStudio.command"; then
-  echo "   ⚠️  Non è partita. Apri Documenti → iStudio e fai doppio click su «Avvia iStudio»."
+if ! "$DESTINAZIONE/Mac/Avvia iStudio.command"; then
+  echo "   ⚠️  Non è partita. Apri Documenti → iStudio e fai doppio click su «Mac → Avvia iStudio»."
   read -r -p "Premi Invio per chiudere…"; exit 1
 fi
 
@@ -137,7 +137,7 @@ echo "  1. Registrati con i tuoi dati e scegli utente e password"
 echo "  2. Aspetta: quando l'amministratore ti attiva, la pagina si sblocca da sola"
 echo "  3. Poi vai in Impostazioni e collega WhatsApp inquadrando il QR col telefono"
 echo
-echo "D'ora in poi, per usare iStudio: Documenti → iStudio → «Avvia iStudio»."
+echo "D'ora in poi, per usare iStudio: Documenti → iStudio → Mac → «Avvia iStudio»."
 echo "Gli aggiornamenti arrivano da soli: non devi fare niente."
 echo
 read -r -p "Premi Invio per chiudere…"

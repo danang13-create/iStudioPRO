@@ -1,0 +1,6 @@
+# I file .bat DEVONO conservare i fine-riga di Windows (CRLF): con i fine-riga
+# del Mac, Windows non li interpreta e il doppio click non fa niente.
+*.bat text eol=crlf
+# Gli script del Mac invece vogliono i fine-riga Unix, o bash si lamenta.
+*.command text eol=lf
+*.sh       text eol=lf

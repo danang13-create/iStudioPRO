@@ -11,11 +11,11 @@ Funziona sul tuo Mac: i dati restano qui, non su server esterni.
 
 ## Avviare e fermare
 
-**Per avviare:** doppio click su **`Avvia iStudio.command`** (in questa cartella).
+**Per avviare:** apri la cartella **Mac** e fai doppio click su **`Avvia iStudio.command`**.
 Si apre una finestrella del Terminale con la conferma e la piattaforma si apre nel browser
 all'indirizzo **http://localhost:3100**. La finestrella si può chiudere: iStudio resta attiva.
 
-**Per fermare:** doppio click su **`Ferma iStudio.command`**.
+**Per fermare:** cartella **Mac** → doppio click su **`Ferma iStudio.command`**.
 Contatti e collegamento WhatsApp restano salvati.
 
 > **iStudio funziona solo mentre il Mac è acceso e la piattaforma è avviata.**
@@ -292,7 +292,7 @@ Tutto sta in questa cartella (`Documenti/iStudio`):
 
 ## Se qualcosa non funziona
 
-**La pagina non si apre** → iStudio non è avviata: doppio click su `Avvia iStudio.command`.
+**La pagina non si apre** → iStudio non è avviata: cartella **Mac** → `Avvia iStudio.command`.
 
 **WhatsApp risulta disconnesso** → Impostazioni, pulsante **🔄 Ripristina collegamento
 WhatsApp**: chiude tutto e ricollega in una ventina di secondi, **senza spegnere iStudio** e

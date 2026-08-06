@@ -46,8 +46,8 @@ else
   # Aggiornamento automatico: attivo solo sulle copie dei clienti (vedi lo script).
   # Non può impedire l'avvio: se qualcosa non va, rinuncia e si prosegue.
   AGGIORNATA=0
-  if [ -x "$ISTUDIO_DIR/Comandi avanzati/aggiornamento-automatico.sh" ]; then
-    "$ISTUDIO_DIR/Comandi avanzati/aggiornamento-automatico.sh"
+  if [ -x "$ISTUDIO_DIR/Mac/aggiornamento-automatico.sh" ]; then
+    "$ISTUDIO_DIR/Mac/aggiornamento-automatico.sh"
     [ $? -eq 10 ] && AGGIORNATA=1
   fi
 
@@ -84,5 +84,5 @@ open "http://localhost:$PORTA"
 echo ""
 echo "La pagina si sta aprendo nel browser: http://localhost:$PORTA"
 echo "Puoi chiudere questa finestra: iStudio resta attiva finché non spegni il Mac"
-echo "o non usi «Ferma iStudio»."
+echo "o non usi «Ferma iStudio» nella cartella Mac."
 sleep 2

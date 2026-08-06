@@ -1,7 +1,14 @@
 # Installare iStudio
 
-Serve una sola cosa: il file **`Installa iStudio.command`** che ti è stato mandato.
 Circa 10 minuti, quasi tutti di attesa. Non devi scrivere niente né spostare cartelle.
+
+> **Hai un PC Windows?** Salta alla sezione **«Su Windows»** in fondo.
+
+---
+
+# Su Mac
+
+Serve una sola cosa: il file **`Installa iStudio.command`** che ti è stato mandato.
 
 ---
 
@@ -75,8 +82,8 @@ Reimportare lo stesso file non crea doppioni.
 
 | Per | Fai |
 |---|---|
-| **usare iStudio** | Documenti → iStudio → doppio click su **`Avvia iStudio`** |
-| **fermarla** | doppio click su **`Ferma iStudio`** |
+| **usare iStudio** | Documenti → iStudio → **Mac** → doppio click su **`Avvia iStudio`** |
+| **fermarla** | cartella **Mac** → doppio click su **`Ferma iStudio`** |
 | **aggiornarla** | niente: si aggiorna da sola a ogni avvio |
 
 Per l'uso quotidiano vedi **`GUIDA.md`**.
@@ -88,7 +95,7 @@ Per l'uso quotidiano vedi **`GUIDA.md`**.
 | Problema | Cosa fare |
 |---|---|
 | Il file non si apre | click destro → **Apri** → **Apri** (vedi il punto 1) |
-| La pagina non si apre | doppio click su `Avvia iStudio` |
+| La pagina non si apre | cartella **Mac** → `Avvia iStudio` |
 | «Questa copia non è attiva» | l'amministratore non ti ha ancora attivato: sentilo |
 | WhatsApp risulta scollegato | Impostazioni → **🔄 Ripristina collegamento WhatsApp** |
 
@@ -96,3 +103,46 @@ Registro tecnico degli errori: `~/Library/Logs/istudio.log`
 
 > **Reinstallare non serve mai**, e comunque non cancella niente: se rilanci
 > `Installa iStudio.command` su un'installazione che ha già i tuoi dati, si ferma e te lo dice.
+
+---
+
+# Su Windows
+
+## 1. Apri PowerShell
+
+Premi il tasto **Windows**, scrivi `powershell` e premi Invio.
+Si apre una finestra blu (o nera): è normale.
+
+## 2. Incolla questa riga e premi Invio
+
+```powershell
+irm https://raw.githubusercontent.com/danang13-create/iStudioPRO/main/windows/Installa-iStudio.ps1 | iex
+```
+
+Ti chiede una conferma: scrivi **si** e premi Invio.
+
+Da lì fa tutto da solo: scarica iStudio, la mette in **Documenti → iStudio**, installa
+quello che serve e la avvia. Puoi lasciarlo lavorare senza guardare.
+
+## 3. Poi è tutto uguale al Mac
+
+Registrazione del seriale, QR di WhatsApp, email e contatti: identici ai punti 3, 4 e 5
+qui sopra.
+
+## Da qui in poi, su Windows
+
+| Per | Fai |
+|---|---|
+| **usare iStudio** | Documenti → iStudio → **Windows** → doppio clic su **`Avvia iStudio.bat`** |
+| **fermarla** | cartella **Windows** → doppio clic su **`Ferma iStudio.bat`** |
+| **aggiornarla** | niente: si aggiorna da sola a ogni avvio |
+
+> Al primo doppio clic Windows può mostrare un avviso di sicurezza («PC protetto da
+> Windows»): premi **Ulteriori informazioni** → **Esegui comunque**. Capita solo la
+> prima volta.
+
+## Se su Windows qualcosa non funziona
+
+Nella cartella **Windows** c'è **`Diagnostica.bat`**: doppio clic e basta. Non modifica niente,
+raccoglie solo le informazioni utili e **te le copia negli appunti**. Incollale in un
+messaggio a chi ti assiste (CTRL+V): da lì si capisce quasi sempre cos'è successo.

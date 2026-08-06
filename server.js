@@ -192,19 +192,43 @@ client.on('disconnected', (reason) => {
 // finché ci sono, `initialize()` fallisce con «The browser is already running».
 // Il filtro è il percorso del profilo, quindi NON tocca il Chrome che l'utente usa
 // per navigare, che ha un profilo diverso.
+// Elenca i processi che tengono aperto il profilo. Il modo di chiederlo al sistema
+// cambia col sistema operativo: `pgrep` non esiste su Windows, e senza questa distinzione
+// lì la pulizia non avverrebbe mai (l'errore verrebbe ingoiato dal catch, in silenzio).
+function processiSulProfilo(profilo) {
+  if (process.platform === 'win32') {
+    // PowerShell: unico modo affidabile di leggere la riga di comando di un processo.
+    // -replace raddoppia gli apici singoli, così un percorso con l'apostrofo
+    // (es. C:\Users\D'Angelo) non spezza la query.
+    const filtro = profilo.replace(/'/g, "''");
+    const out = execFileSync('powershell', ['-NoProfile', '-Command',
+      `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${filtro}*' } | Select-Object -ExpandProperty ProcessId`
+    ], { encoding: 'utf8', windowsHide: true });
+    return out.split('\n');
+  }
+  return execFileSync('pgrep', ['-f', profilo], { encoding: 'utf8' }).split('\n');
+}
+
 function chiudiBrowserOrfani() {
   const profilo = path.join(DATA_DIR, '.wwebjs_auth');
   let chiusi = 0;
   try {
-    const elenco = execFileSync('pgrep', ['-f', profilo], { encoding: 'utf8' });
-    for (const riga of elenco.split('\n')) {
+    for (const riga of processiSulProfilo(profilo)) {
       const pid = Number(riga.trim());
       // Mai suicidarsi: il processo di iStudio non va ucciso qui.
       if (!pid || pid === process.pid) continue;
-      try { process.kill(pid, 'SIGKILL'); chiusi++; } catch { /* già morto */ }
+      try {
+        if (process.platform === 'win32') {
+          // Su Windows il Chromium ha processi figli: /T li porta via tutti insieme.
+          execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { windowsHide: true });
+        } else {
+          process.kill(pid, 'SIGKILL');
+        }
+        chiusi++;
+      } catch { /* già morto */ }
     }
   } catch {
-    // pgrep esce con codice 1 quando non trova niente: è il caso normale, non un errore.
+    // Nessun processo trovato: è il caso normale (pgrep esce con 1), non un errore.
   }
   if (chiusi) console.log(`Browser interni orfani chiusi: ${chiusi}`);
   return chiusi;
@@ -714,6 +738,24 @@ setInterval(controllaRiprese, 60 * 1000);
 // esattamente come sempre.
 const modalitaAbbonamento = fs.existsSync(path.join(__dirname, 'copia-cliente.txt'));
 
+// Numero di versione, mostrato in fondo a ogni pagina: serve a capire al volo quale copia
+// si sta guardando. Letto a ogni richiesta e non una volta sola, perché l'aggiornamento
+// automatico lo riscrive mentre iStudio è spenta e deve risultare quello nuovo al riavvio.
+function versioneInstallata() {
+  try { return fs.readFileSync(path.join(__dirname, 'VERSIONE.txt'), 'utf8').trim() || null; }
+  catch { return null; }
+}
+
+// Numero WhatsApp a cui il cliente scrive per rinnovare. Sta in un file perché possa
+// cambiare senza toccare il programma; se manca, la schermata mostra un testo semplice
+// invece del collegamento. Sul Mac di chi sviluppa non c'è: non deve scrivere a se stesso.
+function numeroAssistenza() {
+  try {
+    const n = fs.readFileSync(path.join(__dirname, 'assistenza-whatsapp.txt'), 'utf8').replace(/\D/g, '');
+    return n || null;
+  } catch { return null; }
+}
+
 // Alfabeto senza caratteri che si confondono a voce o a occhio: niente 0/O, 1/I/L.
 // Il codice va letto al telefono, e «zero o lettera O?» è la domanda da evitare.
 const ALFABETO_CODICE = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -912,6 +954,7 @@ if (modalitaAbbonamento) {
       valido: abbonamento.valido,
       scadenza: abbonamento.scadenza,
       giorniRimasti: abbonamento.giorniRimasti,
+      assistenza: numeroAssistenza(),
     });
   });
 
@@ -964,7 +1007,7 @@ app.get('/api/status', (req, res) => {
   const abb = modalitaAbbonamento
     ? { scadenza: abbonamento.scadenza, giorniRimasti: abbonamento.giorniRimasti }
     : null;
-  res.json({ ...state, authEnabled: Boolean(APP_PASSWORD), abbonamento: abb });
+  res.json({ ...state, authEnabled: Boolean(APP_PASSWORD), abbonamento: abb, versione: versioneInstallata() });
 });
 
 // Uscita dalla piattaforma (chiude la sessione di accesso, solo con password attiva)

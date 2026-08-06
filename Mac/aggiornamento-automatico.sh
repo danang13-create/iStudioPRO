@@ -110,11 +110,11 @@ installa "$NUOVA/server.js"    "$BASE_DIR/server.js"
 installa "$NUOVA/public"       "$BASE_DIR/public"
 installa "$NUOVA/package.json" "$BASE_DIR/package.json"
 # Gli script di avvio/arresto: utile poterli correggere a distanza.
-for c in "Avvia iStudio.command" "Ferma iStudio.command"; do
-  installa "$NUOVA/$c" "$BASE_DIR/$c" && chmod +x "$BASE_DIR/$c" 2>/dev/null
+# Le due cartelle per sistema operativo: si aggiornano intere.
+for c in Mac Windows; do
+  [ -d "$NUOVA/$c" ] && installa "$NUOVA/$c" "$BASE_DIR/$c"
 done
-[ -d "$NUOVA/Comandi avanzati" ] && installa "$NUOVA/Comandi avanzati" "$BASE_DIR/Comandi avanzati" \
-  && chmod +x "$BASE_DIR/Comandi avanzati/"*.command "$BASE_DIR/Comandi avanzati/"*.sh 2>/dev/null
+chmod +x "$BASE_DIR/Mac/"*.command "$BASE_DIR/Mac/"*.sh 2>/dev/null
 
 # --- 6. librerie, se sono cambiate ---
 if ! cmp -s "$BACKUP/package.json" "$BASE_DIR/package.json" 2>/dev/null; then

@@ -183,6 +183,10 @@
     background: var(--sfondo); border-radius: 10px; padding: 9px 14px; font-size: .85rem;
   }
   .riepilogo-dettagli b { display: block; font-size: 1.25rem; }
+  #pie-versione {
+    text-align: center; color: var(--grigio); font-size: .78rem;
+    padding: 4px 16px 26px; letter-spacing: .3px;
+  }
   #toast {
     position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
     background: var(--testo); color: #fff; padding: 11px 20px; border-radius: 10px;
@@ -197,15 +201,13 @@
 <header>
   <div class="marchio"><h1>iStudio</h1><span class="beta-badge">BETA</span></div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-    <button class="badge giallo" id="badge-wa">
-      <span class="pallino"></span><span>WhatsApp</span>
-    </button>
-    <button class="badge rosso" id="badge-email">
-      <span class="pallino"></span><span>Email</span>
-    </button>
+    <!-- Le spie WhatsApp ed Email stavano qui. Tolte: lo stato dei tre servizi si
+         legge già nella Dashboard, in alto, scritto per esteso e più chiaro. -->
     <!-- Profilo: compare solo sulle copie con abbonamento (lo mostra mostraAvvisoAbbonamento) -->
     <button class="badge" id="badge-profilo" title="Il tuo abbonamento" style="display:none">
-      <span>👤</span><span>Profilo</span>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="#fff" aria-hidden="true">
+        <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z"/>
+      </svg><span>Profilo</span>
     </button>
     <button class="badge" id="btn-esci" title="Esci dalla piattaforma" style="display:none">🚪 Esci</button>
   </div>
@@ -233,7 +235,28 @@
     </div>
     <div class="card">
       <h2>Rinnova</h2>
+
+      <!-- Il rinnovo in due passi, nell'ordine in cui succede: prima si chiede,
+           poi si incolla quello che arriva. Il primo passo compare solo se nel
+           pacchetto c'è il numero di assistenza (lo decide aggiornaProfilo). -->
+      <div id="profilo-richiesta" style="display:none">
+        <p class="conteggio" style="margin-top:0"><b>1.</b> Scegli per quanto tempo e chiedi il rinnovo:</p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+          <select id="rinnovo-mesi" style="width:auto;padding:9px 12px">
+            <option value="1">1 mese</option>
+            <option value="3">3 mesi</option>
+            <option value="6">6 mesi</option>
+            <option value="12" selected>12 mesi</option>
+          </select>
+          <button class="btn" id="btn-chiedi-rinnovo">Rinnova</button>
+        </div>
+        <p class="conteggio">Si apre WhatsApp con il messaggio già pronto — durata, codice
+          installazione e scadenza compresi. Devi solo premere invio.</p>
+        <hr style="border:none;border-top:1px solid var(--bordo);margin:18px 0">
+      </div>
+
       <p class="conteggio" style="margin-top:0">
+        <b id="profilo-passo2" style="display:none">2.</b>
         Quando ricevi un seriale nuovo, incollalo qui. Puoi farlo anche prima della scadenza:
         il nuovo periodo sostituisce quello in corso.
       </p>
@@ -733,6 +756,10 @@
   </div>
 </div>
 
+<!-- Numero di versione: serve a capire al volo quale copia si sta guardando,
+     soprattutto quando se ne hanno aperte due (la propria e quella di prova). -->
+<footer id="pie-versione"></footer>
+
 <div id="toast"></div>
 
 <script>
@@ -856,8 +883,12 @@ setInterval(() => { if (schedaDashAttiva()) caricaDashboard(); }, 8000);
 // ---- spie di stato nell'intestazione ----
 // Le spie in alto mostrano solo il pallino colorato accanto al nome:
 // lo stato per esteso compare passandoci sopra il mouse.
+// Le spie WhatsApp ed Email non stanno più nell'intestazione: lo stato si legge dalla
+// Dashboard. La funzione resta perché è chiamata da una decina di punti, e semplicemente
+// non fa niente se il pallino non c'è: così non serve rincorrere ogni chiamata.
 function impostaBadge(id, colore, dettaglio) {
   const b = $('#' + id);
+  if (!b) return;
   b.className = 'badge ' + colore;
   b.title = dettaglio + ' — clicca per aprire le Impostazioni';
 }
@@ -867,6 +898,40 @@ function impostaBadge(id, colore, dettaglio) {
 // /api/status non conferma che questa copia ha un abbonamento. Sulle copie senza,
 // il cliente non vede niente di tutto questo.
 let profiloAttivo = false;
+let datiAbbonamento = null;   // serve al pulsante «Rinnova», che ora sta nella pagina fissa
+
+// Il pulsante per chiedere il rinnovo. Se nel pacchetto c'è il numero di assistenza
+// diventa un collegamento a WhatsApp col messaggio GIÀ SCRITTO: codice installazione e
+// scadenza dentro, così il cliente non deve copiare niente a mano — ed è proprio il
+// passaggio in cui si sbaglia (una lettera storta nel codice e il seriale non vale).
+// Senza quel numero resta la frase semplice di prima.
+// Nel riquadro dei dati resta solo l'informazione. Il rinnovo vero e proprio sta tutto
+// nel riquadro «Rinnova» qui sotto, nell'ordine in cui succede: prima si chiede, poi si
+// incolla il seriale che arriva.
+function rigaRinnovo(d) {
+  if (d.assistenza) return '';
+  return '<p class="conteggio" style="margin-top:12px">Per rinnovare, comunica il tuo ' +
+    '<b>codice installazione</b> a chi ti ha fornito iStudio: ti manderà un seriale nuovo.</p>';
+}
+
+// Costruisce il messaggio e apre WhatsApp. Il codice viaggia dentro il messaggio, così il
+// cliente non deve ricopiarlo: è il passaggio in cui si sbaglia più facilmente, e una
+// lettera storta rende il seriale inservibile.
+function apriRichiestaRinnovo() {
+  const d = datiAbbonamento;
+  if (!d || !d.assistenza) return;
+  const mesi = Number(($('#rinnovo-mesi') || {}).value || 12);
+  const parole = mesi === 1 ? '1 mese' : mesi + ' mesi';
+  const righe = [
+    'Ciao! Vorrei rinnovare il mio abbonamento a iStudio.',
+    '',
+    'Durata richiesta: ' + parole,
+    'Codice installazione: ' + d.codice,
+  ];
+  if (d.scadenza) righe.push('Scadenza attuale: ' + d.scadenza.split('-').reverse().join('/'));
+  window.open('https://wa.me/' + d.assistenza + '?text=' + encodeURIComponent(righe.join('\n')),
+              '_blank', 'noopener');
+}
 
 async function aggiornaProfilo() {
   if (!profiloAttivo) return;
@@ -887,8 +952,13 @@ async function aggiornaProfilo() {
       `<div class="riga"><span>Valido fino al</span><div>` +
       (d.scadenza ? '<b>' + d.scadenza.split('-').reverse().join('/') + '</b>' : '—') + '</div></div>' +
       `<div class="riga"><span>Tempo rimasto</span><div>${quanto}</div></div>` +
-      '<p class="conteggio" style="margin-top:12px">Per rinnovare, comunica il tuo ' +
-      '<b>codice installazione</b> a chi ti ha fornito iStudio: ti manderà un seriale nuovo.</p>';
+      rigaRinnovo(d);
+    // Il primo passo del rinnovo compare solo se sappiamo a chi far scrivere il cliente.
+    // Il pulsante sta nella pagina fissa, quindi si collega una volta sola (vedi sotto):
+    // qui basta aggiornare i dati che gli servono.
+    datiAbbonamento = d;
+    $('#profilo-richiesta').style.display = d.assistenza ? '' : 'none';
+    $('#profilo-passo2').style.display = d.assistenza ? '' : 'none';
   } catch {
     box.innerHTML = '<p class="vuoto">Non riesco a leggere i dati dell\'abbonamento.</p>';
   }
@@ -896,6 +966,7 @@ async function aggiornaProfilo() {
 
 // Il pulsante in alto a destra apre la scheda Profilo, che nel menu resta nascosta.
 $('#badge-profilo').addEventListener('click', () => vaiScheda('profilo'));
+$('#btn-chiedi-rinnovo').addEventListener('click', apriRichiestaRinnovo);
 
 $('#btn-rinnova').addEventListener('click', async () => {
   const campo = $('#profilo-seriale'), esito = $('#profilo-esito'), btn = $('#btn-rinnova');
@@ -967,6 +1038,7 @@ async function aggiornaStato() {
     // Va impostato sempre, anche quando il riquadro non si ridisegna.
     $('#btn-esci').style.display = s.authEnabled ? 'flex' : 'none';
     mostraAvvisoAbbonamento(s.abbonamento);
+    if (s.versione) $('#pie-versione').textContent = 'iStudio — versione ' + s.versione;
     if (ripristinoInCorsoUI) return;
     const firma = s.status + '|' + (s.me || '') + '|' + (s.qr || '').slice(0, 40);
     if (firma === statoDisegnato) return;
@@ -1049,8 +1121,7 @@ setInterval(aggiornaBadgeEmail, 10000);
 aggiornaBadgeEmail();
 
 // Click sulle spie: portano entrambe alle Impostazioni (connessione + email lì)
-$('#badge-wa').addEventListener('click', () => vaiScheda('impostazioni'));
-$('#badge-email').addEventListener('click', () => vaiScheda('impostazioni'));
+// (le spie WhatsApp ed Email non sono più nell'intestazione: niente da collegare)
 
 // ---- rubrica (contatti) ----
 async function caricaContatti() {
