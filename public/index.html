@@ -1,0 +1,2382 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>iStudio — Messaggi WhatsApp e newsletter</title>
+<style>
+  :root {
+    --verde: #25d366;
+    --verde-scuro: #128c7e;
+    --sfondo: #f0f2f5;
+    --bianco: #ffffff;
+    --testo: #111b21;
+    --grigio: #667781;
+    --rosso: #ea4335;
+    --bordo: #e0e4e8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--sfondo); color: var(--testo); }
+  header {
+    background: var(--verde-scuro); color: #fff; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  header h1 { font-size: 1.15rem; font-weight: 600; }
+  .marchio { display: flex; align-items: center; gap: 9px; }
+  .beta-badge {
+    display: inline-block; background: rgba(255,255,255,.22); color: #fff;
+    font-size: .62rem; font-weight: 700; letter-spacing: .5px; line-height: 1;
+    padding: 3px 7px; border-radius: 999px; border: 1px solid rgba(255,255,255,.35);
+  }
+  .badge {
+    font-size: .85rem; padding: 5px 12px; border-radius: 999px; background: rgba(255,255,255,.15);
+    display: flex; align-items: center; gap: 7px; cursor: pointer; border: none; color: #fff; font-family: inherit;
+  }
+  .badge:hover { background: rgba(255,255,255,.28); }
+  .badge .pallino { width: 10px; height: 10px; border-radius: 50%; background: #ffb300; display: inline-block; flex-shrink: 0; }
+  .badge.verde .pallino { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+  .badge.giallo .pallino { background: #ffb300; box-shadow: 0 0 6px #ffb300; }
+  .badge.rosso .pallino { background: #ff6b5e; box-shadow: 0 0 6px #ff6b5e; }
+  nav { background: var(--bianco); border-bottom: 1px solid var(--bordo); display: flex; padding: 0 16px; overflow-x: auto; }
+  nav button {
+    background: none; border: none; padding: 13px 18px; font-size: .95rem; cursor: pointer;
+    color: var(--grigio); border-bottom: 3px solid transparent; white-space: nowrap;
+  }
+  nav button.attiva { color: var(--verde-scuro); border-bottom-color: var(--verde); font-weight: 600; }
+  main { max-width: 900px; margin: 24px auto; padding: 0 16px; }
+  .scheda { display: none; }
+  .scheda.attiva { display: block; }
+  .card { background: var(--bianco); border: 1px solid var(--bordo); border-radius: 12px; padding: 20px; margin-bottom: 18px; }
+  .card h2 { font-size: 1.05rem; margin-bottom: 12px; }
+  .avviso { background: #fff8e1; border: 1px solid #ffe082; border-radius: 10px; padding: 12px 14px; font-size: .88rem; color: #7a5c00; margin-bottom: 18px; }
+  label { display: block; font-size: .85rem; color: var(--grigio); margin-bottom: 4px; }
+  input, textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--bordo); border-radius: 8px;
+    font-size: .95rem; font-family: inherit; background: #fff;
+  }
+  input:focus, textarea:focus { outline: 2px solid var(--verde); border-color: transparent; }
+  textarea { min-height: 110px; resize: vertical; }
+  .griglia { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  @media (max-width: 600px) { .griglia { grid-template-columns: 1fr; } }
+  .btn {
+    background: var(--verde); color: #fff; border: none; padding: 10px 20px; border-radius: 8px;
+    font-size: .95rem; font-weight: 600; cursor: pointer;
+  }
+  .btn:hover { background: var(--verde-scuro); }
+  .btn:disabled { background: #b7c0c6; cursor: not-allowed; }
+  .btn-secondario { background: #fff; color: var(--testo); border: 1px solid var(--bordo); }
+  .btn-secondario:hover { background: var(--sfondo); }
+  .btn-piccolo { padding: 5px 10px; font-size: .82rem; font-weight: 500; border-radius: 6px; }
+  .btn-rosso { background: #fdecea; color: var(--rosso); border: 1px solid #f5c6c0; }
+  .btn-rosso:hover { background: #f8d6d1; border-color: #eeb5ac; }
+  /* [nome] e [cognome] cliccabili nelle etichette: inseriscono il segnaposto nel testo */
+  .token-inserisci {
+    background: none; border: none; padding: 0 2px; margin: 0; font: inherit;
+    color: var(--verde-scuro); font-weight: 600; text-decoration: underline dotted;
+    text-underline-offset: 2px; cursor: pointer; border-radius: 3px;
+  }
+  .token-inserisci:hover { background: var(--sfondo); text-decoration-style: solid; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--bordo); }
+  th { color: var(--grigio); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+  #qr-box { text-align: center; padding: 20px 0; }
+  #qr-box img { border: 1px solid var(--bordo); border-radius: 12px; }
+  .vuoto { color: var(--grigio); font-size: .9rem; padding: 14px 0; text-align: center; }
+  .conteggio { font-size: .85rem; color: var(--grigio); margin: 8px 0; }
+  .barra { background: var(--sfondo); border-radius: 999px; height: 8px; overflow: hidden; margin-top: 6px; }
+  .barra > div { background: var(--verde); height: 100%; transition: width .4s; }
+  .switch { position: relative; display: inline-block; width: 50px; height: 28px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .cursore { position: absolute; cursor: pointer; inset: 0; background: #ccd0d5; border-radius: 999px; transition: .25s; }
+  .switch .cursore::before { content: ""; position: absolute; height: 22px; width: 22px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: .25s; }
+  .switch input:checked + .cursore { background: var(--verde); }
+  .switch input:checked + .cursore::before { transform: translateX(22px); }
+  .riga-opzione { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+  .dash-stato { display: flex; gap: 12px; flex-wrap: wrap; }
+  .stato-pill { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-radius: 10px; background: var(--sfondo); font-size: .9rem; flex: 1; min-width: 200px; }
+  .stato-pill .p { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; background: #ccd0d5; }
+  .stato-pill.ok .p { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+  .stato-pill.warn .p { background: #ffb300; box-shadow: 0 0 6px #ffb300; }
+  .stato-pill.no .p { background: #ff6b5e; box-shadow: 0 0 6px #ff6b5e; }
+  .stato-pill b { display: block; font-size: .8rem; color: var(--grigio); font-weight: 600; }
+  .dash-griglia { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .dash-due { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 18px; }
+  .dash-due .card { margin-bottom: 0; }
+  /* due riquadri affiancati (WhatsApp / Newsletter) con spazio sotto */
+  .dash-due { margin-bottom: 0; }
+  /* rubrica a tutta larghezza: numero a sinistra, dati a destra */
+  .rubrica-full { display: flex; gap: 30px; align-items: center; flex-wrap: wrap; }
+  .rubrica-hero { min-width: 180px; }
+  .rubrica-full .dettagli { flex: 1; min-width: 260px; margin: 0; }
+  .cifra-hero { font-size: 2.6rem; font-weight: 700; color: var(--verde-scuro); line-height: 1; }
+  .dettagli { margin: 16px 0; font-size: .88rem; }
+  .dettagli .riga { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--bordo); }
+  .dettagli .riga:last-child { border-bottom: none; }
+  .dettagli .riga span { color: var(--grigio); }
+  .stat-box { background: var(--bianco); border: 1px solid var(--bordo); border-radius: 12px; padding: 18px; cursor: pointer; transition: box-shadow .15s, transform .15s; }
+  .stat-box:hover { box-shadow: 0 4px 14px rgba(0,0,0,.08); transform: translateY(-2px); }
+  .stat-box .num { font-size: 1.9rem; font-weight: 700; color: var(--verde-scuro); line-height: 1.1; }
+  .stat-box .lbl { font-size: .84rem; color: var(--grigio); margin-top: 4px; }
+  .canale-riga { margin-bottom: 14px; }
+  .canale-riga .testa { display: flex; justify-content: space-between; font-size: .88rem; margin-bottom: 5px; }
+  .canale-barra { background: var(--sfondo); border-radius: 999px; height: 10px; overflow: hidden; }
+  .canale-barra > div { height: 100%; border-radius: 999px; transition: width .5s; }
+  .voce-menu:hover { background: var(--sfondo); }
+  th.ordinabile { cursor: pointer; user-select: none; }
+  th.ordinabile:hover { color: var(--verde-scuro); }
+  th.ordinabile .frecciaOrd { font-size: .75rem; color: var(--verde); }
+  .freccia-chat {
+    border: none; background: none; cursor: pointer; color: var(--grigio);
+    font-size: .8rem; line-height: 1; padding: 3px 5px; border-radius: 5px;
+  }
+  .freccia-chat:hover { background: var(--bordo); color: var(--testo); }
+  .filtro-canale.attivo { background: var(--verde); color: #fff; border-color: var(--verde); font-weight: 600; }
+  .filtro-canale.attivo:hover { background: var(--verde-scuro); }
+  .etichetta { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .76rem; font-weight: 600; }
+  .etichetta.inviato, .etichetta.completata { background: #e7f7ee; color: #1c7c4b; }
+  .etichetta.errore { background: #fdecea; color: var(--rosso); }
+  .etichetta.in_corso, .etichetta.in_attesa { background: #fff8e1; color: #9c6f00; }
+  .etichetta.interrotta { background: #fdecea; color: var(--rosso); }
+  .etichetta.in_pausa, .etichetta.in_riposo { background: #eef2ff; color: #3f4bb8; }
+  .etichetta.disiscritto, .etichetta.saltato { background: #fff1e6; color: #a35a12; }
+  /* riga di chi ha consenso "No": sfondo appena diverso + piccolo segno accanto al nome */
+  tr.riga-no-consenso { background: #fdf4ef; }
+  tr.riga-no-consenso td { color: #8a5a3b; }
+  .segno-no { cursor: help; font-size: .82rem; }
+  /* stima del tempo di invio sotto il menu "Limite messaggi" */
+  .stima-tempo {
+    margin: 8px 0; padding: 9px 13px; border-radius: 9px; font-size: .9rem;
+    background: #eef6f1; color: #1c5c40; line-height: 1.4;
+  }
+  .stima-tempo:empty { display: none; }
+  /* campi del ritmo degli invii in Impostazioni */
+  .griglia-ritmo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; }
+  @media (max-width: 620px) { .griglia-ritmo { grid-template-columns: 1fr; } }
+  .griglia-ritmo label { display: block; font-size: .88rem; margin-bottom: 5px; }
+  .coppia-campi { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .coppia-campi span { font-size: .88rem; color: var(--grigio); }
+  .coppia-campi input { width: 68px; text-align: center; }
+  /* con l'interruttore "pause" spento, i campi restano visibili ma sbiaditi e non cliccabili */
+  #blocco-campi-pause.disabilitato { opacity: .45; pointer-events: none; filter: grayscale(.3); }
+  /* interruttore Consenso Sì / No nella scheda contatto */
+  .toggle-consenso { display: inline-flex; border: 1px solid var(--bordo); border-radius: 10px; overflow: hidden; }
+  .toggle-consenso button {
+    border: none; background: #fff; padding: 9px 16px; cursor: pointer; font-size: .92rem;
+    font-weight: 600; color: var(--grigio);
+  }
+  .toggle-consenso button + button { border-left: 1px solid var(--bordo); }
+  .toggle-consenso button.attivo-si { background: #e7f7ee; color: #1c7c4b; }
+  .toggle-consenso button.attivo-no { background: #fdecea; color: var(--rosso); }
+  .motivo-pausa { display: block; margin-top: 4px; font-size: .78rem; color: var(--grigio); max-width: 320px; }
+  /* finestrelle sopra la pagina (dettagli invio, scheda contatto) */
+  #velo-dettagli, #velo-contatto {
+    position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 60;
+    display: none; align-items: center; justify-content: center; padding: 20px;
+  }
+  #velo-dettagli.visibile, #velo-contatto.visibile { display: flex; }
+  #riquadro-dettagli, #riquadro-contatto {
+    background: #fff; border-radius: 14px; padding: 22px; width: 100%; max-width: 640px;
+    max-height: 82vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,.2);
+  }
+  .riepilogo-dettagli { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
+  .riepilogo-dettagli > div {
+    background: var(--sfondo); border-radius: 10px; padding: 9px 14px; font-size: .85rem;
+  }
+  .riepilogo-dettagli b { display: block; font-size: 1.25rem; }
+  #toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    background: var(--testo); color: #fff; padding: 11px 20px; border-radius: 10px;
+    font-size: .9rem; opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 50;
+  }
+  #toast.visibile { opacity: 1; }
+  .riga-strumenti { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .riga-strumenti input { flex: 1; min-width: 180px; width: auto; }
+</style>
+</head>
+<body>
+<header>
+  <div class="marchio"><h1>iStudio</h1><span class="beta-badge">BETA</span></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+    <button class="badge giallo" id="badge-wa">
+      <span class="pallino"></span><span>WhatsApp</span>
+    </button>
+    <button class="badge rosso" id="badge-email">
+      <span class="pallino"></span><span>Email</span>
+    </button>
+    <button class="badge" id="btn-esci" title="Esci dalla piattaforma" style="display:none">🚪 Esci</button>
+  </div>
+</header>
+<nav>
+  <button data-scheda="dashboard" class="attiva">Dashboard</button>
+  <button data-scheda="invio">Invia messaggio</button>
+  <button data-scheda="email">Newsletter</button>
+  <button data-scheda="storico">Cronologia</button>
+  <button data-scheda="chat" id="nav-chat">Chat</button>
+  <button data-scheda="anagrafiche">Rubrica</button>
+  <button data-scheda="impostazioni">Impostazioni</button>
+</nav>
+<main>
+  <!-- IMPOSTAZIONI -->
+  <section id="scheda-impostazioni" class="scheda">
+    <!-- Collegamento WhatsApp -->
+    <div class="card">
+      <h2>Collegamento WhatsApp</h2>
+      <div id="qr-box"><p class="vuoto">Caricamento stato…</p></div>
+    </div>
+    <div class="avviso">
+      ⚠️ Questa piattaforma usa il tuo WhatsApp. Invia messaggi solo a persone che hanno
+      acconsentito a riceverli: invii massivi a sconosciuti possono portare al
+      <b>blocco del numero</b> da parte di WhatsApp.
+    </div>
+
+    <!-- Impostazioni email (SMTP) -->
+    <div class="card">
+      <h2>Impostazioni email (per le newsletter)</h2>
+      <p class="conteggio" style="margin-top:0">
+        Inserisci i dati SMTP del tuo provider di posta (li trovi nelle impostazioni del tuo
+        account email). Se hai la verifica in due passaggi, alcuni provider richiedono una
+        «password per le app» al posto di quella normale.
+      </p>
+      <div class="griglia">
+        <div><label for="smtp-host">Server SMTP *</label><input id="smtp-host" placeholder="es. smtp.tuoprovider.it"></div>
+        <div><label for="smtp-port">Porta</label><input id="smtp-port" placeholder="es. 587"></div>
+        <div><label for="smtp-user">Indirizzo email *</label><input id="smtp-user" type="email" placeholder="nome@tuodominio.it"></div>
+        <div><label for="smtp-pass">Password</label><input id="smtp-pass" type="password" placeholder="lascia vuoto per non cambiarla"></div>
+        <div><label for="smtp-from">Nome mittente (facoltativo)</label><input id="smtp-from" placeholder="es. il tuo nome o studio"></div>
+      </div>
+      <button class="btn" id="btn-salva-smtp">Salva impostazioni</button>
+      <button class="btn btn-secondario" id="btn-test-smtp">Prova connessione</button>
+      <span id="smtp-stato" class="conteggio" style="margin-left:8px"></span>
+    </div>
+
+    <!-- Funzioni attivabili -->
+    <div class="card">
+      <h2>Funzioni</h2>
+      <div class="riga-opzione">
+        <div>
+          <b style="font-size:.95rem">Chat WhatsApp</b>
+          <p class="conteggio" style="margin:2px 0 0">Leggi e rispondi alle conversazioni dalla scheda «Chat». Funzione sperimentale.</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggle-chat">
+          <span class="cursore"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Impostazioni pause -->
+    <div class="card">
+      <div class="riga-opzione" style="margin-bottom:6px">
+        <h2 style="margin:0">Impostazioni pause</h2>
+        <label class="switch" title="Disattiva pause">
+          <input type="checkbox" id="toggle-pause" checked>
+          <span class="cursore"></span>
+        </label>
+      </div>
+      <p class="conteggio" style="margin-top:0">
+        Quanto attende iStudio tra un messaggio e l'altro. Sono la <b>difesa principale contro il blocco
+        del numero</b>: più sono lunghi, più sei al sicuro. I valori consigliati sono già impostati.
+      </p>
+      <div id="avviso-pause-disattivate" class="avviso" style="display:none;background:#fdecea;border-color:#f5c6c0;color:#a3261c;margin-bottom:14px">
+        ⚠️ Pause disattivate: i messaggi partono uno dopo l'altro quasi senza attesa.
+        Il rischio di blocco del numero è alto. Riattiva l'interruttore qui sopra per tornare sicuri.
+      </div>
+
+      <div id="blocco-campi-pause">
+        <h3 style="font-size:1rem;margin:16px 0 8px">📱 WhatsApp</h3>
+        <div class="griglia-ritmo">
+          <div>
+            <label>Pausa tra un messaggio e l'altro</label>
+            <div class="coppia-campi">
+              <span>da</span><input type="number" id="r-wa-pausa-min" min="1" step="1"><span>a</span>
+              <input type="number" id="r-wa-pausa-max" min="1" step="1"><span>secondi</span>
+            </div>
+          </div>
+          <div>
+            <label>Riposo lungo ogni tot messaggi</label>
+            <div class="coppia-campi">
+              <span>ogni</span><input type="number" id="r-wa-riposo-ogni" min="1" step="1"><span>messaggi</span>
+            </div>
+          </div>
+          <div style="grid-column:1/-1">
+            <label>Durata del riposo</label>
+            <div class="coppia-campi">
+              <span>da</span><input type="number" id="r-wa-riposo-min" min="0.5" step="0.5"><span>a</span>
+              <input type="number" id="r-wa-riposo-max" min="0.5" step="0.5"><span>minuti</span>
+            </div>
+          </div>
+        </div>
+        <div id="avviso-ritmo-wa" class="avviso" style="display:none;background:#fdecea;border-color:#f5c6c0;color:#a3261c;margin-top:12px"></div>
+
+        <h3 style="font-size:1rem;margin:20px 0 8px">✉️ Newsletter (email)</h3>
+        <div class="griglia-ritmo">
+          <div>
+            <label>Pausa tra un'email e l'altra</label>
+            <div class="coppia-campi">
+              <span>da</span><input type="number" id="r-email-pausa-min" min="0.5" step="0.5"><span>a</span>
+              <input type="number" id="r-email-pausa-max" min="0.5" step="0.5"><span>secondi</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+          <button class="btn" id="btn-salva-ritmo">Salva pause</button>
+          <button class="btn btn-secondario" id="btn-ripristina-ritmo">Ripristina valori consigliati</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Backup della rubrica -->
+    <div class="card">
+      <h2>Backup della rubrica</h2>
+      <p class="conteggio" style="margin-top:0">
+        <b>Esporta</b> salva tutti i contatti in un file CSV (una copia di sicurezza da tenere da parte).
+        <b>Importa</b> aggiunge contatti da un file CSV: colonne <b>nome; cognome; email; telefono</b>
+        (i contatti già presenti vengono saltati).
+      </p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-secondario" id="btn-esporta">📤 Esporta CSV</button>
+        <button class="btn btn-secondario" id="btn-importa">📥 Importa CSV</button>
+        <input type="file" id="file-csv" accept=".csv,.txt" style="display:none">
+      </div>
+    </div>
+
+    <!-- Azioni irreversibili -->
+    <div class="card" style="border-color:#f5c6c0">
+      <h2 style="color:var(--rosso)">Cancellazione dati</h2>
+      <p class="conteggio" style="margin-top:0">
+        Attenzione: queste operazioni <b>non si possono annullare</b>. I dati vengono eliminati definitivamente da iStudio.
+        Prima di procedere puoi salvarne una copia con «Esporta CSV» qui sopra.
+      </p>
+      <div class="riga-opzione" style="margin-bottom:14px">
+        <div>
+          <b style="font-size:.95rem">Svuota la rubrica</b>
+          <p class="conteggio" style="margin:2px 0 0">Elimina tutti i contatti (<span id="conta-contatti">0</span> in rubrica).</p>
+        </div>
+        <button class="btn btn-rosso" id="btn-svuota-rubrica">Cancella tutti i contatti</button>
+      </div>
+      <div class="riga-opzione">
+        <div>
+          <b style="font-size:.95rem">Svuota la cronologia</b>
+          <p class="conteggio" style="margin:2px 0 0">Elimina lo storico degli invii (<span id="conta-invii">0</span> registrati). I messaggi già inviati non vengono toccati.</p>
+        </div>
+        <button class="btn btn-rosso" id="btn-svuota-cronologia">Cancella la cronologia</button>
+      </div>
+
+      <div style="border-top:2px solid #f5c6c0;margin:20px 0 14px"></div>
+      <div class="riga-opzione">
+        <div>
+          <b style="font-size:.95rem">Inizializza tutto in un colpo solo</b>
+        </div>
+        <button class="btn btn-rosso" id="btn-reset-totale">Inizializza</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- RUBRICA -->
+  <section id="scheda-anagrafiche" class="scheda">
+    <!-- Richieste di cancellazione riconosciute nelle risposte WhatsApp -->
+    <div class="card" id="card-cancellazioni" style="display:none;border-color:#f0c99a;background:#fffaf3">
+      <div class="riga-strumenti" style="margin-bottom:6px">
+        <h2 style="margin:0">🚫 <span id="canc-titolo"></span></h2>
+        <button class="btn btn-secondario btn-piccolo" id="btn-canc-controlla">Controlla adesso</button>
+      </div>
+      <p class="conteggio" style="margin-top:0">
+        Queste persone hanno risposto ai tuoi messaggi con una richiesta di cancellazione.
+        Conferma e non riceveranno più nulla; ignora se non è quello che intendevano.
+      </p>
+      <div id="lista-cancellazioni"></div>
+    </div>
+    <div class="card">
+      <div class="riga-strumenti">
+        <h2 style="margin:0">Contatti</h2>
+        <input id="ricerca" placeholder="Cerca…">
+        <button class="btn btn-piccolo" id="btn-nuovo-contatto">➕ Aggiungi contatto</button>
+        <button class="btn btn-secondario btn-piccolo" id="btn-controlla-cancellazioni" title="Cerca subito nelle chat le richieste di cancellazione">🔎 Controlla cancellazioni</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th class="ordinabile" data-ordina="nome" style="min-width:110px;white-space:nowrap">Nome <span class="frecciaOrd"></span></th>
+            <th class="ordinabile" data-ordina="cognome" style="min-width:110px;white-space:nowrap">Cognome <span class="frecciaOrd"></span></th>
+            <th style="min-width:130px">Email</th>
+            <th style="min-width:150px;white-space:nowrap">Telefono</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="tabella-contatti"></tbody>
+        </table>
+      </div>
+      <p id="contatti-vuoto" class="vuoto" style="display:none">La rubrica è vuota: usa «➕ Aggiungi contatto» o importa un CSV.</p>
+      <div id="paginazione" style="display:none;align-items:center;justify-content:space-between;gap:12px;margin-top:14px">
+        <span class="conteggio" id="pagina-info" style="margin:0"></span>
+        <span style="display:flex;gap:8px">
+          <button class="btn btn-secondario btn-piccolo" id="pagina-prec">← Precedente</button>
+          <button class="btn btn-secondario btn-piccolo" id="pagina-succ">Successiva →</button>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- DASHBOARD -->
+  <section id="scheda-dashboard" class="scheda attiva">
+    <div class="card">
+      <h2>Stato della piattaforma</h2>
+      <div class="dash-stato">
+        <div class="stato-pill" id="dash-wa"><span class="p"></span><span><b>WhatsApp</b><span id="dash-wa-t">…</span></span></div>
+        <div class="stato-pill" id="dash-email"><span class="p"></span><span><b>Email</b><span id="dash-email-t">…</span></span></div>
+        <div class="stato-pill" id="dash-chat"><span class="p"></span><span><b>Chat</b><span id="dash-chat-t">…</span></span></div>
+      </div>
+    </div>
+    <!-- La tua rubrica, a tutta larghezza come la barra di stato -->
+    <div class="card">
+      <h2>La tua rubrica</h2>
+      <div class="rubrica-full">
+        <div class="rubrica-hero">
+          <div class="cifra-hero" id="dash-contatti">—</div>
+          <div class="conteggio" style="margin:2px 0 0">contatti salvati</div>
+          <button class="btn btn-secondario btn-piccolo" style="margin-top:12px" onclick="vaiScheda('anagrafiche')">Apri la rubrica</button>
+        </div>
+        <div class="dettagli" id="dash-rubrica-dett"></div>
+      </div>
+    </div>
+
+    <div class="dash-due">
+      <!-- Messaggi WhatsApp -->
+      <div class="card">
+        <h2>Messaggi WhatsApp</h2>
+        <div class="cifra-hero" id="dash-wa-inviati">—</div>
+        <div class="conteggio" style="margin:2px 0 0">messaggi inviati</div>
+        <div class="dettagli" id="dash-wa-dett"></div>
+        <button class="btn btn-secondario btn-piccolo" onclick="apriCronologia('whatsapp')">Vedi la cronologia</button>
+      </div>
+
+      <!-- Newsletter Email -->
+      <div class="card">
+        <h2>Newsletter (email)</h2>
+        <div class="cifra-hero" id="dash-email-inviati">—</div>
+        <div class="conteggio" style="margin:2px 0 0">email inviate</div>
+        <div class="dettagli" id="dash-email-dett"></div>
+        <button class="btn btn-secondario btn-piccolo" onclick="apriCronologia('email')">Vedi la cronologia</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:28px">
+      <div class="riga-strumenti">
+        <h2 style="margin:0">Ultimi invii</h2>
+        <button class="btn btn-secondario btn-piccolo" onclick="vaiScheda('storico')">Vedi tutta la cronologia</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Data</th><th>Nome</th><th>Canale</th><th>Inviati</th><th>Stato</th></tr></thead>
+          <tbody id="dash-recenti"></tbody>
+        </table>
+      </div>
+      <p id="dash-recenti-vuoto" class="vuoto" style="display:none">Nessun invio effettuato finora.</p>
+    </div>
+  </section>
+
+  <!-- INVIO -->
+  <section id="scheda-invio" class="scheda">
+    <div class="card">
+      <h2>Scrivi il messaggio</h2>
+      <div style="margin-bottom:12px">
+        <label for="invio-alias">Nome dell'invio (facoltativo, solo per te)</label>
+        <input id="invio-alias" placeholder="es. Promo estate — non viene inviato ai destinatari">
+      </div>
+      <div style="margin-bottom:12px">
+        <label for="invio-tetto">Limite messaggi giornaliero</label>
+        <select id="invio-tetto">
+          <option value="">Nessun limite</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+          <option value="300">300</option>
+          <option value="400">400</option>
+          <option value="500">500</option>
+        </select>
+        <div id="invio-stima" class="stima-tempo"></div>
+        <small style="color:var(--grigio)">
+          Raggiunto il limite l'invio si mette in pausa da solo e riprende il giorno dopo alle 9:00.
+          Serve a spalmare gli invii grossi su più giorni e ridurre il rischio di blocco del numero.
+        </small>
+      </div>
+      <label for="messaggio">Puoi usare
+        <button type="button" class="token-inserisci" data-target="messaggio" data-token="[nome]">[nome]</button> e
+        <button type="button" class="token-inserisci" data-target="messaggio" data-token="[cognome]">[cognome]</button>
+        per personalizzare il testo</label>
+      <textarea id="messaggio" placeholder="Ciao [nome], …"></textarea>
+      <div style="margin-top:12px">
+        <button class="btn btn-secondario btn-piccolo" id="wa-scegli-img">🖼️ Allega immagine</button>
+        <input type="file" id="wa-file-img" accept="image/*" style="display:none">
+        <div id="wa-anteprima-img" style="display:none;margin-top:10px;align-items:center;gap:12px">
+          <img id="wa-img-preview" alt="" style="max-height:90px;border-radius:8px;border:1px solid var(--bordo)">
+          <div>
+            <div id="wa-img-nome" class="conteggio" style="margin:0"></div>
+            <button class="btn btn-rosso btn-piccolo" id="wa-togli-img" style="margin-top:5px">Rimuovi</button>
+          </div>
+        </div>
+        <p class="conteggio" style="margin-top:6px">Se alleghi un'immagine, il testo qui sopra diventa la didascalia.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="riga-strumenti">
+        <h2 style="margin:0">Destinatari</h2>
+        <input id="cerca-destinatari" placeholder="Cerca per nome, cognome o numero…">
+        <button class="btn btn-secondario btn-piccolo" id="btn-tutti">Seleziona tutti</button>
+        <button class="btn btn-secondario btn-piccolo" id="btn-nessuno">Deseleziona</button>
+      </div>
+      <div id="lista-destinatari" style="max-height:340px;overflow-y:auto"></div>
+      <p class="conteggio"><span id="n-selezionati">0</span> destinatari selezionati</p>
+      <button class="btn" id="btn-invia">Invia broadcast</button>
+      <div id="progresso" style="display:none; margin-top:14px">
+        <p class="conteggio" id="progresso-testo"></p>
+        <div class="barra"><div id="progresso-barra" style="width:0%"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CHAT -->
+  <section id="scheda-chat" class="scheda">
+    <div id="menu-chat-azioni" style="display:none;position:fixed;background:#fff;border:1px solid var(--bordo);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.18);min-width:215px;overflow:hidden;z-index:60">
+      <button class="voce-menu" id="azione-aggiungi-anagrafica" style="display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;border:none;background:none;font-size:.9rem;font-family:inherit;cursor:pointer;text-align:left">➕ Aggiungi in rubrica</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div id="chat-layout" style="display:flex;height:540px">
+        <div id="chat-lista" style="width:290px;min-width:220px;border-right:1px solid var(--bordo);overflow-y:auto">
+          <p class="vuoto">Caricamento chat…</p>
+        </div>
+        <div id="chat-destra" style="flex:1;display:flex;flex-direction:column;min-width:0">
+          <div style="display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--bordo);background:#f7f8fa">
+            <div id="chat-intestazione" style="flex:1;min-width:0;font-weight:600">Seleziona una conversazione</div>
+            <button class="freccia-chat" id="btn-azioni-chat" title="Azioni sulla conversazione" style="display:none;font-size:1rem;padding:5px 9px">▾</button>
+          </div>
+          <div id="chat-messaggi" style="flex:1;overflow-y:auto;padding:14px;background:#efeae2">
+            <p class="vuoto">Le conversazioni arrivano direttamente dal tuo WhatsApp.</p>
+          </div>
+          <div style="display:flex;gap:8px;padding:10px;border-top:1px solid var(--bordo);background:#f7f8fa;align-items:center">
+            <div style="position:relative;flex-shrink:0">
+              <button class="btn btn-secondario" id="chat-allega" title="Allega" disabled style="padding:9px 12px;font-size:1.1rem;line-height:1">📎</button>
+              <div id="menu-allega" style="display:none;position:absolute;bottom:46px;left:0;background:#fff;border:1px solid var(--bordo);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);min-width:190px;overflow:hidden;z-index:30">
+                <button class="voce-menu" id="allega-immagine" style="display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;border:none;background:none;font-size:.9rem;font-family:inherit;cursor:pointer;text-align:left">🖼️ Allega immagine</button>
+              </div>
+              <input type="file" id="file-immagine" accept="image/*" style="display:none">
+            </div>
+            <input id="chat-input" placeholder="Scrivi un messaggio…" style="flex:1" disabled>
+            <button class="btn" id="chat-invia" disabled>Invia</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="conteggio">Le chat si aggiornano da sole ogni pochi secondi. Foto, vocali e allegati vengono indicati ma si aprono solo dal telefono.</p>
+  </section>
+
+  <!-- NEWSLETTER EMAIL -->
+  <section id="scheda-email" class="scheda">
+    <div id="email-non-configurata" class="avviso" style="display:none">
+      ✉️ L'email non è ancora configurata. Vai su <b>Impostazioni</b> per inserire i dati del tuo account di posta prima di inviare una newsletter.
+    </div>
+    <div class="card">
+      <h2>Scrivi la newsletter</h2>
+      <div style="margin-bottom:12px">
+        <label for="email-alias">Nome dell'invio (facoltativo, solo per te)</label>
+        <input id="email-alias" placeholder="es. Newsletter luglio — non viene inviato ai destinatari">
+      </div>
+      <div style="margin-bottom:12px">
+        <label for="email-tetto">Limite messaggi giornaliero</label>
+        <select id="email-tetto">
+          <option value="">Nessun limite</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+          <option value="300">300</option>
+          <option value="400">400</option>
+          <option value="500">500</option>
+        </select>
+        <div id="email-stima" class="stima-tempo"></div>
+        <small style="color:var(--grigio)">
+          Raggiunto il limite l'invio si mette in pausa da solo e riprende il giorno dopo alle 9:00.
+          Utile perché molti provider limitano il numero di email inviabili ogni giorno.
+        </small>
+      </div>
+      <div style="margin-bottom:12px">
+        <label for="email-oggetto">Oggetto * (questo sì compare nell'email al destinatario)</label>
+        <input id="email-oggetto" placeholder="es. Novità di luglio">
+      </div>
+      <label for="email-testo">Testo — puoi usare
+        <button type="button" class="token-inserisci" data-target="email-testo" data-token="[nome]">[nome]</button> e
+        <button type="button" class="token-inserisci" data-target="email-testo" data-token="[cognome]">[cognome]</button>
+        per personalizzare</label>
+      <textarea id="email-testo" placeholder="Ciao [nome], …"></textarea>
+      <div style="margin-top:12px">
+        <button class="btn btn-secondario btn-piccolo" id="em-scegli-img">🖼️ Allega immagine</button>
+        <input type="file" id="em-file-img" accept="image/*" style="display:none">
+        <div id="em-anteprima-img" style="display:none;margin-top:10px;align-items:center;gap:12px">
+          <img id="em-img-preview" alt="" style="max-height:90px;border-radius:8px;border:1px solid var(--bordo)">
+          <div>
+            <div id="em-img-nome" class="conteggio" style="margin:0"></div>
+            <button class="btn btn-rosso btn-piccolo" id="em-togli-img" style="margin-top:5px">Rimuovi</button>
+          </div>
+        </div>
+        <p class="conteggio" style="margin-top:6px">L'immagine viene mostrata in cima all'email e allegata al messaggio.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="riga-strumenti">
+        <h2 style="margin:0">Destinatari (solo contatti con email)</h2>
+        <input id="cerca-email-destinatari" placeholder="Cerca per nome, cognome o email…">
+        <button class="btn btn-secondario btn-piccolo" id="btn-email-tutti">Seleziona tutti</button>
+        <button class="btn btn-secondario btn-piccolo" id="btn-email-nessuno">Deseleziona</button>
+      </div>
+      <div id="lista-email-destinatari" style="max-height:340px;overflow-y:auto"></div>
+      <p class="conteggio"><span id="n-email-selezionati">0</span> destinatari selezionati</p>
+      <button class="btn" id="btn-invia-email">Invia newsletter</button>
+      <div id="email-progresso" style="display:none; margin-top:14px">
+        <p class="conteggio" id="email-progresso-testo"></p>
+        <div class="barra"><div id="email-progresso-barra" style="width:0%"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CRONOLOGIA -->
+  <section id="scheda-storico" class="scheda">
+    <div class="card">
+      <div class="riga-strumenti">
+        <h2 style="margin:0">Cronologia invii</h2>
+        <span class="conteggio" style="margin:0">Filtra per canale:</span>
+        <button class="btn btn-secondario btn-piccolo filtro-canale attivo" data-canale="whatsapp">📱 WhatsApp</button>
+        <button class="btn btn-secondario btn-piccolo filtro-canale" data-canale="email">✉️ Newsletter</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Data</th><th>Nome</th><th>Inviati</th><th>Errori</th><th>Stato</th><th></th></tr></thead>
+          <tbody id="tabella-campagne"></tbody>
+        </table>
+      </div>
+      <p id="campagne-vuoto" class="vuoto" style="display:none">Nessun invio effettuato finora.</p>
+    </div>
+  </section>
+</main>
+
+<!-- Scheda contatto (aggiungi / modifica) -->
+<div id="velo-contatto">
+  <div id="riquadro-contatto">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px">
+      <h2 id="form-titolo" style="margin:0">Nuovo contatto</h2>
+      <button class="btn btn-secondario btn-piccolo" type="button" id="btn-chiudi-contatto">Chiudi</button>
+    </div>
+    <form id="form-contatto">
+      <input type="hidden" id="c-id">
+      <div class="griglia">
+        <div><label for="c-nome">Nome *</label><input id="c-nome" required></div>
+        <div><label for="c-cognome">Cognome</label><input id="c-cognome"></div>
+        <div><label for="c-email">Email</label><input id="c-email" type="email"></div>
+        <div><label for="c-telefono">Telefono (con o senza +39) *</label><input id="c-telefono" required placeholder="es. 340 1234567"></div>
+        <div style="grid-column:1/-1">
+          <label>Consenso</label>
+          <div class="toggle-consenso" id="toggle-consenso">
+            <button type="button" data-val="si">✅ Sì</button>
+            <button type="button" data-val="no">🚫 No</button>
+          </div>
+          <input type="hidden" id="c-consenso" value="si">
+          <small style="display:block;margin-top:6px;color:var(--grigio)">
+            Con <b>No</b> il contatto resta in rubrica ma non riceve più nessun messaggio né newsletter.
+          </small>
+          <div id="c-consenso-motivo" style="display:none;margin-top:6px;font-size:.82rem;color:#a35a12"></div>
+        </div>
+      </div>
+      <div id="errore-contatto" class="avviso" style="display:none;background:#fdecea;border-color:#f5c6c0;color:#a3261c"></div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="btn" type="submit" id="btn-salva">Aggiungi contatto</button>
+        <button class="btn btn-secondario" type="button" id="btn-annulla">Annulla</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Dettagli di un invio -->
+<div id="velo-dettagli">
+  <div id="riquadro-dettagli">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+      <div>
+        <h2 id="dettagli-titolo" style="margin:0 0 6px">Dettagli</h2>
+        <div id="dettagli-sottotitolo"></div>
+      </div>
+      <button class="btn btn-secondario btn-piccolo" id="btn-chiudi-dettagli">Chiudi</button>
+    </div>
+    <div id="dettagli-corpo"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+let contatti = [];
+let selezionati = new Set();
+let emailSelezionati = new Set();
+let campagnaCorrente = null;
+let campagnaEmailCorrente = null;
+
+// ---- navigazione a schede ----
+document.querySelectorAll('nav button').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('nav button').forEach((x) => x.classList.remove('attiva'));
+    document.querySelectorAll('.scheda').forEach((x) => x.classList.remove('attiva'));
+    b.classList.add('attiva');
+    $('#scheda-' + b.dataset.scheda).classList.add('attiva');
+    if (b.dataset.scheda === 'dashboard') caricaDashboard();
+    if (b.dataset.scheda === 'storico') caricaCampagne();
+    if (b.dataset.scheda === 'invio') disegnaDestinatari();
+    if (b.dataset.scheda === 'impostazioni') { caricaImpostazioniEmail(); aggiornaConteggiImpostazioni(); caricaRitmo(); }
+    if (b.dataset.scheda === 'email') { aggiornaAvvisoEmail(); disegnaEmailDestinatari(); }
+    if (b.dataset.scheda === 'chat') caricaChats();
+  });
+});
+
+function vaiScheda(nome) {
+  const btn = document.querySelector('nav button[data-scheda="' + nome + '"]');
+  if (btn) btn.click();
+}
+
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('visibile');
+  setTimeout(() => t.classList.remove('visibile'), 3000);
+}
+
+// ---- dashboard (panoramica) ----
+function schedaDashAttiva() {
+  return $('#scheda-dashboard').classList.contains('attiva');
+}
+
+async function caricaDashboard() {
+  let d;
+  try { d = await (await fetch('/api/dashboard')).json(); } catch { return; }
+
+  // Stato WhatsApp
+  const wa = $('#dash-wa');
+  wa.className = 'stato-pill ' + (d.whatsapp.status === 'connesso' ? 'ok' : (d.whatsapp.status === 'qr' || d.whatsapp.status === 'inizializzazione' ? 'warn' : 'no'));
+  $('#dash-wa-t').textContent = d.whatsapp.status === 'connesso'
+    ? 'Attivo'
+    : (d.whatsapp.status === 'qr' ? 'Da collegare (QR)' : d.whatsapp.status === 'inizializzazione' ? 'Avvio in corso' : 'Non collegato');
+
+  // Stato Email
+  $('#dash-email').className = 'stato-pill ' + (d.email.verificata ? 'ok' : (d.email.configurata ? 'warn' : 'no'));
+  $('#dash-email-t').textContent = d.email.verificata
+    ? 'Attiva'
+    : (d.email.configurata ? 'Da verificare' : 'Da configurare');
+
+  // Stato Chat
+  $('#dash-chat').className = 'stato-pill ' + (d.chat.attiva ? 'ok' : 'no');
+  $('#dash-chat-t').textContent = d.chat.attiva ? 'Attiva' : 'Disattivata';
+
+  // --- Riquadro RUBRICA: quante persone puoi raggiungere e come ---
+  const tot = d.contatti.totale;
+  $('#dash-contatti').textContent = tot;
+  $('#dash-rubrica-dett').innerHTML = tot ? `
+    <div class="riga"><span>Raggiungibili via WhatsApp</span><b>${d.contatti.raggiungibiliWa}</b></div>
+    <div class="riga"><span>Raggiungibili via email</span><b>${d.contatti.conEmail}</b></div>
+    <div class="riga"><span>Senza email</span><b>${d.contatti.senzaEmail}</b></div>
+    ${d.contatti.disiscritti ? `<div class="riga"><span>🚫 Contatti bloccati</span><b>${d.contatti.disiscritti}</b></div>` : ''}`
+    : '<p class="vuoto" style="padding:10px 0">Nessun contatto: importa un CSV o aggiungine uno.</p>';
+
+  // --- Riquadri INVII, uno per canale ---
+  disegnaRiquadroCanale('#dash-wa-inviati', '#dash-wa-dett', d.invii.whatsapp, 'inviati');
+  disegnaRiquadroCanale('#dash-email-inviati', '#dash-email-dett', d.invii.email, 'inviate');
+
+  // Ultimi invii
+  if (!d.recenti.length) {
+    $('#dash-recenti').innerHTML = '';
+    $('#dash-recenti-vuoto').style.display = 'block';
+  } else {
+    $('#dash-recenti-vuoto').style.display = 'none';
+    $('#dash-recenti').innerHTML = d.recenti.map((c) => `
+      <tr>
+        <td style="white-space:nowrap">${c.created_at.replace('T', ' ').slice(0, 16)}</td>
+        <td>${c.alias ? '<b>' + esc(c.alias) + '</b>' : '<span style="color:var(--grigio)">—</span>'}</td>
+        <td>${c.channel === 'email' ? 'Newsletter' : 'WhatsApp'}</td>
+        <td>${c.sent}/${c.total}</td>
+        <td><span class="etichetta ${c.status}">${etichettaStato(c.status)}</span></td>
+      </tr>`).join('');
+  }
+}
+
+// Riempie un riquadro-canale della dashboard (WhatsApp o Email)
+function disegnaRiquadroCanale(idNumero, idDett, canale, parola) {
+  const inviati = canale.inviati || 0;
+  const errori = canale.errori || 0;
+  const tentativi = inviati + errori;
+  const successo = tentativi ? Math.round((inviati / tentativi) * 100) : 0;
+  $(idNumero).textContent = inviati;
+  $(idDett).innerHTML = tentativi ? `
+    <div class="riga"><span>Consegnati correttamente</span><b style="color:#1c7c4b">${successo}%</b></div>
+    <div class="riga"><span>Non riusciti</span><b style="color:${errori ? 'var(--rosso)' : 'inherit'}">${errori}</b></div>
+    <div class="riga"><span>Invii effettuati</span><b>${canale.campagne || 0}</b></div>`
+    : `<p class="vuoto" style="padding:10px 0">Nessun invio ${parola === 'inviate' ? 'via email' : 'WhatsApp'} finora.</p>`;
+}
+
+// Apre la Cronologia già filtrata sul canale giusto (così la newsletter si trova subito)
+function apriCronologia(canale) {
+  vaiScheda('storico');
+  const b = document.querySelector('.filtro-canale[data-canale="' + canale + '"]');
+  if (b) b.click();
+}
+
+// aggiorna la dashboard periodicamente se è la scheda aperta
+setInterval(() => { if (schedaDashAttiva()) caricaDashboard(); }, 8000);
+
+// ---- spie di stato nell'intestazione ----
+// Le spie in alto mostrano solo il pallino colorato accanto al nome:
+// lo stato per esteso compare passandoci sopra il mouse.
+function impostaBadge(id, colore, dettaglio) {
+  const b = $('#' + id);
+  b.className = 'badge ' + colore;
+  b.title = dettaglio + ' — clicca per aprire le Impostazioni';
+}
+
+// Il riquadro si ridisegnava ogni 3 secondi anche quando non era cambiato niente: così
+// cancellava all'istante il messaggio «Sto ripristinando…», e ricreava di continuo i
+// pulsanti (un clic capitato nell'attimo sbagliato andava perso). Ora si ridisegna solo
+// quando lo stato cambia davvero. `ripristinoInCorsoUI` lo blocca del tutto mentre il
+// ripristino sta lavorando, così il messaggio di attesa resta visibile.
+let statoDisegnato = null;
+let ripristinoInCorsoUI = false;
+
+async function aggiornaStato() {
+  const box = $('#qr-box');
+  try {
+    const s = await (await fetch('/api/status')).json();
+    // Va impostato sempre, anche quando il riquadro non si ridisegna.
+    $('#btn-esci').style.display = s.authEnabled ? 'flex' : 'none';
+    if (ripristinoInCorsoUI) return;
+    const firma = s.status + '|' + (s.me || '') + '|' + (s.qr || '').slice(0, 40);
+    if (firma === statoDisegnato) return;
+    statoDisegnato = firma;
+    if (s.status === 'connesso') {
+      impostaBadge('badge-wa', 'verde', 'Attivo');
+      box.innerHTML = '<p style="font-size:2.5rem">✅</p><p>WhatsApp è collegato' +
+        (s.me ? ' con il numero <b>+' + s.me + '</b>' : '') +
+        '.</p><p class="conteggio">Ora puoi inviare messaggi dalla scheda «Invia messaggio».</p>' +
+        '<p style="margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">' +
+        '<button class="btn btn-piccolo" onclick="ripristinaWhatsApp()">🔄 Ripristina collegamento</button>' +
+        '<button class="btn btn-rosso btn-piccolo" onclick="scollegaWhatsApp()">Scollega WhatsApp da questo server</button></p>';
+    } else if (s.status === 'qr' && s.qr) {
+      impostaBadge('badge-wa', 'giallo', 'Da collegare: scansiona il QR');
+      box.innerHTML = '<p style="margin-bottom:10px">Apri WhatsApp sul telefono → <b>Impostazioni → Dispositivi collegati → Collega un dispositivo</b> e inquadra questo codice:</p><img src="' + s.qr + '" alt="QR code" width="260">' +
+        '<p style="margin-top:14px"><button class="btn btn-piccolo" onclick="ripristinaWhatsApp()">🔄 Ripristina collegamento</button></p>';
+    } else if (s.status === 'inizializzazione') {
+      impostaBadge('badge-wa', 'giallo', 'Avvio in corso');
+      box.innerHTML = '<p class="vuoto">Sto avviando WhatsApp, attendi qualche secondo…</p>';
+    } else {
+      impostaBadge('badge-wa', 'rosso', s.status === 'errore' ? 'Errore' : 'Non collegato');
+      // Prima qui c'era scritto solo «Riavvia il server per riprovare»: un vicolo cieco,
+      // per giunta con un consiglio che non bastava (il browser interno restava acceso).
+      box.innerHTML = '<p class="vuoto">WhatsApp risulta ' + (s.status === 'errore' ? 'in errore' : 'disconnesso') + '.</p>' +
+        '<p style="margin-top:14px"><button class="btn btn-piccolo" onclick="ripristinaWhatsApp()">🔄 Ripristina collegamento WhatsApp</button></p>' +
+        '<p class="conteggio" style="margin-top:10px">Chiude tutto e ricollega, senza spegnere iStudio. Se serve, ricomparirà il QR code.</p>';
+    }
+  } catch {
+    impostaBadge('badge-wa', 'rosso', 'Server non raggiungibile');
+    statoDisegnato = null; // al ritorno del server il riquadro va ridisegnato comunque
+  }
+}
+setInterval(aggiornaStato, 3000);
+aggiornaStato();
+
+// Ripristino forzato del collegamento: chiude tutto (browser interno compreso) e riapre.
+// Non cancella la sessione salvata, quindi di solito NON serve riscansionare il QR.
+// La risposta arriva dopo qualche secondo: il pulsante si disabilita per non farne partire due.
+window.ripristinaWhatsApp = async (ev) => {
+  if (!confirm('Ripristinare il collegamento a WhatsApp?\n\n' +
+               'iStudio chiude il collegamento e lo riapre da zero. Ci vogliono circa 10-20 secondi.\n' +
+               'Non perdi contatti né cronologia. Se il collegamento non è più valido, ricomparirà il QR code.')) return;
+  ripristinoInCorsoUI = true;   // blocca il ridisegno automatico del riquadro
+  $('#qr-box').innerHTML = '<p class="vuoto">🔄 Sto ripristinando il collegamento, attendi…</p>';
+  try {
+    const res = await fetch('/api/whatsapp/ripristina', { method: 'POST' });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) toast('Collegamento ripristinato');
+    else toast(d.error || 'Ripristino non riuscito');
+  } catch {
+    toast('Ripristino non riuscito: iStudio non risponde');
+  }
+  ripristinoInCorsoUI = false;
+  statoDisegnato = null;   // forza il ridisegno con lo stato nuovo
+  aggiornaStato();
+};
+
+window.scollegaWhatsApp = async () => {
+  if (!confirm('Scollegare WhatsApp da questo server?\nPer ricollegarti dovrai scansionare di nuovo il QR code.')) return;
+  const res = await fetch('/api/logout', { method: 'POST' });
+  if (res.ok) toast('WhatsApp scollegato: tra qualche secondo riapparirà il QR code');
+  else toast('Errore durante lo scollegamento');
+  aggiornaStato();
+};
+
+$('#btn-esci').addEventListener('click', async () => {
+  await fetch('/api/app-logout', { method: 'POST' });
+  location.reload();
+});
+
+async function aggiornaBadgeEmail() {
+  try {
+    const s = await (await fetch('/api/email/settings')).json();
+    if (s.verified) impostaBadge('badge-email', 'verde', 'Attiva');
+    else if (s.hasPassword) impostaBadge('badge-email', 'giallo', 'Da verificare');
+    else impostaBadge('badge-email', 'rosso', 'Da configurare');
+  } catch {}
+}
+setInterval(aggiornaBadgeEmail, 10000);
+aggiornaBadgeEmail();
+
+// Click sulle spie: portano entrambe alle Impostazioni (connessione + email lì)
+$('#badge-wa').addEventListener('click', () => vaiScheda('impostazioni'));
+$('#badge-email').addEventListener('click', () => vaiScheda('impostazioni'));
+
+// ---- rubrica (contatti) ----
+async function caricaContatti() {
+  contatti = await (await fetch('/api/contacts')).json();
+  disegnaContatti();
+  disegnaDestinatari();
+  disegnaEmailDestinatari();
+}
+
+const PER_PAGINA = 100;
+let paginaRubrica = 1;
+let ordinaPer = 'nome';        // nome | cognome
+let ordinaVerso = 'asc';       // asc (A→Z) | desc (Z→A)
+
+function etichettaStato(s) {
+  if (s === 'completata') return 'Completata';
+  if (s === 'interrotta') return 'Interrotta';
+  if (s === 'in_pausa') return 'In pausa';
+  if (s === 'in_riposo') return 'In riposo';
+  return 'In corso';
+}
+
+function disegnaContatti() {
+  const filtro = $('#ricerca').value.toLowerCase();
+  const righe = contatti.filter((c) =>
+    (c.nome + ' ' + c.cognome + ' ' + c.email + ' ' + c.telefono).toLowerCase().includes(filtro)
+  );
+
+  // ordinamento alfabetico italiano, indifferente a maiuscole e accenti
+  righe.sort((a, b) => {
+    const conf = String(a[ordinaPer] || '').localeCompare(String(b[ordinaPer] || ''), 'it', { sensitivity: 'base' });
+    return ordinaVerso === 'asc' ? conf : -conf;
+  });
+
+  // aggiorna le frecce nelle intestazioni
+  document.querySelectorAll('th.ordinabile').forEach((th) => {
+    const attivo = th.dataset.ordina === ordinaPer;
+    th.querySelector('.frecciaOrd').textContent = attivo ? (ordinaVerso === 'asc' ? '▲' : '▼') : '';
+    th.style.color = attivo ? 'var(--verde-scuro)' : '';
+  });
+
+  const pagineTotali = Math.max(1, Math.ceil(righe.length / PER_PAGINA));
+  if (paginaRubrica > pagineTotali) paginaRubrica = pagineTotali;
+  const inizio = (paginaRubrica - 1) * PER_PAGINA;
+  const visibili = righe.slice(inizio, inizio + PER_PAGINA);
+
+  $('#tabella-contatti').innerHTML = visibili.map((c) => `
+    <tr${c.opt_out ? ' class="riga-no-consenso"' : ''}>
+      <td>${c.opt_out ? '<span class="segno-no" title="Consenso: No — non riceve messaggi">🚫</span> ' : ''}${esc(c.nome)}</td>
+      <td>${esc(c.cognome)}</td>
+      <td style="word-break:break-all">${esc(c.email)}</td>
+      <td style="white-space:nowrap">${esc(c.telefono)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondario btn-piccolo" onclick="modifica(${c.id})" title="Modifica contatto">✏️</button>
+        <button class="btn btn-rosso btn-piccolo" onclick="elimina(${c.id})" title="Elimina contatto">🗑️</button>
+      </td>
+    </tr>`).join('');
+  $('#contatti-vuoto').style.display = righe.length ? 'none' : 'block';
+
+  // Barra di navigazione fra le pagine (compare solo se serve)
+  const barra = $('#paginazione');
+  if (righe.length <= PER_PAGINA) {
+    barra.style.display = 'none';
+  } else {
+    barra.style.display = 'flex';
+    $('#pagina-info').textContent =
+      `Contatti da ${inizio + 1} a ${inizio + visibili.length} di ${righe.length} — pagina ${paginaRubrica} di ${pagineTotali}`;
+    $('#pagina-prec').disabled = paginaRubrica <= 1;
+    $('#pagina-succ').disabled = paginaRubrica >= pagineTotali;
+  }
+}
+
+// ---- richieste di cancellazione riconosciute nelle risposte WhatsApp ----
+let richiesteCanc = [];
+
+async function caricaRichiesteCancellazione() {
+  try {
+    richiesteCanc = await (await fetch('/api/optout-requests')).json();
+  } catch { richiesteCanc = []; }
+  disegnaRichiesteCancellazione();
+}
+
+function disegnaRichiesteCancellazione() {
+  const card = $('#card-cancellazioni');
+  const n = richiesteCanc.length;
+  card.style.display = n ? 'block' : 'none';
+  // pallino di avviso sulla voce Rubrica del menu
+  const voce = document.querySelector('nav button[data-scheda="anagrafiche"]');
+  if (voce) voce.textContent = n ? `Rubrica (${n})` : 'Rubrica';
+  if (!n) return;
+
+  $('#canc-titolo').textContent = n === 1
+    ? '1 persona ha chiesto di non essere più contattata'
+    : `${n} persone hanno chiesto di non essere più contattate`;
+
+  $('#lista-cancellazioni').innerHTML = richiesteCanc.map((r) => {
+    const abbinato = r.contact_id && r.c_nome != null;
+    const quando = (r.rilevato_at || '').replace('T', ' ').slice(0, 16);
+    return `
+    <div style="border:1px solid var(--bordo);border-radius:10px;padding:12px;margin-bottom:10px;background:#fff">
+      <div style="font-weight:600">${esc(r.chat_nome)}</div>
+      <div style="margin:4px 0 8px;color:var(--testo)">«${esc(r.testo)}»
+        <span style="color:var(--grigio);font-size:.82rem">— rilevato il ${quando}</span></div>
+      ${abbinato ? `
+        <div style="font-size:.86rem;color:var(--grigio);margin-bottom:8px">
+          Corrisponde a <b>${esc(`${r.c_nome} ${r.c_cognome || ''}`.trim())}</b> (${esc(r.c_telefono)})
+        </div>`
+      : `
+        <div style="font-size:.86rem;color:#a35a12;margin-bottom:6px">
+          Non sono riuscito a collegarlo a un contatto della rubrica: scegli tu chi è.
+        </div>
+        <input class="canc-cerca" data-id="${r.id}" placeholder="Cerca il contatto per nome o numero…"
+               style="margin-bottom:6px">
+        <div class="canc-risultati" data-id="${r.id}" style="font-size:.86rem;margin-bottom:8px"></div>`}
+      <button class="btn btn-piccolo" data-canc="conferma" data-id="${r.id}"
+        ${abbinato ? '' : 'disabled'}>✓ Non contattare più</button>
+      <button class="btn btn-secondario btn-piccolo" data-canc="ignora" data-id="${r.id}">Ignora</button>
+    </div>`;
+  }).join('');
+}
+
+// Ricerca del contatto quando l'abbinamento automatico non è riuscito
+$('#lista-cancellazioni').addEventListener('input', (e) => {
+  const box = e.target.closest('.canc-cerca');
+  if (!box) return;
+  const id = box.dataset.id;
+  const q = box.value.toLowerCase().trim();
+  const cont = document.querySelector(`.canc-risultati[data-id="${id}"]`);
+  if (q.length < 2) { cont.innerHTML = ''; return; }
+  const trovati = contatti
+    .filter((c) => !c.opt_out)
+    .filter((c) => (c.nome + ' ' + c.cognome + ' ' + c.telefono).toLowerCase().includes(q))
+    .slice(0, 6);
+  cont.innerHTML = trovati.length
+    ? trovati.map((c) => `<label style="display:block;padding:3px 0;cursor:pointer">
+        <input type="radio" name="canc-${id}" value="${c.id}" style="width:auto">
+        ${esc(`${c.nome} ${c.cognome || ''}`.trim())} — ${esc(c.telefono)}</label>`).join('')
+    : '<span style="color:var(--grigio)">Nessun contatto trovato.</span>';
+});
+
+// Selezionando un contatto si abilita il pulsante di conferma
+$('#lista-cancellazioni').addEventListener('change', (e) => {
+  if (e.target.type !== 'radio') return;
+  const id = e.target.name.replace('canc-', '');
+  const btn = document.querySelector(`button[data-canc="conferma"][data-id="${id}"]`);
+  if (btn) btn.disabled = false;
+});
+
+$('#lista-cancellazioni').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-canc]');
+  if (!b) return;
+  const id = b.dataset.id;
+
+  if (b.dataset.canc === 'ignora') {
+    const res = await fetch(`/api/optout-requests/${id}/ignore`, { method: 'POST' });
+    if (!res.ok) return toast('Errore');
+    toast('Richiesta ignorata');
+    return caricaRichiesteCancellazione();
+  }
+
+  const scelto = document.querySelector(`input[name="canc-${id}"]:checked`);
+  const res = await fetch(`/api/optout-requests/${id}/confirm`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(scelto ? { contactId: Number(scelto.value) } : {}),
+  });
+  const d = await res.json();
+  if (!res.ok) return toast(d.error || 'Errore');
+  toast(`${d.contatto.nome} non riceverà più messaggi`);
+  await caricaRichiesteCancellazione();
+  await caricaContatti();
+  caricaDashboard();
+});
+
+async function controllaCancellazioniOra(btn) {
+  if (btn) { btn.disabled = true; btn.dataset.testo = btn.textContent; btn.textContent = '⏳ Controllo…'; }
+  try {
+    const res = await fetch('/api/optout-requests/scan', { method: 'POST' });
+    const d = await res.json();
+    if (!res.ok) return toast(d.error || 'Errore');
+    toast(d.nuove ? `${d.nuove} nuove richieste trovate` : 'Nessuna nuova richiesta di cancellazione');
+    caricaRichiesteCancellazione();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.testo; }
+  }
+}
+// «Controlla adesso» dentro il riquadro degli avvisi (compare solo se ci sono richieste)
+$('#btn-canc-controlla').addEventListener('click', (e) => controllaCancellazioniOra(e.currentTarget));
+// pulsante sempre disponibile nella barra Contatti
+$('#btn-controlla-cancellazioni').addEventListener('click', (e) => controllaCancellazioniOra(e.currentTarget));
+
+// Pulsante «non contattare» (delega: i nomi con apostrofo romperebbero un onclick inline)
+// Click sulle intestazioni Nome/Cognome: A→Z, poi Z→A
+document.querySelectorAll('th.ordinabile').forEach((th) => {
+  th.addEventListener('click', () => {
+    const campo = th.dataset.ordina;
+    if (ordinaPer === campo) {
+      ordinaVerso = ordinaVerso === 'asc' ? 'desc' : 'asc';
+    } else {
+      ordinaPer = campo;
+      ordinaVerso = 'asc';
+    }
+    paginaRubrica = 1;
+    disegnaContatti();
+  });
+});
+
+$('#pagina-prec').addEventListener('click', () => {
+  if (paginaRubrica > 1) { paginaRubrica--; disegnaContatti(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+});
+$('#pagina-succ').addEventListener('click', () => {
+  paginaRubrica++; disegnaContatti(); window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+
+// Click su [nome]/[cognome] nelle etichette: lo scrive nel testo, alla posizione del cursore
+document.querySelectorAll('.token-inserisci').forEach((b) => {
+  b.addEventListener('click', () => {
+    const el = $('#' + b.dataset.target);
+    if (!el) return;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    el.value = el.value.slice(0, start) + b.dataset.token + el.value.slice(end);
+    const pos = start + b.dataset.token.length;
+    el.focus();
+    el.setSelectionRange(pos, pos);
+  });
+});
+
+$('#ricerca').addEventListener('input', () => { paginaRubrica = 1; disegnaContatti(); });
+
+$('#form-contatto').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = $('#c-id').value;
+  const body = {
+    nome: $('#c-nome').value, cognome: $('#c-cognome').value,
+    email: $('#c-email').value, telefono: $('#c-telefono').value,
+    consenso: $('#c-consenso').value,
+  };
+  mostraErroreContatto('');
+  const res = await fetch(id ? '/api/contacts/' + id : '/api/contacts', {
+    method: id ? 'PUT' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const dati = await res.json();
+  if (!res.ok) {
+    mostraErroreContatto(dati.error || 'Errore', dati.duplicato);
+    toast(dati.error || 'Errore');
+    return;
+  }
+  annullaModifica();
+  toast(id ? 'Contatto aggiornato' : 'Contatto aggiunto');
+  caricaContatti();
+});
+
+// Mostra (o nasconde) l'avviso sopra i pulsanti ed evidenzia il campo in conflitto
+function mostraErroreContatto(testo, campo) {
+  const box = $('#errore-contatto');
+  $('#c-telefono').style.borderColor = '';
+  $('#c-email').style.borderColor = '';
+  if (!testo) { box.style.display = 'none'; box.textContent = ''; return; }
+  box.textContent = '⚠️ ' + testo;
+  box.style.display = 'block';
+  if (campo === 'telefono') $('#c-telefono').style.borderColor = 'var(--rosso)';
+  if (campo === 'email') $('#c-email').style.borderColor = 'var(--rosso)';
+}
+
+// Interruttore Consenso Sì / No: aggiorna il campo nascosto e l'aspetto dei due tasti
+function impostaConsenso(val, motivo) {
+  const negato = val === 'no';
+  $('#c-consenso').value = negato ? 'no' : 'si';
+  const si = $('#toggle-consenso button[data-val="si"]');
+  const no = $('#toggle-consenso button[data-val="no"]');
+  si.classList.toggle('attivo-si', !negato);
+  no.classList.toggle('attivo-no', negato);
+  const boxMotivo = $('#c-consenso-motivo');
+  if (negato && motivo) { boxMotivo.textContent = 'Motivo: ' + motivo; boxMotivo.style.display = 'block'; }
+  else { boxMotivo.style.display = 'none'; boxMotivo.textContent = ''; }
+}
+$('#toggle-consenso').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-val]');
+  if (b) impostaConsenso(b.dataset.val);
+});
+
+// Apre la finestrella per un NUOVO contatto (campi vuoti, consenso su "Sì" di default)
+function apriNuovoContatto() {
+  $('#form-contatto').reset(); $('#c-id').value = '';
+  impostaConsenso('si');
+  $('#form-titolo').textContent = 'Nuovo contatto';
+  $('#btn-salva').textContent = 'Aggiungi contatto';
+  mostraErroreContatto('');
+  $('#velo-contatto').classList.add('visibile');
+  $('#c-nome').focus();
+}
+
+// Apre la stessa finestrella già compilata coi dati del contatto (modifica)
+window.modifica = (id) => {
+  const c = contatti.find((x) => x.id === id);
+  if (!c) return;
+  $('#c-id').value = c.id; $('#c-nome').value = c.nome; $('#c-cognome').value = c.cognome;
+  $('#c-email').value = c.email; $('#c-telefono').value = c.telefono;
+  // consenso "No" = il contatto è escluso (opt_out); mostro anche il motivo se c'è
+  impostaConsenso(c.opt_out ? 'no' : 'si', c.opt_out_motivo);
+  $('#form-titolo').textContent = 'Modifica contatto';
+  $('#btn-salva').textContent = 'Salva modifiche';
+  mostraErroreContatto('');
+  $('#velo-contatto').classList.add('visibile');
+  $('#c-nome').focus();
+};
+
+// Chiude la finestrella e rimette il form a zero
+function annullaModifica() {
+  $('#velo-contatto').classList.remove('visibile');
+  $('#form-contatto').reset(); $('#c-id').value = '';
+  mostraErroreContatto('');
+}
+$('#btn-nuovo-contatto').addEventListener('click', apriNuovoContatto);
+$('#btn-annulla').addEventListener('click', annullaModifica);
+$('#btn-chiudi-contatto').addEventListener('click', annullaModifica);
+// clic sullo sfondo scuro o tasto Esc: chiude la finestrella
+$('#velo-contatto').addEventListener('click', (e) => {
+  if (e.target.id === 'velo-contatto') annullaModifica();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('#velo-contatto').classList.contains('visibile')) annullaModifica();
+});
+
+window.elimina = async (id) => {
+  if (!confirm('Eliminare questo contatto?')) return;
+  await fetch('/api/contacts/' + id, { method: 'DELETE' });
+  selezionati.delete(id);
+  emailSelezionati.delete(id);
+  toast('Contatto eliminato');
+  caricaContatti();
+};
+
+// ---- importazione / esportazione CSV ----
+$('#btn-esporta').addEventListener('click', () => { window.location.href = '/api/contacts/export'; });
+$('#btn-importa').addEventListener('click', () => $('#file-csv').click());
+
+$('#file-csv').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const testo = await file.text();
+  e.target.value = '';
+  const righe = analizzaCSV(testo);
+  if (!righe.length) return toast('Nessuna riga valida trovata nel file');
+  const res = await fetch('/api/contacts/import', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contacts: righe }),
+  });
+  const data = await res.json();
+  if (!res.ok) return toast(data.error || 'Errore durante l\'importazione');
+  toast(`Importati ${data.importati} contatti` +
+    (data.saltati ? `, ${data.saltati} già presenti` : '') +
+    (data.invalidi ? `, ${data.invalidi} senza nome o telefono` : ''));
+  caricaContatti();
+});
+
+// Legge un CSV con separatore ; o , e gestisce i campi tra virgolette
+function analizzaCSV(testo) {
+  const righe = [];
+  const linee = testo.replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim());
+  if (!linee.length) return righe;
+  const sep = (linee[0].match(/;/g) || []).length >= (linee[0].match(/,/g) || []).length ? ';' : ',';
+
+  const dividi = (linea) => {
+    const campi = []; let cur = ''; let inQuote = false;
+    for (let i = 0; i < linea.length; i++) {
+      const ch = linea[i];
+      if (inQuote) {
+        if (ch === '"' && linea[i + 1] === '"') { cur += '"'; i++; }
+        else if (ch === '"') inQuote = false;
+        else cur += ch;
+      } else if (ch === '"') inQuote = true;
+      else if (ch === sep) { campi.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    campi.push(cur);
+    return campi.map((c) => c.trim());
+  };
+
+  // Se la prima riga contiene intestazioni, mappa le colonne; altrimenti assume nome;cognome;email;telefono
+  const prima = dividi(linee[0]).map((c) => c.toLowerCase());
+  let idx = { nome: 0, cognome: 1, email: 2, telefono: 3 };
+  let start = 0;
+  const trovaCol = (parole) => prima.findIndex((c) => parole.some((p) => c.includes(p)));
+  if (trovaCol(['nome', 'name']) !== -1 || trovaCol(['tel', 'phone', 'cell']) !== -1) {
+    idx = {
+      nome: trovaCol(['nome', 'first', 'name']),
+      cognome: trovaCol(['cognome', 'last', 'surname']),
+      email: trovaCol(['email', 'mail']),
+      telefono: trovaCol(['tel', 'phone', 'cell', 'numero']),
+      // colonna dei disiscritti: c'è nei CSV esportati da iStudio
+      nonContattare: trovaCol(['non_contattare', 'non contattare', 'disiscritto', 'opt_out']),
+      provenienza: trovaCol(['provenienza', 'fonte', 'origine', 'source']),
+      consenso: trovaCol(['consenso', 'consent']),
+    };
+    if (idx.nome === -1) idx.nome = 0;
+    if (idx.telefono === -1) idx.telefono = 3;
+    start = 1;
+  }
+  for (let i = start; i < linee.length; i++) {
+    const campi = dividi(linee[i]);
+    righe.push({
+      nome: campi[idx.nome] || '',
+      cognome: idx.cognome !== -1 ? campi[idx.cognome] || '' : '',
+      email: idx.email !== -1 ? campi[idx.email] || '' : '',
+      telefono: campi[idx.telefono] || '',
+      non_contattare: idx.nonContattare != null && idx.nonContattare !== -1 ? campi[idx.nonContattare] || '' : '',
+      provenienza: idx.provenienza != null && idx.provenienza !== -1 ? campi[idx.provenienza] || '' : '',
+      consenso: idx.consenso != null && idx.consenso !== -1 ? campi[idx.consenso] || '' : '',
+    });
+  }
+  return righe;
+}
+
+// ---- invio ----
+// Contatti visibili nell'elenco destinatari, in base alla ricerca
+function destinatariFiltrati() {
+  const q = ($('#cerca-destinatari').value || '').toLowerCase().trim();
+  // chi ha chiesto di non essere contattato non compare proprio fra i destinatari:
+  // non deve essere nemmeno possibile selezionarlo per sbaglio
+  const disponibili = contatti.filter((c) => !c.opt_out);
+  if (!q) return disponibili;
+  return disponibili.filter((c) =>
+    (c.nome + ' ' + c.cognome + ' ' + c.telefono + ' ' + c.email).toLowerCase().includes(q));
+}
+
+// ---- stima del tempo di invio ----
+// Deve restare allineata al ritmo di server.js (PAUSA/RIPOSO). Valori medi in secondi.
+const RITMO = {
+  whatsapp: { pausa: 12.5, riposoOgni: 50, riposo: 90 }, // 10-15s + riposo 1-2 min ogni 50
+  email: { pausa: 1.75, riposoOgni: 0, riposo: 0 },       // 1-2,5s, nessun riposo
+};
+
+function stimaSecondi(m, canale) {
+  if (m <= 1) return 0;
+  const r = RITMO[canale];
+  const gaps = m - 1; // fra m messaggi ci sono m-1 attese
+  const riposi = r.riposoOgni ? Math.floor(gaps / r.riposoOgni) : 0;
+  return (gaps - riposi) * r.pausa + riposi * r.riposo;
+}
+
+function formattaDurata(sec) {
+  if (sec < 60) return 'meno di un minuto';
+  const min = Math.round(sec / 60);
+  if (min < 60) return `circa ${min} minut${min === 1 ? 'o' : 'i'}`;
+  const ore = Math.floor(min / 60), resto = min % 60;
+  const parteOre = `${ore} or${ore === 1 ? 'a' : 'e'}`;
+  return resto === 0 ? `circa ${parteOre}` : `circa ${parteOre} e ${resto} minut${resto === 1 ? 'o' : 'i'}`;
+}
+
+function aggiornaStima(canale) {
+  const isWa = canale === 'whatsapp';
+  const n = isWa ? selezionati.size : emailSelezionati.size;
+  const box = $(isWa ? '#invio-stima' : '#email-stima');
+  if (!box) return;
+  if (!n) { box.innerHTML = '<span style="color:var(--grigio)">Seleziona i destinatari per vedere il tempo stimato.</span>'; return; }
+  const limite = parseInt($(isWa ? '#invio-tetto' : '#email-tetto').value, 10);
+  if (Number.isFinite(limite) && limite > 0 && n > limite) {
+    const giorni = Math.ceil(n / limite);
+    box.innerHTML = `⏱️ <b>${n}</b> destinatari · ${limite} al giorno → circa <b>${giorni} giorni</b>`
+      + ` (${formattaDurata(stimaSecondi(limite, canale))} a giornata)`;
+  } else {
+    box.innerHTML = `⏱️ <b>${n}</b> destinatari · tempo stimato <b>${formattaDurata(stimaSecondi(n, canale))}</b>`;
+  }
+}
+$('#invio-tetto').addEventListener('change', () => aggiornaStima('whatsapp'));
+$('#email-tetto').addEventListener('change', () => aggiornaStima('email'));
+
+function disegnaDestinatari() {
+  const box = $('#lista-destinatari');
+  const elenco = destinatariFiltrati();
+  if (!contatti.length) {
+    box.innerHTML = '<p class="vuoto">Nessun contatto in rubrica.</p>';
+  } else if (!elenco.length) {
+    box.innerHTML = '<p class="vuoto">Nessun contatto trovato con questa ricerca.</p>';
+  } else {
+    box.innerHTML = elenco.map((c) => `
+      <label style="display:flex;align-items:center;gap:9px;padding:7px 2px;font-size:.92rem;color:var(--testo);cursor:pointer">
+        <input type="checkbox" style="width:auto" data-id="${c.id}" ${selezionati.has(c.id) ? 'checked' : ''}>
+        ${esc(c.nome)} ${esc(c.cognome)} — ${esc(c.telefono)}
+      </label>`).join('');
+    box.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const id = Number(cb.dataset.id);
+        cb.checked ? selezionati.add(id) : selezionati.delete(id);
+        $('#n-selezionati').textContent = selezionati.size;
+        aggiornaStima('whatsapp');
+      });
+    });
+  }
+  $('#n-selezionati').textContent = selezionati.size;
+  aggiornaStima('whatsapp');
+}
+
+$('#cerca-destinatari').addEventListener('input', disegnaDestinatari);
+// "Seleziona tutti" agisce sui contatti attualmente visibili, così la ricerca è utile
+$('#btn-tutti').addEventListener('click', () => {
+  destinatariFiltrati().forEach((c) => selezionati.add(c.id));
+  disegnaDestinatari();
+});
+$('#btn-nessuno').addEventListener('click', () => { selezionati.clear(); disegnaDestinatari(); });
+
+// ---- selettore immagine riutilizzabile (invio WhatsApp e newsletter) ----
+function collegaSelettoreImmagine(prefisso) {
+  const stato = { dataUrl: null, filename: null };
+  const btn = $('#' + prefisso + '-scegli-img');
+  const file = $('#' + prefisso + '-file-img');
+  const box = $('#' + prefisso + '-anteprima-img');
+  const img = $('#' + prefisso + '-img-preview');
+  const nome = $('#' + prefisso + '-img-nome');
+  const togli = $('#' + prefisso + '-togli-img');
+
+  stato.pulisci = () => {
+    stato.dataUrl = null; stato.filename = null;
+    box.style.display = 'none'; img.removeAttribute('src');
+  };
+
+  btn.addEventListener('click', () => file.click());
+  file.addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    if (f.size > 16 * 1024 * 1024) return toast('Immagine troppo grande (massimo 16 MB)');
+    stato.dataUrl = await new Promise((ris) => {
+      const r = new FileReader();
+      r.onload = () => ris(r.result);
+      r.readAsDataURL(f);
+    });
+    stato.filename = f.name;
+    img.src = stato.dataUrl;
+    nome.textContent = f.name;
+    box.style.display = 'flex';
+  });
+  togli.addEventListener('click', stato.pulisci);
+  return stato;
+}
+
+const immagineWa = collegaSelettoreImmagine('wa');
+const immagineEmail = collegaSelettoreImmagine('em');
+
+$('#btn-invia').addEventListener('click', async () => {
+  const message = $('#messaggio').value.trim();
+  const alias = $('#invio-alias').value.trim();
+  if (!message) return toast('Scrivi prima il messaggio');
+  if (!selezionati.size) return toast('Seleziona almeno un destinatario');
+  if (!confirm('Inviare il messaggio a ' + selezionati.size + ' destinatari?')) return;
+  $('#btn-invia').disabled = true;
+  const res = await fetch('/api/send', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message, contactIds: [...selezionati], alias,
+      dailyLimit: $('#invio-tetto').value,
+      image: immagineWa.dataUrl, imageName: immagineWa.filename,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) { toast(data.error || 'Errore'); $('#btn-invia').disabled = false; return; }
+  if (data.esclusi) toast(`${data.esclusi} contatti esclusi: hanno chiesto di non essere contattati`);
+  campagnaCorrente = data.campaignId;
+  $('#progresso').style.display = 'block';
+  seguiProgresso();
+});
+
+async function seguiProgresso() {
+  if (!campagnaCorrente) return;
+  const c = await (await fetch('/api/campaigns/' + campagnaCorrente)).json();
+  const fatti = c.sent + c.failed + (c.skipped || 0);
+  const nota = c.status === 'in_riposo' ? ' — in riposo, riprende fra poco'
+    : c.status === 'in_pausa' ? ' — in pausa' : '';
+  $('#progresso-testo').textContent =
+    `Inviati ${c.sent} su ${c.total}` + (c.failed ? ` — ${c.failed} errori` : '') + nota;
+  $('#progresso-barra').style.width = (fatti / c.total) * 100 + '%';
+  if (c.status === 'completata') {
+    toast('Invio completato: ' + c.sent + ' messaggi inviati' + (c.failed ? ', ' + c.failed + ' errori' : ''));
+    $('#btn-invia').disabled = false;
+    $('#invio-alias').value = '';
+    immagineWa.pulisci();
+    campagnaCorrente = null;
+  } else if (c.status === 'in_pausa') {
+    // fermo: si gestisce dalla Cronologia, qui si libera il pulsante
+    toast('Invio in pausa — riprendilo dalla Cronologia');
+    $('#btn-invia').disabled = false;
+    campagnaCorrente = null;
+  } else {
+    setTimeout(seguiProgresso, 2500);
+  }
+}
+
+// ---- chat WhatsApp (lette direttamente dalla pagina di WhatsApp Web) ----
+let chatCorrente = null; // nome della chat aperta
+let chatCorrenteGruppo = false;
+let chatsCache = [];
+let pausaAggiornamentoChat = false; // sospende i refresh durante operazioni delicate
+
+function schedaChatAttiva() {
+  return $('#scheda-chat').classList.contains('attiva');
+}
+
+// Foto profilo: immagine da WhatsApp, altrimenti cerchio con l'iniziale
+function avatarHtml(c, dim) {
+  const d = dim || 44;
+  const base = `width:${d}px;height:${d}px;border-radius:50%;flex-shrink:0;object-fit:cover`;
+  if (c.avatar) {
+    return `<img src="${esc(c.avatar)}" alt="" style="${base}"
+      onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'avatar-fallback',textContent:'${esc((c.nome || '?').trim().charAt(0).toUpperCase())}',style:'${base};background:var(--verde-scuro);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${Math.round(d / 2.4)}px'}))">`;
+  }
+  const iniziale = esc((c.nome || '?').trim().charAt(0).toUpperCase());
+  const sfondo = c.gruppo ? '#6b7c93' : 'var(--verde-scuro)';
+  return `<div style="${base};background:${sfondo};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${Math.round(d / 2.4)}px">${c.gruppo ? '👥' : iniziale}</div>`;
+}
+
+// Stato di consegna scritto a parole (più chiaro delle spunte)
+function spunteHtml(stato) {
+  if (!stato) return '';
+  const stili = {
+    attesa:     { testo: 'in attesa',  colore: 'var(--grigio)', titolo: 'Non ancora inviato' },
+    inviato:    { testo: 'inviato',    colore: 'var(--grigio)', titolo: 'Inviato, non ancora consegnato' },
+    consegnato: { testo: 'non letto',  colore: 'var(--grigio)', titolo: 'Consegnato ma non ancora letto' },
+    letto:      { testo: 'letto',      colore: '#53bdeb',       titolo: 'Letto dal destinatario' },
+  };
+  const s = stili[stato];
+  if (!s) return '';
+  return `<span title="${s.titolo}" style="color:${s.colore};font-weight:600;font-size:.66rem;text-transform:uppercase;letter-spacing:.02em">${s.testo}</span>`;
+}
+
+function renderMessaggi(messaggi, scorri) {
+  const box = $('#chat-messaggi');
+  const eraInFondo = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  if (!messaggi.length) {
+    box.innerHTML = '<p class="vuoto">Nessun messaggio in questa conversazione.</p>';
+    return;
+  }
+  let ultimaData = '';
+  const righe = messaggi.map((m) => {
+    // separatore con la data quando cambia giorno
+    let sep = '';
+    if (m.data && m.data !== ultimaData) {
+      ultimaData = m.data;
+      sep = `<div style="text-align:center;margin:10px 0">
+        <span style="background:#ffffffcc;color:var(--grigio);font-size:.74rem;padding:3px 10px;border-radius:8px">${esc(m.data)}</span>
+      </div>`;
+    }
+    const autore = m.mittente && !m.mio && chatCorrenteGruppo
+      ? `<div style="font-size:.75rem;font-weight:700;color:var(--verde-scuro)">${esc(m.mittente)}</div>` : '';
+    const meta = `<div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;font-size:.68rem;color:var(--grigio);margin-top:2px"><span>${esc(m.ora)}</span>${m.mio ? spunteHtml(m.stato) : ''}</div>`;
+    const bolla = `<div style="max-width:78%;padding:6px 10px 4px;border-radius:10px;font-size:.9rem;line-height:1.4;background:${m.mio ? '#d9fdd3' : '#ffffff'};box-shadow:0 1px 1px rgba(0,0,0,.08);word-break:break-word">${autore}<span style="white-space:pre-wrap">${esc(m.testo)}</span>${meta}</div>`;
+    return sep + `<div style="display:flex;justify-content:${m.mio ? 'flex-end' : 'flex-start'};margin-bottom:6px">${bolla}</div>`;
+  });
+  box.innerHTML = righe.join('');
+  if (scorri || eraInFondo) box.scrollTop = box.scrollHeight;
+}
+
+async function caricaChats() {
+  if (!schedaChatAttiva()) return;
+  try {
+    const res = await fetch('/api/chats');
+    const chats = await res.json();
+    if (!res.ok) {
+      $('#chat-lista').innerHTML = '<p class="vuoto">' + esc(chats.error || 'Chat non disponibile') + '</p>';
+      return;
+    }
+    chatsCache = chats;
+    if (!chats.length) {
+      $('#chat-lista').innerHTML = '<p class="vuoto">Nessuna conversazione trovata.</p>';
+      return;
+    }
+    $('#chat-lista').innerHTML = chats.map((c) => `
+      <div onclick="apriChat('${esc(c.nome).replace(/'/g, '&#39;')}', ${c.gruppo})"
+        style="padding:10px 12px;border-bottom:1px solid var(--bordo);cursor:pointer;display:flex;align-items:center;gap:10px;${c.nome === chatCorrente ? 'background:#e7f7ee' : ''}">
+        ${avatarHtml(c)}
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+            <b style="font-size:.92rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.nome)}</b>
+            <span style="font-size:.72rem;color:var(--grigio);flex-shrink:0">${esc(c.ora)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+            <span style="font-size:.82rem;color:var(--grigio);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.ultimoMio ? 'Tu: ' : ''}${esc(c.ultimoTesto)}</span>
+            ${c.nonLetti ? `<span style="background:var(--verde);color:#fff;border-radius:999px;font-size:.72rem;font-weight:700;padding:1px 7px;flex-shrink:0">${c.nonLetti}</span>` : ''}
+          </div>
+        </div>
+      </div>`).join('');
+  } catch {}
+}
+
+window.apriChat = async (nome, gruppo) => {
+  chatCorrente = nome;
+  chatCorrenteGruppo = !!gruppo;
+  const c = chatsCache.find((x) => x.nome === nome) || { nome, gruppo };
+  $('#chat-intestazione').innerHTML =
+    `<div style="display:flex;align-items:center;gap:10px">${avatarHtml(c, 34)}<span>${esc(nome)}</span></div>`;
+  $('#chat-input').disabled = false;
+  $('#chat-invia').disabled = false;
+  $('#chat-allega').disabled = false;
+  $('#btn-azioni-chat').style.display = '';
+  $('#chat-messaggi').innerHTML = '<p class="vuoto">Caricamento messaggi…</p>';
+  await caricaMessaggi(true);
+  caricaChats();
+};
+
+async function caricaMessaggi(scorri) {
+  if (!chatCorrente || !schedaChatAttiva()) return;
+  try {
+    const res = await fetch('/api/chat/messages', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome: chatCorrente }),
+    });
+    const data = await res.json();
+    if (!res.ok) { $('#chat-messaggi').innerHTML = '<p class="vuoto">' + esc(data.error || 'Errore') + '</p>'; return; }
+    renderMessaggi(data.messaggi || [], scorri);
+  } catch {}
+}
+
+async function inviaChat() {
+  const testo = $('#chat-input').value.trim();
+  if (!testo || !chatCorrente) return;
+  $('#chat-invia').disabled = true;
+  const res = await fetch('/api/chat/send', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nome: chatCorrente, message: testo }),
+  });
+  const data = await res.json();
+  $('#chat-invia').disabled = false;
+  if (!res.ok) return toast(data.error || 'Errore invio');
+  $('#chat-input').value = '';
+  if (data.messaggi) renderMessaggi(data.messaggi, true);
+  caricaChats();
+}
+
+$('#chat-invia').addEventListener('click', inviaChat);
+$('#chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') inviaChat(); });
+
+// ---- menu azioni su una conversazione (freccia accanto al nome) ----
+// Il menu sta nell'intestazione della conversazione aperta: così la chat è già
+// ferma sul contatto giusto e la lettura del numero è molto più affidabile.
+$('#btn-azioni-chat').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!chatCorrente) return;
+  const m = $('#menu-chat-azioni');
+  const r = e.currentTarget.getBoundingClientRect();
+  m.style.display = 'block';
+  m.style.left = Math.min(r.left - 170, window.innerWidth - 230) + 'px';
+  m.style.top = (r.bottom + 6) + 'px';
+});
+
+// chiude il menu cliccando altrove (ma non sulla freccia o dentro il menu stesso)
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#btn-azioni-chat') || e.target.closest('#menu-chat-azioni')) return;
+  $('#menu-chat-azioni').style.display = 'none';
+});
+
+$('#azione-aggiungi-anagrafica').addEventListener('click', async () => {
+  $('#menu-chat-azioni').style.display = 'none';
+  const nome = chatCorrente;
+  if (!nome) return;
+
+  toast('Recupero il numero da WhatsApp…');
+  let telefono = '';
+  pausaAggiornamentoChat = true;   // niente aggiornamenti mentre leggo il numero
+  try {
+    const res = await fetch('/api/chat/telefono', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome, giaAperta: true }),
+    });
+    const d = await res.json();
+    if (res.ok) telefono = d.telefono || '';
+  } catch {
+  } finally {
+    pausaAggiornamentoChat = false;
+  }
+  // se il numero non si è potuto leggere si prosegue lo stesso: lo scrivi a mano
+
+  // il numero è già in anagrafica?
+  const soloCifre = (t) => String(t).replace(/\D/g, '').replace(/^39/, '');
+  const esistente = telefono && contatti.find((c) => soloCifre(c.telefono) === soloCifre(telefono));
+  if (esistente) {
+    toast(`Già in rubrica come ${esistente.nome} ${esistente.cognome}`.trim());
+    vaiScheda('anagrafiche');
+    $('#ricerca').value = telefono;
+    disegnaContatti();
+    return;
+  }
+
+  // apre la scheda "Nuovo contatto" con i campi già compilati
+  annullaModifica();
+  const eSoloNumero = /^\+?[\d\s().-]+$/.test(nome);
+  if (eSoloNumero) {
+    $('#c-nome').value = '';
+    $('#c-cognome').value = '';
+  } else {
+    const parti = nome.trim().split(/\s+/);
+    $('#c-nome').value = parti[0] || '';
+    $('#c-cognome').value = parti.slice(1).join(' ');
+  }
+  $('#c-telefono').value = telefono;
+  $('#c-email').value = '';
+
+  vaiScheda('anagrafiche');
+  $('#form-titolo').textContent = 'Nuovo contatto (dalla chat)';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (telefono) {
+    $('#c-nome').focus();
+    toast('Completa i dati e premi «Aggiungi contatto»');
+  } else {
+    $('#c-telefono').focus();
+    toast('Numero non leggibile da WhatsApp: scrivilo a mano');
+  }
+});
+
+// ---- menu allegati ----
+$('#chat-allega').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const m = $('#menu-allega');
+  m.style.display = m.style.display === 'block' ? 'none' : 'block';
+});
+document.addEventListener('click', () => { $('#menu-allega').style.display = 'none'; });
+$('#menu-allega').addEventListener('click', (e) => e.stopPropagation());
+
+$('#allega-immagine').addEventListener('click', () => {
+  $('#menu-allega').style.display = 'none';
+  $('#file-immagine').click();
+});
+
+$('#file-immagine').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file || !chatCorrente) return;
+  if (file.size > 16 * 1024 * 1024) return toast('Immagine troppo grande (massimo 16 MB)');
+
+  const didascalia = $('#chat-input').value.trim();
+  const dataUrl = await new Promise((ris) => {
+    const r = new FileReader();
+    r.onload = () => ris(r.result);
+    r.readAsDataURL(file);
+  });
+
+  toast('Invio immagine in corso…');
+  $('#chat-allega').disabled = true;
+  $('#chat-invia').disabled = true;
+  const res = await fetch('/api/chat/send-image', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nome: chatCorrente, dataUrl, filename: file.name, caption: didascalia }),
+  });
+  const data = await res.json();
+  $('#chat-allega').disabled = false;
+  $('#chat-invia').disabled = false;
+  if (!res.ok) return toast(data.error || 'Errore invio immagine');
+  $('#chat-input').value = '';
+  toast('Immagine inviata');
+  if (data.messaggi) renderMessaggi(data.messaggi, true);
+  caricaChats();
+});
+setInterval(() => {
+  if (schedaChatAttiva() && !pausaAggiornamentoChat) { caricaChats(); caricaMessaggi(false); }
+}, 5000);
+
+// ---- newsletter email ----
+async function caricaImpostazioniEmail() {
+  const s = await (await fetch('/api/email/settings')).json();
+  $('#smtp-host').value = s.host;
+  $('#smtp-port').value = s.port;
+  $('#smtp-user').value = s.user;
+  $('#smtp-from').value = s.from_name;
+  $('#smtp-pass').placeholder = s.hasPassword ? 'salvata — lascia vuoto per non cambiarla' : 'inserisci la password';
+  const st = $('#smtp-stato');
+  if (s.verified) { st.textContent = '✓ verificata e funzionante'; st.style.color = '#1c7c4b'; }
+  else if (s.hasPassword) { st.textContent = '⚠ da verificare: premi «Prova connessione»'; st.style.color = '#9c6f00'; }
+  else { st.textContent = 'non ancora configurata'; st.style.color = ''; }
+}
+
+// Mostra l'avviso nella scheda newsletter se l'email non è ancora configurata
+async function aggiornaAvvisoEmail() {
+  try {
+    const s = await (await fetch('/api/email/settings')).json();
+    const av = $('#email-non-configurata');
+    if (s.verified) { av.style.display = 'none'; return; }
+    av.style.display = 'block';
+    av.innerHTML = s.hasPassword
+      ? '⚠️ L\'email è configurata ma <b>non ancora verificata</b>. Vai su <b>Impostazioni</b> e premi «Prova connessione»: se le credenziali non sono valide la newsletter non partirà.'
+      : '✉️ L\'email non è ancora configurata. Vai su <b>Impostazioni</b> per inserire i dati del tuo account di posta prima di inviare una newsletter.';
+  } catch {}
+}
+
+$('#btn-salva-smtp').addEventListener('click', async () => {
+  const res = await fetch('/api/email/settings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      host: $('#smtp-host').value, port: $('#smtp-port').value,
+      user: $('#smtp-user').value, pass: $('#smtp-pass').value,
+      from_name: $('#smtp-from').value,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) return toast(data.error || 'Errore');
+  $('#smtp-pass').value = '';
+  toast('Impostazioni salvate');
+  caricaImpostazioniEmail();
+  aggiornaBadgeEmail();
+});
+
+$('#btn-test-smtp').addEventListener('click', async () => {
+  const st = $('#smtp-stato');
+  st.textContent = 'verifica in corso…'; st.style.color = '';
+  const res = await fetch('/api/email/test', { method: 'POST' });
+  const data = await res.json();
+  if (res.ok) {
+    st.textContent = '✓ connessione riuscita'; st.style.color = '#1c7c4b';
+  } else {
+    st.textContent = '✗ ' + (data.error || 'errore'); st.style.color = 'var(--rosso)';
+  }
+  aggiornaBadgeEmail(); // il messaggio di esito resta visibile in #smtp-stato
+});
+
+// Contatti con email visibili nell'elenco, in base alla ricerca
+function emailDestinatariFiltrati() {
+  const q = ($('#cerca-email-destinatari').value || '').toLowerCase().trim();
+  const conEmail = contatti.filter((c) => c.email && !c.opt_out);
+  if (!q) return conEmail;
+  return conEmail.filter((c) =>
+    (c.nome + ' ' + c.cognome + ' ' + c.email).toLowerCase().includes(q));
+}
+
+function disegnaEmailDestinatari() {
+  const box = $('#lista-email-destinatari');
+  const tuttiConEmail = contatti.filter((c) => c.email && !c.opt_out);
+  const conEmail = emailDestinatariFiltrati();
+  if (!tuttiConEmail.length) {
+    box.innerHTML = '<p class="vuoto">Nessun contatto con indirizzo email in rubrica.</p>';
+  } else if (!conEmail.length) {
+    box.innerHTML = '<p class="vuoto">Nessun contatto trovato con questa ricerca.</p>';
+  } else {
+    box.innerHTML = conEmail.map((c) => `
+      <label style="display:flex;align-items:center;gap:9px;padding:7px 2px;font-size:.92rem;color:var(--testo);cursor:pointer">
+        <input type="checkbox" style="width:auto" data-id="${c.id}" ${emailSelezionati.has(c.id) ? 'checked' : ''}>
+        ${esc(c.nome)} ${esc(c.cognome)} — ${esc(c.email)}
+      </label>`).join('');
+    box.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const id = Number(cb.dataset.id);
+        cb.checked ? emailSelezionati.add(id) : emailSelezionati.delete(id);
+        $('#n-email-selezionati').textContent = emailSelezionati.size;
+        aggiornaStima('email');
+      });
+    });
+  }
+  $('#n-email-selezionati').textContent = emailSelezionati.size;
+  aggiornaStima('email');
+}
+
+$('#cerca-email-destinatari').addEventListener('input', disegnaEmailDestinatari);
+$('#btn-email-tutti').addEventListener('click', () => {
+  emailDestinatariFiltrati().forEach((c) => emailSelezionati.add(c.id));
+  disegnaEmailDestinatari();
+});
+$('#btn-email-nessuno').addEventListener('click', () => { emailSelezionati.clear(); disegnaEmailDestinatari(); });
+
+$('#btn-invia-email').addEventListener('click', async () => {
+  const subject = $('#email-oggetto').value.trim();
+  const message = $('#email-testo').value.trim();
+  const alias = $('#email-alias').value.trim();
+  if (!subject) return toast('Scrivi l\'oggetto della newsletter');
+  if (!message) return toast('Scrivi il testo della newsletter');
+  if (!emailSelezionati.size) return toast('Seleziona almeno un destinatario');
+  if (!confirm('Inviare la newsletter a ' + emailSelezionati.size + ' destinatari?')) return;
+  $('#btn-invia-email').disabled = true;
+  const res = await fetch('/api/email/send', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      subject, message, contactIds: [...emailSelezionati], alias,
+      dailyLimit: $('#email-tetto').value,
+      image: immagineEmail.dataUrl, imageName: immagineEmail.filename,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) { toast(data.error || 'Errore'); $('#btn-invia-email').disabled = false; return; }
+  if (data.esclusi) toast(`${data.esclusi} contatti esclusi: hanno chiesto di non essere contattati`);
+  campagnaEmailCorrente = data.campaignId;
+  $('#email-progresso').style.display = 'block';
+  seguiProgressoEmail();
+});
+
+async function seguiProgressoEmail() {
+  if (!campagnaEmailCorrente) return;
+  const c = await (await fetch('/api/campaigns/' + campagnaEmailCorrente)).json();
+  const fatti = c.sent + c.failed + (c.skipped || 0);
+  $('#email-progresso-testo').textContent = `Inviate ${c.sent} su ${c.total}`
+    + (c.failed ? ` — ${c.failed} errori` : '') + (c.status === 'in_pausa' ? ' — in pausa' : '');
+  $('#email-progresso-barra').style.width = (fatti / c.total) * 100 + '%';
+  if (c.status === 'completata') {
+    toast('Newsletter inviata: ' + c.sent + ' email' + (c.failed ? ', ' + c.failed + ' errori' : ''));
+    $('#btn-invia-email').disabled = false;
+    $('#email-alias').value = '';
+    immagineEmail.pulisci();
+    campagnaEmailCorrente = null;
+  } else if (c.status === 'in_pausa') {
+    toast('Invio in pausa — riprendilo dalla Cronologia');
+    $('#btn-invia-email').disabled = false;
+    campagnaEmailCorrente = null;
+  } else {
+    setTimeout(seguiProgressoEmail, 2500);
+  }
+}
+
+// ---- cronologia invii ----
+let campagneTutte = [];
+let filtroCanale = 'whatsapp'; // whatsapp | email
+
+const STATI_ATTIVI = ['in_corso', 'in_riposo'];
+
+async function caricaCampagne() {
+  campagneTutte = await (await fetch('/api/campaigns')).json();
+  disegnaCampagne();
+}
+
+function disegnaCampagne() {
+  const campagne = campagneTutte.filter((c) => (c.channel || 'whatsapp') === filtroCanale);
+
+  $('#tabella-campagne').innerHTML = campagne.map((c) => {
+    const attiva = STATI_ATTIVI.includes(c.status);
+    const riprendibile = c.status === 'in_pausa' || c.status === 'interrotta';
+    const azioni = [];
+    if (attiva) azioni.push(`<button class="btn btn-secondario btn-piccolo" title="Metti in pausa" data-azione="pausa" data-id="${c.id}">⏸️</button>`);
+    if (riprendibile) azioni.push(`<button class="btn btn-secondario btn-piccolo" title="Riprendi da dove si era fermato" data-azione="riprendi" data-id="${c.id}">▶️</button>`);
+    azioni.push(`<button class="btn btn-secondario btn-piccolo" title="Dettagli dell'invio" data-azione="dettagli" data-id="${c.id}">🔍</button>`);
+    if (!attiva) azioni.push(`<button class="btn btn-rosso btn-piccolo" title="Elimina dalla cronologia" data-azione="elimina" data-id="${c.id}">🗑️</button>`);
+
+    return `
+    <tr>
+      <td style="white-space:nowrap">${c.created_at.replace('T', ' ').slice(0, 16)}</td>
+      <td>${c.alias ? '<b>' + esc(c.alias) + '</b>' : '<span style="color:var(--grigio)">—</span>'}</td>
+      <td>${c.sent}/${c.total}</td>
+      <td>${c.failed ? '<b style="color:var(--rosso)">' + c.failed + '</b>' : '0'}</td>
+      <td>
+        <span class="etichetta ${c.status}">${etichettaStato(c.status)}</span>
+        ${c.pause_reason ? `<span class="motivo-pausa">${esc(c.pause_reason)}</span>` : ''}
+      </td>
+      <td style="white-space:nowrap">${azioni.join(' ')}</td>
+    </tr>`;
+  }).join('');
+
+  const vuoto = $('#campagne-vuoto');
+  vuoto.style.display = campagne.length ? 'none' : 'block';
+  vuoto.textContent = campagneTutte.length
+    ? 'Nessun invio per questo canale.'
+    : 'Nessun invio effettuato finora.';
+}
+
+// I nomi degli invii possono contenere apostrofi: niente onclick inline, delega sulla tabella
+$('#tabella-campagne').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-azione]');
+  if (!b) return;
+  const id = Number(b.dataset.id);
+  if (b.dataset.azione === 'pausa') mettiInPausa(id);
+  if (b.dataset.azione === 'riprendi') riprendiCampagna(id);
+  if (b.dataset.azione === 'dettagli') apriDettagli(id);
+  if (b.dataset.azione === 'elimina') eliminaCampagna(id);
+});
+
+async function mettiInPausa(id) {
+  const res = await fetch('/api/campaigns/' + id + '/pause', { method: 'POST' });
+  const d = await res.json();
+  if (!res.ok) return toast(d.error || 'Errore');
+  toast('Invio in pausa: si ferma dopo il messaggio in corso');
+  setTimeout(caricaCampagne, 800);
+}
+
+async function riprendiCampagna(id, forza) {
+  const res = await fetch('/api/campaigns/' + id + '/resume', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ forza: Boolean(forza) }),
+  });
+  const d = await res.json();
+  if (!res.ok) {
+    // il tetto di oggi è già stato raggiunto: si può insistere, ma consapevolmente
+    if (d.tettoRaggiunto) {
+      if (confirm(d.error + '\n\nVuoi continuare lo stesso oggi, superando il limite?\n'
+        + 'Il limite tornerà valido da domani.')) return riprendiCampagna(id, true);
+      return;
+    }
+    caricaCampagne();
+    return toast(d.error || 'Errore');
+  }
+  toast(d.restanti === 1 ? 'Invio ripreso: resta 1 destinatario' : `Invio ripreso: restano ${d.restanti} destinatari`);
+  caricaCampagne();
+}
+
+// Aggiorna la cronologia da sola finché c'è qualcosa che si muove
+setInterval(() => {
+  if (!$('#scheda-storico').classList.contains('attiva')) return;
+  if (campagneTutte.some((c) => STATI_ATTIVI.includes(c.status))) caricaCampagne();
+}, 4000);
+
+// ---- dettagli di un invio ----
+async function apriDettagli(id) {
+  const res = await fetch('/api/campaigns/' + id);
+  const c = await res.json();
+  if (!res.ok) return toast(c.error || 'Errore');
+
+  const errori = c.messages.filter((m) => m.status === 'errore');
+  const inviati = c.messages.filter((m) => m.status === 'inviato');
+  const attesa = c.messages.filter((m) => m.status === 'in_attesa');
+  const saltati = c.messages.filter((m) => m.status === 'saltato');
+  const viaEmail = (c.channel || 'whatsapp') === 'email';
+
+  // gli errori uguali si raggruppano: 300 volte lo stesso motivo non serve a nessuno
+  const perMotivo = new Map();
+  for (const m of errori) {
+    const motivo = m.error || 'Errore non specificato';
+    if (!perMotivo.has(motivo)) perMotivo.set(motivo, []);
+    perMotivo.get(motivo).push(m);
+  }
+
+  $('#dettagli-titolo').textContent = c.alias || 'Invio del ' + c.created_at.replace('T', ' ').slice(0, 16);
+  $('#dettagli-sottotitolo').innerHTML =
+    `<span class="etichetta ${c.status}">${etichettaStato(c.status)}</span>` +
+    (c.pause_reason ? ` <span style="color:var(--grigio);font-size:.85rem">${esc(c.pause_reason)}</span>` : '');
+
+  $('#dettagli-corpo').innerHTML = `
+    <div class="riepilogo-dettagli">
+      <div><b style="color:#1c7c4b">${inviati.length}</b> ${viaEmail ? 'inviate' : 'consegnati'}</div>
+      <div><b style="color:var(--rosso)">${errori.length}</b> non riusciti</div>
+      <div><b>${attesa.length}</b> ancora da fare</div>
+      ${saltati.length ? `<div><b style="color:#a35a12">${saltati.length}</b> saltati</div>` : ''}
+      <div><b>${c.total}</b> totale</div>
+    </div>
+    ${saltati.length ? `
+      <p style="font-size:.85rem;color:var(--grigio);margin:0">
+        🚫 <b>${saltati.length}</b> ${saltati.length === 1 ? 'contatto è stato saltato' : 'contatti sono stati saltati'}
+        perché nel frattempo ${saltati.length === 1 ? 'ha' : 'hanno'} chiesto di non ricevere più messaggi:
+        ${saltati.slice(0, 30).map((m) => esc(m.destinatario || m.telefono)).join(' · ')}
+        ${saltati.length > 30 ? ` … e altri ${saltati.length - 30}` : ''}
+      </p>` : ''}
+    ${c.daily_limit ? `<p style="font-size:.85rem;color:var(--grigio);margin:-4px 0 0">
+      ⏱️ Limite impostato: <b>${c.daily_limit} al giorno</b>.</p>` : ''}
+
+    ${c.riprovabili ? `
+      <div style="border:1px solid #f0c36d;background:#fff8e6;border-radius:10px;padding:12px;margin:14px 0">
+        <div style="font-size:.9rem;margin-bottom:10px">
+          🔌 <b>${c.riprovabili} ${c.riprovabili === 1 ? 'destinatario risulta «non riuscito»' : 'destinatari risultano «non riusciti»'}
+          per un problema di collegamento</b>, non per colpa loro: in quel momento WhatsApp si era
+          staccato. ${c.riprovabili === 1 ? 'Non riceverà' : 'Non riceveranno'} mai il messaggio, a meno che
+          ${c.riprovabili === 1 ? 'non venga rimesso' : 'non vengano rimessi'} in coda.
+        </div>
+        <button class="btn btn-piccolo" data-riprova="${c.id}">🔁 Rimetti in coda ${c.riprovabili === 1 ? 'questo destinatario' : 'questi ' + c.riprovabili + ' destinatari'}</button>
+      </div>` : ''}
+
+    ${errori.length ? `
+      <h3 style="font-size:.95rem;margin:18px 0 8px">Chi non ha ricevuto il messaggio</h3>
+      ${[...perMotivo.entries()].map(([motivo, righe]) => `
+        <div style="border:1px solid var(--bordo);border-radius:10px;padding:12px;margin-bottom:10px">
+          <div style="font-weight:600;font-size:.88rem;margin-bottom:6px">
+            ${esc(spiegaErrore(motivo))} <span style="color:var(--grigio);font-weight:400">— ${righe.length} ${righe.length === 1 ? 'contatto' : 'contatti'}</span>
+          </div>
+          <div style="font-size:.85rem;color:var(--grigio);line-height:1.7">
+            ${righe.map((m) => `${esc(m.destinatario || '—')} <span style="opacity:.7">(${esc(m.telefono)})</span>`).join(' · ')}
+          </div>
+          <div style="font-size:.75rem;color:var(--grigio);margin-top:8px;opacity:.8">
+            Messaggio tecnico: ${esc(motivo)}
+          </div>
+        </div>`).join('')}
+    ` : '<p style="color:var(--grigio);font-size:.9rem;margin-top:16px">Nessun errore: tutti i messaggi elaborati sono partiti correttamente.</p>'}
+
+    ${attesa.length ? `
+      <h3 style="font-size:.95rem;margin:18px 0 8px">Ancora da inviare (${attesa.length})</h3>
+      <div style="font-size:.85rem;color:var(--grigio);line-height:1.7">
+        ${attesa.slice(0, 60).map((m) => esc(m.destinatario || m.telefono)).join(' · ')}
+        ${attesa.length > 60 ? ` … e altri ${attesa.length - 60}` : ''}
+      </div>` : ''}
+  `;
+  $('#velo-dettagli').classList.add('visibile');
+}
+
+// Traduce in italiano comprensibile gli errori tecnici più frequenti
+function spiegaErrore(motivo) {
+  const m = (motivo || '').toLowerCase();
+  if (m.includes('non registrato')) return 'Il numero non ha WhatsApp';
+  if (m.includes('senza email')) return 'Il contatto non ha un indirizzo email';
+  if (m.includes('scritto male')) return 'Indirizzo email scritto male';
+  if (m.includes('dominio')) return 'Il dominio dell\'email non esiste o non riceve posta';
+  if (m.includes('email non configurata')) return 'Le impostazioni email non sono complete';
+  if (m.includes('invalid login') || m.includes('535')) return 'Email rifiutata: credenziali non valide';
+  if (m.includes('timeout') || m.includes('etimedout')) return 'Tempo scaduto: connessione lenta o assente';
+  if (m.includes('enotfound') || m.includes('econnrefused') || m.includes('network')) return 'Problema di collegamento a internet';
+  if (m.includes('recipient') || m.includes('550')) return 'Indirizzo email inesistente o rifiutato';
+  return 'Errore durante l\'invio';
+}
+
+$('#velo-dettagli').addEventListener('click', (e) => {
+  if (e.target.id === 'velo-dettagli') $('#velo-dettagli').classList.remove('visibile');
+});
+$('#btn-chiudi-dettagli').addEventListener('click', () => $('#velo-dettagli').classList.remove('visibile'));
+
+// «Rimetti in coda» chi è fallito per un problema di collegamento.
+// Delega sul contenitore, non onclick inline: il corpo della finestrella viene rigenerato
+// ogni volta, e i nomi con apostrofo romperebbero l'attributo.
+$('#dettagli-corpo').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-riprova]');
+  if (!b) return;
+  const id = b.dataset.riprova;
+  if (!confirm('Rimettere in coda i destinatari falliti per un problema di collegamento?\n\n' +
+               'Torneranno fra quelli «ancora da fare». Per inviare davvero il messaggio dovrai poi\n' +
+               'premere ▶️ Riprendi sull\'invio. Gli errori veri (numeri senza WhatsApp) restano come sono.')) return;
+  b.disabled = true;
+  try {
+    const res = await fetch('/api/campaigns/' + id + '/riprova-collegamento', { method: 'POST' });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      toast(`${d.rimessi} ${d.rimessi === 1 ? 'destinatario rimesso' : 'destinatari rimessi'} in coda: premi ▶️ per inviare`);
+      await apriDettagli(id);   // ricarica la finestrella con i numeri aggiornati
+      caricaCampagne();
+    } else {
+      toast(d.error || 'Operazione non riuscita');
+      b.disabled = false;
+    }
+  } catch {
+    toast('Operazione non riuscita: iStudio non risponde');
+    b.disabled = false;
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') $('#velo-dettagli').classList.remove('visibile');
+});
+
+// Pulsanti filtro canale
+document.querySelectorAll('.filtro-canale').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.filtro-canale').forEach((x) => x.classList.remove('attivo'));
+    b.classList.add('attivo');
+    filtroCanale = b.dataset.canale;
+    disegnaCampagne();
+  });
+});
+
+window.eliminaCampagna = async (id) => {
+  if (!confirm('Eliminare questo invio dalla cronologia?\nI messaggi già inviati ai destinatari non vengono toccati.')) return;
+  const res = await fetch('/api/campaigns/' + id, { method: 'DELETE' });
+  const data = await res.json();
+  if (!res.ok) return toast(data.error || 'Errore durante l\'eliminazione');
+  toast('Invio eliminato dalla cronologia');
+  caricaCampagne();
+};
+
+// ---- funzioni attivabili (chat on/off) ----
+let chatAttiva = true;
+
+function applicaVisibilitaChat() {
+  $('#nav-chat').style.display = chatAttiva ? '' : 'none';
+  $('#toggle-chat').checked = chatAttiva;
+  // se la chat è disattivata mentre è aperta, torna alle impostazioni
+  if (!chatAttiva && $('#scheda-chat').classList.contains('attiva')) vaiScheda('impostazioni');
+}
+
+async function caricaFunzioni() {
+  try {
+    const f = await (await fetch('/api/features')).json();
+    chatAttiva = f.chatEnabled;
+    applicaVisibilitaChat();
+  } catch {}
+}
+
+$('#toggle-chat').addEventListener('change', async (e) => {
+  chatAttiva = e.target.checked;
+  applicaVisibilitaChat();
+  await fetch('/api/features', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chatEnabled: chatAttiva }),
+  });
+  toast(chatAttiva ? 'Chat attivata' : 'Chat disattivata');
+});
+
+// ---- ritmo degli invii (Impostazioni) ----
+// I campi del riposo sono in MINUTI nell'interfaccia, ma il server li vuole in SECONDI.
+function caricaRitmoNeiCampi(a) {
+  $('#r-wa-pausa-min').value = a.wa_pausa_min;
+  $('#r-wa-pausa-max').value = a.wa_pausa_max;
+  $('#r-wa-riposo-ogni').value = a.wa_riposo_ogni;
+  $('#r-wa-riposo-min').value = +(a.wa_riposo_min / 60).toFixed(1);
+  $('#r-wa-riposo-max').value = +(a.wa_riposo_max / 60).toFixed(1);
+  $('#r-email-pausa-min').value = a.email_pausa_min;
+  $('#r-email-pausa-max').value = a.email_pausa_max;
+  // aggiorna anche la stima del tempo di invio con i valori attuali
+  RITMO.whatsapp.pausa = (a.wa_pausa_min + a.wa_pausa_max) / 2;
+  RITMO.whatsapp.riposoOgni = a.wa_riposo_ogni;
+  RITMO.whatsapp.riposo = (a.wa_riposo_min + a.wa_riposo_max) / 2;
+  RITMO.email.pausa = (a.email_pausa_min + a.email_pausa_max) / 2;
+  controllaAvvisoRitmo();
+}
+
+async function caricaRitmo() {
+  try {
+    const r = await (await fetch('/api/ritmo')).json();
+    caricaRitmoNeiCampi(r.attuale);
+    applicaStatoPause(r.disattivato);
+  } catch {}
+}
+
+// Mostra/nasconde lo stato "pause disattivate": interruttore, campi sbiaditi e avviso fisso
+function applicaStatoPause(disattivato) {
+  $('#toggle-pause').checked = !disattivato;
+  const blocco = $('#blocco-campi-pause');
+  blocco.classList.toggle('disabilitato', disattivato);
+  blocco.querySelectorAll('input, button').forEach((el) => { el.disabled = disattivato; });
+  $('#avviso-pause-disattivate').style.display = disattivato ? 'block' : 'none';
+}
+
+// Avviso rosso quando i tempi WhatsApp scendono sotto la soglia di sicurezza (non blocca)
+function controllaAvvisoRitmo() {
+  const pMin = parseFloat($('#r-wa-pausa-min').value);
+  const pMax = parseFloat($('#r-wa-pausa-max').value);
+  const ogni = parseFloat($('#r-wa-riposo-ogni').value);
+  const problemi = [];
+  if (pMin < 6) problemi.push('la pausa tra i messaggi è molto bassa (sotto i 6 secondi)');
+  else if (pMax < 8) problemi.push('la pausa massima tra i messaggi è bassa');
+  if (ogni > 100) problemi.push('il riposo scatta dopo troppi messaggi (oltre 100)');
+  const box = $('#avviso-ritmo-wa');
+  if (problemi.length) {
+    box.innerHTML = '⚠️ Attenzione: ' + problemi.join('; ')
+      + '. Tempi così bassi aumentano il rischio di blocco del numero. Puoi salvare lo stesso, ma è sconsigliato.';
+    box.style.display = 'block';
+  } else { box.style.display = 'none'; }
+}
+['r-wa-pausa-min', 'r-wa-pausa-max', 'r-wa-riposo-ogni'].forEach((id) =>
+  $('#' + id).addEventListener('input', controllaAvvisoRitmo));
+
+$('#btn-salva-ritmo').addEventListener('click', async () => {
+  const body = {
+    wa_pausa_min: $('#r-wa-pausa-min').value,
+    wa_pausa_max: $('#r-wa-pausa-max').value,
+    wa_riposo_ogni: $('#r-wa-riposo-ogni').value,
+    wa_riposo_min: (parseFloat($('#r-wa-riposo-min').value) || 0) * 60, // minuti → secondi
+    wa_riposo_max: (parseFloat($('#r-wa-riposo-max').value) || 0) * 60,
+    email_pausa_min: $('#r-email-pausa-min').value,
+    email_pausa_max: $('#r-email-pausa-max').value,
+  };
+  const res = await fetch('/api/ritmo', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const d = await res.json();
+  if (!res.ok) return toast(d.error || 'Errore nel salvataggio');
+  caricaRitmoNeiCampi(d.attuale);
+  toast('Pause salvate: valgono dal prossimo invio');
+});
+
+$('#btn-ripristina-ritmo').addEventListener('click', async () => {
+  if (!confirm('Ripristinare i valori consigliati delle pause?')) return;
+  const res = await fetch('/api/ritmo', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reset: true }),
+  });
+  const d = await res.json();
+  if (!res.ok) return toast(d.error || 'Errore');
+  caricaRitmoNeiCampi(d.attuale);
+  toast('Valori consigliati ripristinati');
+});
+
+// Interruttore "pause": spegnendolo i campi restano con i loro valori ma diventano
+// sbiaditi e non cliccabili; il server usa un ritmo quasi nullo finché resta spento.
+// Riaccendendolo tornano esattamente i valori numerici di prima (non li tocchiamo mai).
+$('#toggle-pause').addEventListener('change', async (e) => {
+  const vuoleDisattivare = !e.target.checked;
+  if (vuoleDisattivare && !confirm(
+    '⚠️ Le pause tra i messaggi sono la difesa principale contro il blocco del numero WhatsApp.\n\n'
+    + 'Disattivandole, i messaggi partiranno uno dietro l\'altro quasi senza attesa: il rischio di blocco aumenta molto.\n\n'
+    + 'Vuoi disattivarle comunque?')) {
+    e.target.checked = true; // annullato: l'interruttore torna acceso
+    return;
+  }
+  const res = await fetch('/api/ritmo', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ disattivato: vuoleDisattivare }),
+  });
+  const d = await res.json();
+  if (!res.ok) { e.target.checked = !vuoleDisattivare; return toast(d.error || 'Errore'); }
+  applicaStatoPause(d.disattivato);
+  toast(d.disattivato ? 'Pause disattivate: i messaggi partiranno quasi senza attesa' : 'Pause riattivate');
+});
+
+// ---- azioni di cancellazione (Impostazioni) ----
+async function aggiornaConteggiImpostazioni() {
+  try {
+    const d = await (await fetch('/api/dashboard')).json();
+    $('#conta-contatti').textContent = d.contatti.totale;
+    $('#conta-invii').textContent = d.invii.campagne;
+  } catch {}
+}
+
+$('#btn-svuota-rubrica').addEventListener('click', async () => {
+  const quanti = contatti.length;
+  if (!quanti) return toast('La rubrica è già vuota');
+  if (!confirm(`Vuoi eliminare TUTTI i ${quanti} contatti della rubrica?\n\nL'operazione NON si può annullare.`)) return;
+  if (!confirm('Conferma definitiva: i contatti verranno cancellati per sempre. Procedo?')) return;
+
+  const res = await fetch('/api/contacts', { method: 'DELETE' });
+  const d = await res.json();
+  if (!res.ok) return toast(d.error || 'Errore');
+  toast(`Rubrica svuotata: ${d.eliminati} contatti eliminati`);
+  paginaRubrica = 1;
+  await caricaContatti();
+  aggiornaConteggiImpostazioni();
+});
+
+$('#btn-svuota-cronologia').addEventListener('click', async () => {
+  if (!confirm('Vuoi eliminare TUTTA la cronologia degli invii?\n\nI messaggi già inviati ai destinatari non vengono toccati, ma lo storico sparirà.\nL\'operazione NON si può annullare.')) return;
+  if (!confirm('Conferma definitiva: la cronologia verrà cancellata per sempre. Procedo?')) return;
+
+  const res = await fetch('/api/campaigns', { method: 'DELETE' });
+  const d = await res.json();
+  if (!res.ok) return toast(d.error || 'Errore');
+  toast(`Cronologia svuotata: ${d.eliminati} invii eliminati`);
+  caricaCampagne();
+  caricaDashboard();
+  aggiornaConteggiImpostazioni();
+});
+
+// Riporta iStudio come appena installata: doppia conferma + parola da digitare
+$('#btn-reset-totale').addEventListener('click', async () => {
+  if (!confirm(
+    '⚠️ ATTENZIONE — INIZIALIZZAZIONE\n\n'
+    + 'Stai per riportare iStudio come appena installata. Verranno eliminati per SEMPRE:\n\n'
+    + '• TUTTI i contatti della rubrica\n'
+    + '• TUTTA la cronologia degli invii\n'
+    + '• i dati dell\'account email\n'
+    + '• il collegamento a WhatsApp (dovrai riscansionare il QR)\n\n'
+    + 'L\'operazione NON si può annullare. Se ti servono i contatti, prima esportali in CSV.')) return;
+
+  const parola = prompt('Ultima conferma.\nPer procedere, scrivi in maiuscolo la parola:\n\nINIZIALIZZA');
+  if (parola !== 'INIZIALIZZA') return toast('Inizializzazione annullata');
+
+  const res = await fetch('/api/reset-totale', { method: 'POST' });
+  const d = await res.json();
+  if (!res.ok) return toast(d.error || 'Errore durante l\'inizializzazione');
+  alert('✅ iStudio è stata inizializzata.\n\nLa pagina si ricarica. Vai in Impostazioni per ricollegare WhatsApp (QR) e reinserire i dati email.');
+  location.reload();
+});
+
+caricaFunzioni();
+caricaImpostazioniEmail();
+aggiornaConteggiImpostazioni();
+caricaRitmo();
+caricaContatti();
+caricaDashboard();
+caricaRichiesteCancellazione();
+// il server controlla le conversazioni ogni 10 minuti: qui si rilegge solo l'esito
+setInterval(caricaRichiesteCancellazione, 2 * 60 * 1000);
+</script>
+</body>
+</html>

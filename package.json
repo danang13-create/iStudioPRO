@@ -1,0 +1,16 @@
+{
+  "name": "istudio",
+  "version": "1.0.0",
+  "description": "iStudio — piattaforma per invio messaggi WhatsApp e newsletter email con gestione anagrafiche",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "express": "^4.21.2",
+    "nodemailer": "^9.0.3",
+    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.34.1"
+  }
+}
