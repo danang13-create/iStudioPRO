@@ -85,15 +85,21 @@ try {
   }
 
   # --- 5. installo ---
-  foreach ($f in 'server.js','package.json') {
-    $s = Join-Path $nuova $f
-    if (Test-Path $s) { Copy-Item $s (Join-Path $Base $f) -Force }
-  }
-  foreach ($c in 'public','Mac','Windows') {
-    $s = Join-Path $nuova $c
-    if (Test-Path $s) {
-      Remove-Item (Join-Path $Base $c) -Recurse -Force -ErrorAction SilentlyContinue
-      Copy-Item $s (Join-Path $Base $c) -Recurse -Force
+  # Si installa TUTTO quello che c'è nel pacchetto, tranne ciò che appartiene a questa
+  # installazione. Prima l'elenco era fisso, file per file: così però una versione con
+  # cartelle NUOVE non le avrebbe mai portate, perché a decidere è l'aggiornatore
+  # VECCHIO, che quelle cartelle non le conosce. Con l'elenco al contrario (cosa NON
+  # toccare) il problema non si ripresenta. Vedi la stessa nota nella versione Mac.
+  $daNonToccare = @('data.db','.wwebjs_auth','.wwebjs_cache','allegati-invii','node_modules',
+                    '.versione-precedente','VERSIONE.txt','aggiornamenti-di-questo-mac.txt','.git')
+  foreach ($e in Get-ChildItem $nuova -Force) {
+    if ($daNonToccare -contains $e.Name -or $e.Name -like 'data.db-*') { continue }
+    $dest = Join-Path $Base $e.Name
+    if ($e.PSIsContainer) {
+      Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue
+      Copy-Item $e.FullName $dest -Recurse -Force
+    } else {
+      Copy-Item $e.FullName $dest -Force
     }
   }
   

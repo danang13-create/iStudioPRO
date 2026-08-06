@@ -106,15 +106,29 @@ installa() {
   rm -rf "$destinazione.vecchio"
 }
 
-installa "$NUOVA/server.js"    "$BASE_DIR/server.js"
-installa "$NUOVA/public"       "$BASE_DIR/public"
-installa "$NUOVA/package.json" "$BASE_DIR/package.json"
-# Gli script di avvio/arresto: utile poterli correggere a distanza.
-# Le due cartelle per sistema operativo: si aggiornano intere.
-for c in Mac Windows; do
-  [ -d "$NUOVA/$c" ] && installa "$NUOVA/$c" "$BASE_DIR/$c"
+# Si installa TUTTO quello che c'è nel pacchetto, tranne ciò che appartiene a questa
+# installazione (dati e configurazione). Prima l'elenco era fisso, file per file: così
+# però una versione con cartelle NUOVE non le avrebbe mai portate, perché a decidere è
+# l'aggiornatore VECCHIO, che quelle cartelle non le conosce. È esattamente quello che
+# sarebbe successo passando da 2026.08.06.3 a .4, quando i comandi sono stati divisi in
+# «Mac» e «Windows»: l'installazione sarebbe rimasta metà vecchia e metà nuova, per sempre.
+# Con l'elenco al contrario (cosa NON toccare) il problema non si ripresenta.
+# Cosa NON si tocca: i dati del cliente, e i due file che dicono «chi sono» —
+# «aggiornamenti-di-questo-mac.txt» perché sovrascriverlo con un valore sbagliato
+# toglierebbe al cliente la possibilità stessa di ricevere correzioni, e VERSIONE.txt
+# perché lo scrive l'aggiornatore alla fine.
+# «assistenza-whatsapp.txt» e la chiave pubblica invece SÌ: sono roba
+# dell'amministratore, e se cambia numero o chiave i clienti devono riceverla.
+DA_NON_TOCCARE="data.db|data.db-.*|\.wwebjs_auth|\.wwebjs_cache|allegati-invii|node_modules|\.versione-precedente|VERSIONE\.txt|aggiornamenti-di-questo-mac\.txt|chrome-di-questo-mac\.txt|\.git"
+
+for elemento in "$NUOVA"/* "$NUOVA"/.[!.]*; do
+  [ -e "$elemento" ] || continue
+  nome="$(basename "$elemento")"
+  if printf '%s' "$nome" | grep -qE "^($DA_NON_TOCCARE)$"; then continue; fi
+  installa "$elemento" "$BASE_DIR/$nome"
 done
 chmod +x "$BASE_DIR/Mac/"*.command "$BASE_DIR/Mac/"*.sh 2>/dev/null
+chmod +x "$BASE_DIR"/*.command 2>/dev/null
 
 # --- 6. librerie, se sono cambiate ---
 if ! cmp -s "$BACKUP/package.json" "$BASE_DIR/package.json" 2>/dev/null; then
