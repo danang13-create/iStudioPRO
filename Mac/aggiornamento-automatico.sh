@@ -40,18 +40,29 @@ fi
 VERSIONE_LOCALE="$(tr -d ' \r\n' < "$BASE_DIR/VERSIONE.txt" 2>/dev/null)"
 
 # --- 1. c'è una versione più nuova? (poca attesa: non si tiene fermo l'avvio) ---
-VERSIONE_REMOTA="$(curl -fsS -m 15 "$URL_VERSIONE" 2>/dev/null | tr -d ' \r\n')"
+VERSIONE_REMOTA="$(curl -fsS -m 15 -H "Cache-Control: no-cache" "$URL_VERSIONE" 2>/dev/null | tr -d ' \r\n')"
 if [ -z "$VERSIONE_REMOTA" ]; then
   echo "   (nessun aggiornamento: non riesco a contattare il deposito, va bene lo stesso)"
   exit 0
 fi
 [ "$VERSIONE_REMOTA" = "$VERSIONE_LOCALE" ] && exit 0
 
-# Il confronto è «diversa», non «più recente», ed è voluto: così ripubblicando una
-# versione precedente si fa tornare indietro tutti i clienti in un colpo solo, che è
-# il modo più rapido di rimediare a un rilascio sbagliato. Il messaggio quindi non
-# promette «una versione più nuova»: dice solo che ci si allinea a quella pubblicata.
-echo "⏳ La versione pubblicata è $VERSIONE_REMOTA, qui c'è la ${VERSIONE_LOCALE:-sconosciuta}. Mi allineo…"
+# Si aggiorna SOLO se la versione pubblicata è più recente, mai all'indietro.
+# All'inizio il confronto era «diversa», per poter far tornare indietro tutti i clienti
+# ripubblicando una versione vecchia. Provandolo si è visto che non regge: l'indirizzo
+# «grezzo» di GitHub tiene in cache il file per qualche minuto, quindi subito dopo una
+# pubblicazione serve ancora la versione precedente — e un cliente appena aggiornato
+# retrocedeva da solo. È successo davvero, il 6 agosto 2026.
+# Per rimediare a un rilascio sbagliato si pubblica un numero NUOVO col codice vecchio:
+# è come fanno tutti, e non ha questo problema.
+piu_recente() {   # $1 > $2 ?
+  [ "$1" = "$2" ] && return 1
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -1)" = "$1" ]
+}
+if [ -n "$VERSIONE_LOCALE" ] && ! piu_recente "$VERSIONE_REMOTA" "$VERSIONE_LOCALE"; then
+  exit 0   # online c'è una versione più vecchia (di solito la cache di GitHub): si ignora
+fi
+echo "⏳ È disponibile la versione $VERSIONE_REMOTA (qui c'è la ${VERSIONE_LOCALE:-sconosciuta}). La scarico…"
 
 # --- 2. scarico ed estraggo in una cartella temporanea ---
 TMP="$(mktemp -d)"
@@ -138,5 +149,5 @@ if ! cmp -s "$BACKUP/package.json" "$BASE_DIR/package.json" 2>/dev/null; then
 fi
 
 printf '%s\n' "$VERSIONE_REMOTA" > "$BASE_DIR/VERSIONE.txt"
-echo "   ✅ Ora è alla versione $VERSIONE_REMOTA."
+echo "   ✅ Aggiornata alla versione $VERSIONE_REMOTA."
 exit 10

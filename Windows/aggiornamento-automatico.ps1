@@ -27,16 +27,34 @@ $Locale = if (Test-Path $fileVersione) { (Get-Content $fileVersione -Raw).Trim()
 
 # --- 1. c'è una versione diversa? (poca attesa: non si tiene fermo l'avvio) ---
 try {
-  $Remota = (Invoke-WebRequest -Uri $UrlVersione -UseBasicParsing -TimeoutSec 15).Content.Trim()
+  $Remota = (Invoke-WebRequest -Uri $UrlVersione -UseBasicParsing -TimeoutSec 15 -Headers @{ "Cache-Control" = "no-cache" }).Content.Trim()
 } catch {
   Write-Host '   (nessun aggiornamento: non riesco a contattare il deposito, va bene lo stesso)'
   return 0
 }
 if (-not $Remota -or $Remota -eq $Locale) { return 0 }
 
-# Il confronto è «diversa», non «più recente», ed è voluto: ripubblicando una versione
-# precedente si fa tornare indietro tutti i clienti in un colpo solo.
-Write-Host "La versione pubblicata e' $Remota, qui c'e' la $Locale. Mi allineo..."
+# Si aggiorna SOLO se la versione pubblicata è più recente, mai all'indietro.
+# All'inizio il confronto era «diversa», per poter far tornare indietro i clienti
+# ripubblicando una versione vecchia. Non regge: l'indirizzo «grezzo» di GitHub tiene
+# in cache il file per qualche minuto, quindi subito dopo una pubblicazione serve
+# ancora la versione precedente, e un cliente appena aggiornato retrocede da solo.
+# Per rimediare a un rilascio sbagliato si pubblica un numero NUOVO col codice vecchio.
+function PiuRecente($a, $b) {
+  $x = @($a -split '\.' | ForEach-Object { [int]$_ })
+  $y = @($b -split '\.' | ForEach-Object { [int]$_ })
+  for ($i = 0; $i -lt [Math]::Max($x.Count, $y.Count); $i++) {
+    $vx = if ($i -lt $x.Count) { $x[$i] } else { 0 }
+    $vy = if ($i -lt $y.Count) { $y[$i] } else { 0 }
+    if ($vx -gt $vy) { return $true }
+    if ($vx -lt $vy) { return $false }
+  }
+  return $false
+}
+if ($Locale) {
+  try { if (-not (PiuRecente $Remota $Locale)) { return 0 } } catch { return 0 }
+}
+Write-Host "E' disponibile la versione $Remota (qui c'e' la $Locale). La scarico..."
 
 $Tmp = Join-Path $env:TEMP ("istudio-agg-" + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Tmp -Force | Out-Null
@@ -118,7 +136,7 @@ try {
   }
 
   Set-Content -Path $fileVersione -Value $Remota -NoNewline
-  Write-Host "   Ora e' alla versione $Remota." -ForegroundColor Green
+  Write-Host "   Aggiornata alla versione $Remota." -ForegroundColor Green
   return 10
 } finally {
   Remove-Item $Tmp -Recurse -Force -ErrorAction SilentlyContinue
