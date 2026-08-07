@@ -134,6 +134,10 @@ try {
   Ok 'fatto'
 
   # --- 4. Avvio ---
+  # Lascia in vista solo «Avvia» e «Ferma»: il resto e' roba tecnica che confonde.
+  $rio = Join-Path $Destinazione 'Windows\riordina-cartella.ps1'
+  if (Test-Path $rio) { try { & $rio $Destinazione } catch { } }
+
   Passo '[4/4] Avvio iStudio...'
   Write-Host ''
   & (Join-Path $Destinazione 'Windows\avvia.ps1')

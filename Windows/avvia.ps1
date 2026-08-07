@@ -38,6 +38,11 @@ if (PortaOccupata) {
     try { if ((& $agg) -eq 10) { $Aggiornata = $true } } catch { }
   }
 
+  # Sulle copie dei clienti rimette in ordine la cartella: dopo un aggiornamento
+  # i file appena arrivati tornerebbero visibili. Sulle altre non fa niente.
+  $rio = Join-Path $PSScriptRoot 'riordina-cartella.ps1'
+  if (Test-Path $rio) { try { & $rio $Base } catch { } }
+
   Write-Host 'Avvio iStudio...'
   if (Accendi) {
     Write-Host 'iStudio e'' partita.' -ForegroundColor Green

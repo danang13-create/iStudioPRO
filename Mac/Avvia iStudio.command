@@ -51,6 +51,10 @@ else
     [ $? -eq 10 ] && AGGIORNATA=1
   fi
 
+  # Sulle copie dei clienti rimette in ordine la cartella: dopo un aggiornamento
+  # i file appena arrivati tornerebbero visibili. Sulle altre non fa niente.
+  [ -x "$ISTUDIO_DIR/Mac/riordina-cartella.sh" ] && "$ISTUDIO_DIR/Mac/riordina-cartella.sh" "$ISTUDIO_DIR"
+
   echo "⏳ Avvio iStudio…"
   if accendi; then
     echo "✅ iStudio è partita."

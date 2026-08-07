@@ -119,6 +119,9 @@ fi
 echo "   ✅ fatto"
 
 # --- 4. Avvio ---
+# Lascia in vista solo «Avvia» e «Ferma»: il resto è roba tecnica che confonde.
+[ -x "$DESTINAZIONE/Mac/riordina-cartella.sh" ] && "$DESTINAZIONE/Mac/riordina-cartella.sh" "$DESTINAZIONE"
+
 echo "⏳ [4/4] Avvio iStudio…"
 echo
 if ! "$DESTINAZIONE/Mac/Avvia iStudio.command"; then
