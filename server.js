@@ -245,10 +245,14 @@ async function avviaBrowser() {
     await client.initialize();
   } catch (err) {
     if (!nonRiesceAdAprireIlBrowser(err.message) || process.env.PUPPETEER_EXECUTABLE_PATH) throw err;
-    const alternativo = browserDiSistema();
+
+    // 1) un browser già installato sul computer
+    let alternativo = browserDiSistema();
+    // 2) altrimenti se ne scarica uno compatibile (Mac datati: vedi la funzione)
+    if (!alternativo) alternativo = await scaricaBrowserCompatibile();
     if (!alternativo) {
-      throw new Error('Il browser incluso non parte su questo computer e non ne trovo altri. ' +
-        'Installa Google Chrome da google.com/chrome e riprova.');
+      throw new Error('Il browser incluso non parte su questo computer e non riesco a ' +
+        'procurarne un altro. Controlla la connessione a internet e riprova.');
     }
     console.log(`Il browser incluso non parte. Provo con: ${alternativo}`);
     client.options.puppeteer.executablePath = alternativo;
@@ -322,6 +326,45 @@ function browserDiSistema() {
         '/Applications/Chromium.app/Contents/MacOS/Chromium',
       ];
   return candidati.find((p) => p && fs.existsSync(p)) || null;
+}
+
+// Ultima risorsa per i computer dove il browser incluso non parte e non ce n'è nessun
+// altro installato. Succede sui Mac con macOS datato (Catalina 10.15 e simili): le
+// versioni recenti di Chrome non ci girano più, e l'ultima compatibile è la 128.
+// Si scarica una volta sola (~150 MB) e resta lì per gli avvii successivi.
+// Solo su Mac Intel: su Apple Silicon e su Windows il browser incluso funziona.
+const VERSIONE_CHROME_COMPATIBILE = '128.0.6613.137';
+
+async function scaricaBrowserCompatibile() {
+  if (process.platform !== 'darwin') return null;
+  const cartella = path.join(os.homedir(), '.cache', 'istudio-chrome');
+  const eseguibile = path.join(cartella,
+    'chrome-mac-x64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing');
+  if (fs.existsSync(eseguibile)) return eseguibile;
+
+  const url = `https://storage.googleapis.com/chrome-for-testing-public/${VERSIONE_CHROME_COMPATIBILE}/mac-x64/chrome-mac-x64.zip`;
+  console.log('Nessun browser utilizzabile su questo computer: ne scarico uno compatibile ' +
+    '(~150 MB, una volta sola). Ci vorrà qualche minuto…');
+  try {
+    fs.mkdirSync(cartella, { recursive: true });
+    const zip = path.join(cartella, 'chrome.zip');
+    // -L segue i reindirizzamenti; il tempo massimo è alto perché il file è grosso
+    execFileSync('curl', ['-fsSL', '--max-time', '900', url, '-o', zip], { stdio: 'ignore' });
+    // ditto e non unzip: conserva i permessi e la struttura dell'applicazione,
+    // senza i quali il browser non parte.
+    execFileSync('ditto', ['-x', '-k', zip, cartella], { stdio: 'ignore' });
+    fs.unlinkSync(zip);
+    if (fs.existsSync(eseguibile)) {
+      // macOS blocca ciò che arriva da internet finché non gli si toglie il marchio.
+      try { execFileSync('xattr', ['-dr', 'com.apple.quarantine', cartella], { stdio: 'ignore' }); } catch {}
+      console.log('Browser compatibile scaricato.');
+      return eseguibile;
+    }
+    console.error('Il browser scaricato non è dove me lo aspettavo.');
+  } catch (e) {
+    console.error('Non sono riuscito a scaricare il browser compatibile:', e.message);
+  }
+  return null;
 }
 
 function nonRiesceAdAprireIlBrowser(messaggio) {
