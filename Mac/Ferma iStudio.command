@@ -1,10 +1,20 @@
 #!/bin/bash
 # Ferma la piattaforma iStudio
 
-# Cartella e porta: quelle di sempre. Si possono cambiare solo impostando ISTUDIO_DIR e
-# ISTUDIO_PORT prima di lanciare lo script, e serve unicamente per le prove su copie
-# isolate — senza, «Ferma la prova» spegnerebbe la iStudio VERA sulla 3100.
-ISTUDIO_DIR="${ISTUDIO_DIR:-$HOME/Documents/iStudio}"
+# Ogni copia comanda SÉ STESSA: la cartella si ricava da dove sta questo script, non
+# da un percorso fisso. Prima era scritto dentro «$HOME/Documents/iStudio», e allora
+# il «Ferma» di una copia messa altrove spegneva la iStudio di Documenti — cioè
+# un'ALTRA installazione, magari nel bel mezzo di un invio.
+# Due posizioni possibili, ed è giusto che siano entrambe: questo script vive in «Mac»,
+# ma sulle copie dei clienti «riordina-cartella.sh» mette anche un richiamo di una riga
+# nella cartella principale, che però entra qui dentro prima di eseguirlo.
+# ISTUDIO_DIR resta rispettata se qualcuno la imposta da fuori (serve alle prove), e se
+# lo script finisse in un posto irriconoscibile si torna al percorso di sempre.
+QUI="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$QUI/server.js" ]; then       PROPRIA="$QUI"
+elif [ -f "$QUI/../server.js" ]; then  PROPRIA="$(cd "$QUI/.." && pwd)"
+else                                   PROPRIA="$HOME/Documents/iStudio"; fi
+ISTUDIO_DIR="${ISTUDIO_DIR:-$PROPRIA}"
 # Stessa regola dell'avvio: le copie cliente stanno sulla 3200.
 if [ -f "$ISTUDIO_DIR/copia-cliente.txt" ]; then PREDEFINITA=3200; else PREDEFINITA=3100; fi
 PORTA="${ISTUDIO_PORT:-$PREDEFINITA}"

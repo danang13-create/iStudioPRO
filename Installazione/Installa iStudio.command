@@ -124,7 +124,12 @@ echo "   ✅ fatto"
 
 echo "⏳ [4/4] Avvio iStudio…"
 echo
-if ! "$DESTINAZIONE/Mac/Avvia iStudio.command"; then
+# ISTUDIO_DIR va passato per forza: senza, «Avvia» ripiega sul suo valore predefinito
+# ($HOME/Documents/iStudio) e accende UN'ALTRA iStudio invece di quella appena
+# installata. Se su quel Mac ce n'è già una accesa, scrive perfino «è già avviata» e
+# l'installazione si dichiara riuscita mentre la copia nuova non è mai partita.
+# Con la destinazione predefinita i due valori coincidono e non cambia niente.
+if ! ISTUDIO_DIR="$DESTINAZIONE" "$DESTINAZIONE/Mac/Avvia iStudio.command"; then
   echo "   ⚠️  Non è partita. Apri Documenti → iStudio e fai doppio click su «Mac → Avvia iStudio»."
   read -r -p "Premi Invio per chiudere…"; exit 1
 fi
@@ -136,8 +141,9 @@ echo "════════════════════════�
 echo
 echo "Nel browser si è aperta la pagina di iStudio. Da qui:"
 echo
-echo "  1. Registrati con i tuoi dati e scegli utente e password"
-echo "  2. Aspetta: quando l'amministratore ti attiva, la pagina si sblocca da sola"
+echo "  1. Trovi il tuo CODICE INSTALLAZIONE (tipo IST-4K7P-9XQ2): comunicalo a chi"
+echo "     ti ha fornito iStudio, con il pulsante che apre WhatsApp già compilato"
+echo "  2. Ti arriva un seriale: incollalo nel riquadro e premi Attiva"
 echo "  3. Poi vai in Impostazioni e collega WhatsApp inquadrando il QR col telefono"
 echo
 echo "D'ora in poi, per usare iStudio: Documenti → iStudio → Mac → «Avvia iStudio»."

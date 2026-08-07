@@ -2,10 +2,21 @@
 # Avvia la piattaforma iStudio e apre la pagina nel browser
 export PATH="$HOME/.local/node/bin:$PATH"
 
-# La cartella di iStudio. Resta quella di sempre; si può cambiare solo impostando
-# ISTUDIO_DIR prima di lanciare lo script, cosa che serve unicamente per le prove
-# su copie isolate (vedi NOTE-TECNICHE.md).
-ISTUDIO_DIR="${ISTUDIO_DIR:-$HOME/Documents/iStudio}"
+# Ogni copia avvia SÉ STESSA: la cartella si ricava da dove sta questo script, non da
+# un percorso fisso. Prima era scritto dentro «$HOME/Documents/iStudio», e allora una
+# copia messa altrove avviava la iStudio di Documenti — cioè un'ALTRA installazione —
+# e dichiarava perfino di essere partita. Vale anche per il cliente che sposta la
+# cartella sulla Scrivania o dentro OneDrive: prima si rompeva tutto senza spiegazioni.
+# Due posizioni possibili, ed è giusto che siano entrambe: questo script vive in «Mac»,
+# ma sulle copie dei clienti «riordina-cartella.sh» mette anche un richiamo di una riga
+# nella cartella principale, che però entra qui dentro prima di eseguirlo.
+# ISTUDIO_DIR resta rispettata se qualcuno la imposta da fuori (serve alle prove), e se
+# lo script finisse in un posto irriconoscibile si torna al percorso di sempre.
+QUI="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$QUI/server.js" ]; then       PROPRIA="$QUI"
+elif [ -f "$QUI/../server.js" ]; then  PROPRIA="$(cd "$QUI/.." && pwd)"
+else                                   PROPRIA="$HOME/Documents/iStudio"; fi
+ISTUDIO_DIR="${ISTUDIO_DIR:-$PROPRIA}"
 # Le copie dei clienti vivono sulla 3200, quelle di sviluppo sulla 3100. Così le due
 # possono stare accese sullo stesso Mac senza darsi fastidio: prima una copia cliente
 # installata accanto alla iStudio di lavoro non partiva, perché trovava la porta occupata.
