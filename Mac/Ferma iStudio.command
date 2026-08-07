@@ -5,7 +5,9 @@
 # ISTUDIO_PORT prima di lanciare lo script, e serve unicamente per le prove su copie
 # isolate — senza, «Ferma la prova» spegnerebbe la iStudio VERA sulla 3100.
 ISTUDIO_DIR="${ISTUDIO_DIR:-$HOME/Documents/iStudio}"
-PORTA="${ISTUDIO_PORT:-3100}"
+# Stessa regola dell'avvio: le copie cliente stanno sulla 3200.
+if [ -f "$ISTUDIO_DIR/copia-cliente.txt" ]; then PREDEFINITA=3200; else PREDEFINITA=3100; fi
+PORTA="${ISTUDIO_PORT:-$PREDEFINITA}"
 
 PIDS=$(lsof -ti :$PORTA 2>/dev/null)
 

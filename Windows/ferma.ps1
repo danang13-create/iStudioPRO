@@ -1,7 +1,9 @@
 # Ferma iStudio su Windows. Equivalente di «Ferma iStudio.command».
 # Non si lancia a mano: ci pensa «Ferma iStudio.bat» (doppio click).
 $Base = Split-Path -Parent $PSScriptRoot
-$Porta = if ($env:ISTUDIO_PORT) { [int]$env:ISTUDIO_PORT } else { 3100 }
+# Stessa regola dell'avvio: le copie cliente stanno sulla 3200.
+$Predefinita = if (Test-Path (Join-Path $Base 'copia-cliente.txt')) { 3200 } else { 3100 }
+$Porta = if ($env:ISTUDIO_PORT) { [int]$env:ISTUDIO_PORT } else { $Predefinita }
 
 function PidSullaPorta {
   # L'ultima colonna di netstat è il numero di processo.

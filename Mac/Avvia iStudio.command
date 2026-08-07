@@ -6,7 +6,11 @@ export PATH="$HOME/.local/node/bin:$PATH"
 # ISTUDIO_DIR prima di lanciare lo script, cosa che serve unicamente per le prove
 # su copie isolate (vedi NOTE-TECNICHE.md).
 ISTUDIO_DIR="${ISTUDIO_DIR:-$HOME/Documents/iStudio}"
-PORTA="${ISTUDIO_PORT:-3100}"
+# Le copie dei clienti vivono sulla 3200, quelle di sviluppo sulla 3100. Così le due
+# possono stare accese sullo stesso Mac senza darsi fastidio: prima una copia cliente
+# installata accanto alla iStudio di lavoro non partiva, perché trovava la porta occupata.
+if [ -f "$ISTUDIO_DIR/copia-cliente.txt" ]; then PREDEFINITA=3200; else PREDEFINITA=3100; fi
+PORTA="${ISTUDIO_PORT:-$PREDEFINITA}"
 cd "$ISTUDIO_DIR" || exit 1
 
 # Chrome personalizzato per QUESTO computer (facoltativo).

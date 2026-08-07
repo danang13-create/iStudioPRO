@@ -116,6 +116,8 @@ Negli ultimi 7 giorni compare un avviso in cima alla pagina che te lo ricorda.
 | WhatsApp risulta scollegato | Impostazioni → **🔄 Ripristina collegamento WhatsApp** |
 | Su Windows, non parte niente | cartella **Windows** → doppio clic su **`Diagnostica.bat`**: copia negli appunti un resoconto da mandare a chi ti assiste |
 
+iStudio si apre all'indirizzo **http://localhost:3200**.
+
 Registro tecnico degli errori: su Mac `~/Library/Logs/istudio.log`, su Windows
 `%LOCALAPPDATA%\istudio.log`.
 

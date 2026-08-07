@@ -5,7 +5,10 @@ $ErrorActionPreference = 'Stop'
 
 # La cartella di iStudio è quella che contiene questa cartella «windows».
 $Base = Split-Path -Parent $PSScriptRoot
-$Porta = if ($env:ISTUDIO_PORT) { [int]$env:ISTUDIO_PORT } else { 3100 }
+# Le copie dei clienti vivono sulla 3200, quelle di sviluppo sulla 3100: così le due
+# possono stare accese sullo stesso computer senza darsi fastidio.
+$Predefinita = if (Test-Path (Join-Path $Base 'copia-cliente.txt')) { 3200 } else { 3100 }
+$Porta = if ($env:ISTUDIO_PORT) { [int]$env:ISTUDIO_PORT } else { $Predefinita }
 $CartellaNode = Join-Path $env:LOCALAPPDATA 'istudio-node'
 $env:Path = "$CartellaNode;$env:Path"
 $Registro = Join-Path $env:LOCALAPPDATA 'istudio.log'
@@ -17,6 +20,9 @@ function PortaOccupata {
 }
 
 function Accendi {
+  # La porta va passata al programma, non solo controllata: senza questa riga node
+  # partiva sempre sulla 3100 mentre lo script controllava un'altra porta.
+  $env:PORT = "$Porta"
   Start-Process -FilePath (Join-Path $CartellaNode 'node.exe') `
     -ArgumentList 'server.js' -WorkingDirectory $Base -WindowStyle Hidden `
     -RedirectStandardOutput $Registro -RedirectStandardError "$Registro.err"
