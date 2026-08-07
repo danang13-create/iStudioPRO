@@ -193,8 +193,27 @@ echo "   ✅ fatto"
 # L'app NON contiene iStudio: apre quella installata, quindi gli aggiornamenti valgono
 # subito e il collegamento non va rifatto.
 crea_collegamento() {
-  local nome="$(basename "$DESTINAZIONE")"
+  # Due nomi diversi, e vanno tenuti separati:
+  #  - «cartella» è dove sta iStudio, e serve al lanciatore per ritrovarla;
+  #  - «nome» è la scritta sotto l'icona, che è un'altra cosa.
+  local cartella="$(basename "$DESTINAZIONE")"
+  # Stessa regola del bollino in alto a sinistra (`edizione` in /api/status): decide
+  # «copia-cliente.txt». Così la Scrivania e il programma non possono mai dire il
+  # contrario l'uno dell'altro.
+  local nome="iStudio"
+  [ -f "$DESTINAZIONE/copia-cliente.txt" ] && nome="iStudio PRO"
+
   local app="$HOME/Desktop/$nome.app"
+  # Due installazioni sullo stesso Mac avrebbero lo stesso nome, e la seconda
+  # cancellerebbe in silenzio il collegamento della prima — che resterebbe lì a puntare
+  # alla cartella sbagliata. Se il nome è già preso da un collegamento verso un'ALTRA
+  # cartella, si distingue. Se punta alla stessa, lo si rifà e basta.
+  if [ -f "$app/Contents/MacOS/avvia" ] && \
+     ! grep -q "^CARTELLA=\"$DESTINAZIONE\"$" "$app/Contents/MacOS/avvia" 2>/dev/null; then
+    nome="$nome — $cartella"
+    app="$HOME/Desktop/$nome.app"
+  fi
+
   rm -rf "$app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" || return 1
 
@@ -223,7 +242,7 @@ PLIST
   cat > "$app/Contents/MacOS/avvia" <<LANCIA
 #!/bin/bash
 CARTELLA="$DESTINAZIONE"
-[ -d "\$CARTELLA" ] || CARTELLA="\$HOME/Documents/$nome"
+[ -d "\$CARTELLA" ] || CARTELLA="\$HOME/Documents/$cartella"
 AVVIO="\$CARTELLA/Mac/Avvia iStudio.command"
 if [ ! -x "\$AVVIO" ]; then
   osascript -e 'display alert "Non trovo iStudio" message "La cartella di iStudio è stata spostata o rinominata. Aprila e fai doppio click su «Avvia iStudio»." as critical'
@@ -241,12 +260,13 @@ LANCIA
   # Il Finder tiene in cache le icone: senza un tocco alla cartella .app a volte
   # continua a mostrare quella generica finché non si riavvia.
   touch "$app"
+  NOME_COLLEGAMENTO="$nome"      # serve al messaggio qui sotto
   [ -x "$app/Contents/MacOS/avvia" ]
 }
 
 echo "⏳ [4/5] Metto il collegamento sulla Scrivania…"
 if crea_collegamento; then
-  echo "   ✅ fatto: «$(basename "$DESTINAZIONE")» sulla Scrivania"
+  echo "   ✅ fatto: «$NOME_COLLEGAMENTO» sulla Scrivania"
 else
   # Non è un motivo per fermare l'installazione: iStudio funziona lo stesso, si apre
   # dalla sua cartella. Meglio dirlo e proseguire che far fallire tutto per un'icona.

@@ -15,7 +15,7 @@ Funziona sul tuo Mac: i dati restano qui, non su server esterni.
 
 ## Avviare e fermare
 
-**Il modo più comodo:** dopo l'installazione trovi **l'icona di iStudio sulla Scrivania**.
+**Il modo più comodo:** dopo l'installazione trovi sulla Scrivania l'icona **iStudio PRO**.
 Doppio click e si apre da sola nel browser. Non è una copia del programma, è solo un
 collegamento: gli aggiornamenti arrivano lo stesso e non va mai rifatto.
 
