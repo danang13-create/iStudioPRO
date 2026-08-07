@@ -978,7 +978,8 @@ button:hover{background:#128c7e}button:disabled{background:#a8d5bd;cursor:defaul
 .scelta button{margin-top:0;flex:1}
 .oppure{text-align:center;color:#8696a0;font-size:.8rem;margin:20px 0 14px;position:relative}
 .oppure::before,.oppure::after{content:'';position:absolute;top:50%;width:36%;height:1px;background:#e0e4e8}
-.oppure::before{left:0}.oppure::after{right:0}</style></head>
+.oppure::before{left:0}.oppure::after{right:0}
+</style></head>
 <body><div class="box">
 <h1>iStudio</h1>
 <div id="corpo"><p style="text-align:center">Un attimo…</p></div>
@@ -1001,8 +1002,7 @@ async function mostra() {
       '<button id="btn-chiedi">' + (scaduto ? 'Richiedi il rinnovo' : 'Richiedi attivazione') + '</button>' +
       '</div><p style="font-size:.83rem;margin:6px 0 0">' +
       (s.assistenzaEmail
-        ? 'Si apre la posta con l\\'email già pronta: dentro c\\'è tutto, ' +
-          'devi solo inviarla.'
+        ? 'Si apre l\\'email già scritta, con dentro tutto: devi solo inviarla.'
         : 'Si apre WhatsApp con il messaggio già pronto, codice compreso: devi solo premere invio.') +
       '</p><div class="oppure">poi, quando ricevi il seriale</div>'
     : '<p>Comunica questo codice a chi ti ha fornito iStudio, poi incolla qui sotto il seriale che ricevi:</p>';
@@ -1030,12 +1030,35 @@ async function mostra() {
     if (s.versione) righe.push('Versione installata: ' + s.versione);
     righe.push('', 'Grazie!');
     if (s.assistenzaEmail) {
-      // location.href e non window.open: con un mailto quest'ultimo lascia aperta una
-      // scheda vuota anche quando la posta parte, e sembra che sia andato storto qualcosa.
       const ogg = (scaduto ? 'Rinnovo' : 'Attivazione') + ' iStudio — ' + s.codice;
+      const testo = righe.join('\\n');
+      // Si prova PRIMA la posta del computer: è la strada giusta e rispetta il programma
+      // che l'utente ha scelto, qualunque sia. Ma «mailto:» può non fare NIENTE, in
+      // silenzio e senza errori — succede quando il gestore delle email è il browser e
+      // dentro non c'è nessuna webmail registrata. Capitato davvero il 7 agosto 2026 su
+      // un Mac con Chrome come gestore e Mail mai configurata: il pulsante sembrava rotto.
+      // Non esiste un modo pulito per sapere se «mailto:» ha funzionato. Il segnale
+      // pratico è il fuoco: se si apre qualcosa, questa finestra lo perde. Se dopo un
+      // secondo e mezzo siamo ancora qui, non si è aperto niente e si passa a Gmail sul
+      // browser, che una finestra di composizione la apre di sicuro.
+      let postaAperta = false;
+      const perdutoIlFuoco = () => { postaAperta = true; };
+      window.addEventListener('blur', perdutoIlFuoco, { once: true });
       location.href = 'mailto:' + s.assistenzaEmail +
-        '?subject=' + encodeURIComponent(ogg) +
-        '&body=' + encodeURIComponent(righe.join('\\n'));
+        '?subject=' + encodeURIComponent(ogg) + '&body=' + encodeURIComponent(testo);
+      setTimeout(() => {
+        window.removeEventListener('blur', perdutoIlFuoco);
+        // Si guarda SOLO se la finestra ha perso il fuoco, cioè se qualcosa si è
+        // davvero aperto. Non si controlla anche document.hasFocus(): in caso di
+        // dubbio quel controllo faceva uscire senza fare niente, che è precisamente
+        // il guasto da riparare. Meglio sbagliare aprendo una scheda di troppo — si
+        // chiude — che lasciare un pulsante muto, dove l'utente non sa cosa fare.
+        if (postaAperta) return;
+        window.open('https://mail.google.com/mail/?view=cm&fs=1' +
+          '&to=' + encodeURIComponent(s.assistenzaEmail) +
+          '&su=' + encodeURIComponent(ogg) +
+          '&body=' + encodeURIComponent(testo), '_blank', 'noopener');
+      }, 1500);
     } else {
       window.open('https://wa.me/' + s.assistenza + '?text=' + encodeURIComponent(righe.join('\\n')),
                   '_blank', 'noopener');

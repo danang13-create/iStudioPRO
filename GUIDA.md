@@ -210,8 +210,10 @@ Puoi rinnovare **anche prima della scadenza**: il nuovo periodo sostituisce quel
 Negli ultimi 7 giorni compare in cima a ogni pagina una fascia gialla che te lo ricorda.
 
 > **Come si chiede il seriale.** Alla **prima attivazione** il pulsante «Richiedi attivazione»
-> apre il programma di posta con l'**email già scritta**: dentro c'è tutto — durata scelta,
-> codice installazione e versione — devi solo inviarla. Per i **rinnovi** successivi il
+> apre l'**email già scritta**: dentro c'è tutto — durata scelta, codice installazione e
+> versione — devi solo inviarla. Prova prima il programma di posta del computer; se su quel
+> computer non ce n'è uno configurato apre da sola Gmail nel browser, così l'email si apre
+> comunque. Per i **rinnovi** successivi il
 > pulsante apre invece **WhatsApp** col messaggio pronto, così la richiesta va nella
 > conversazione che hai già. In tutti e due i casi il codice installazione lo scrive il
 > programma: non ricopiarlo a mano, una lettera storta rende il seriale inservibile.
