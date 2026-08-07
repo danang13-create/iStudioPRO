@@ -209,6 +209,13 @@ Dentro trovi:
 Puoi rinnovare **anche prima della scadenza**: il nuovo periodo sostituisce quello in corso.
 Negli ultimi 7 giorni compare in cima a ogni pagina una fascia gialla che te lo ricorda.
 
+> **Come si chiede il seriale.** Alla **prima attivazione** il pulsante «Richiedi attivazione»
+> apre il programma di posta con l'**email già scritta**: dentro c'è tutto — durata scelta,
+> codice installazione e versione — devi solo inviarla. Per i **rinnovi** successivi il
+> pulsante apre invece **WhatsApp** col messaggio pronto, così la richiesta va nella
+> conversazione che hai già. In tutti e due i casi il codice installazione lo scrive il
+> programma: non ricopiarlo a mano, una lettera storta rende il seriale inservibile.
+
 > Se l'abbonamento scade, iStudio si blocca ma **non perdi niente**: contatti, cronologia e
 > collegamento WhatsApp restano dove sono, e appena inserisci il seriale nuovo ritrovi tutto
 > come lo avevi lasciato.

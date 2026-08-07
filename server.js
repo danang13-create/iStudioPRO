@@ -855,6 +855,18 @@ function numeroAssistenza() {
   } catch { return null; }
 }
 
+// Indirizzo email dell'assistenza, e da qui in poi la via principale per chiedere
+// l'attivazione. **Ha la precedenza sul numero WhatsApp**, e non è un dettaglio:
+// l'aggiornamento non cancella i file spariti dal pacchetto, quindi sui clienti già
+// installati «assistenza-whatsapp.txt» resta lì per sempre. Senza una precedenza
+// esplicita continuerebbero a scrivere su WhatsApp per sempre.
+function emailAssistenza() {
+  try {
+    const e = fs.readFileSync(path.join(__dirname, 'assistenza-email.txt'), 'utf8').trim();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null;
+  } catch { return null; }
+}
+
 // Alfabeto senza caratteri che si confondono a voce o a occhio: niente 0/O, 1/I/L.
 // Il codice va letto al telefono, e «zero o lettera O?» è la domanda da evitare.
 const ALFABETO_CODICE = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -981,14 +993,18 @@ async function mostra() {
   // Con il numero dell'assistenza il codice non va dettato né ricopiato: parte dentro
   // il messaggio. È il passaggio in cui si sbaglia — una lettera storta e il seriale
   // non vale. Senza quel numero resta la richiesta a voce, come prima.
-  const richiesta = s.assistenza
+  const contatto = s.assistenzaEmail || s.assistenza;
+  const richiesta = contatto
     ? '<div class="scelta">' +
       '<select id="mesi"><option value="1">1 mese</option><option value="3">3 mesi</option>' +
       '<option value="6">6 mesi</option><option value="12" selected>12 mesi</option></select>' +
       '<button id="btn-chiedi">' + (scaduto ? 'Richiedi il rinnovo' : 'Richiedi attivazione') + '</button>' +
-      '</div><p style="font-size:.83rem;margin:6px 0 0">Si apre WhatsApp con il messaggio già ' +
-      'pronto, codice compreso: devi solo premere invio.</p>' +
-      '<div class="oppure">poi, quando ricevi il seriale</div>'
+      '</div><p style="font-size:.83rem;margin:6px 0 0">' +
+      (s.assistenzaEmail
+        ? 'Si apre la posta con l\\'email già pronta: dentro c\\'è tutto, ' +
+          'devi solo inviarla.'
+        : 'Si apre WhatsApp con il messaggio già pronto, codice compreso: devi solo premere invio.') +
+      '</p><div class="oppure">poi, quando ricevi il seriale</div>'
     : '<p>Comunica questo codice a chi ti ha fornito iStudio, poi incolla qui sotto il seriale che ricevi:</p>';
   corpo.innerHTML =
     (scaduto ? '<div class="avviso">Il tuo abbonamento è scaduto il <b>' +
@@ -1003,12 +1019,27 @@ async function mostra() {
   const bc = document.getElementById('btn-chiedi');
   if (bc) bc.addEventListener('click', () => {
     const m = Number(document.getElementById('mesi').value || 12);
+    // L'email deve bastare da sola: chi la riceve emette il seriale senza dover
+    // chiedere altro. Il codice installazione è il dato indispensabile — il seriale
+    // viene firmato SU QUEL CODICE e non funziona altrove — quindi va scritto dal
+    // programma, mai ricopiato a mano: una lettera storta e il seriale è inservibile.
     const righe = ['Ciao! Vorrei ' + (scaduto ? 'rinnovare' : 'attivare') + ' iStudio.', '',
       'Durata richiesta: ' + (m === 1 ? '1 mese' : m + ' mesi'),
       'Codice installazione: ' + s.codice];
     if (s.scadenza) righe.push('Scaduto il: ' + s.scadenza.split('-').reverse().join('/'));
-    window.open('https://wa.me/' + s.assistenza + '?text=' + encodeURIComponent(righe.join('\\n')),
-                '_blank', 'noopener');
+    if (s.versione) righe.push('Versione installata: ' + s.versione);
+    righe.push('', 'Grazie!');
+    if (s.assistenzaEmail) {
+      // location.href e non window.open: con un mailto quest'ultimo lascia aperta una
+      // scheda vuota anche quando la posta parte, e sembra che sia andato storto qualcosa.
+      const ogg = (scaduto ? 'Rinnovo' : 'Attivazione') + ' iStudio — ' + s.codice;
+      location.href = 'mailto:' + s.assistenzaEmail +
+        '?subject=' + encodeURIComponent(ogg) +
+        '&body=' + encodeURIComponent(righe.join('\\n'));
+    } else {
+      window.open('https://wa.me/' + s.assistenza + '?text=' + encodeURIComponent(righe.join('\\n')),
+                  '_blank', 'noopener');
+    }
   });
   if (s.versione) document.getElementById('versione').textContent = 'iStudio — versione ' + s.versione;
   document.getElementById('ser').addEventListener('keydown', (e) => {
@@ -1086,6 +1117,7 @@ if (modalitaAbbonamento) {
       scadenza: abbonamento.scadenza,
       giorniRimasti: abbonamento.giorniRimasti,
       assistenza: numeroAssistenza(),
+      assistenzaEmail: emailAssistenza(),
       versione: versioneInstallata(),
     });
   });

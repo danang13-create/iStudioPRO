@@ -932,9 +932,14 @@ function rigaRinnovo(d) {
     '<b>codice installazione</b> a chi ti ha fornito iStudio: ti manderà un seriale nuovo.</p>';
 }
 
-// Costruisce il messaggio e apre WhatsApp. Il codice viaggia dentro il messaggio, così il
-// cliente non deve ricopiarlo: è il passaggio in cui si sbaglia più facilmente, e una
-// lettera storta rende il seriale inservibile.
+// Il RINNOVO resta su WhatsApp, mentre la prima attivazione passa dall'email (schermata
+// in server.js). Non è un'incoerenza: chi rinnova è già cliente, ha già scritto una volta
+// e la conversazione WhatsApp esiste — lì la risposta è immediata. Chi attiva la prima
+// volta invece non ha ancora nessun contatto, e l'email si presta meglio a un primo
+// scambio con dentro tutti i dati.
+// Il codice viaggia dentro il messaggio, così il cliente non deve ricopiarlo: è il
+// passaggio in cui si sbaglia più facilmente, e una lettera storta rende il seriale
+// inservibile.
 function apriRichiestaRinnovo() {
   const d = datiAbbonamento;
   if (!d || !d.assistenza) return;
