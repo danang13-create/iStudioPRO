@@ -236,6 +236,27 @@ function chiudiBrowserOrfani() {
 
 const attesa = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Accende il browser. Se quello incluso non parte — succede su macOS datati, dove
+// manca un componente di sistema — ripiega su un browser installato sul computer.
+// Senza questo, su quei computer iStudio non riesce MAI a collegarsi a WhatsApp e
+// nemmeno il pulsante «Ripristina» serve a niente.
+async function avviaBrowser() {
+  try {
+    await client.initialize();
+  } catch (err) {
+    if (!nonRiesceAdAprireIlBrowser(err.message) || process.env.PUPPETEER_EXECUTABLE_PATH) throw err;
+    const alternativo = browserDiSistema();
+    if (!alternativo) {
+      throw new Error('Il browser incluso non parte su questo computer e non ne trovo altri. ' +
+        'Installa Google Chrome da google.com/chrome e riprova.');
+    }
+    console.log(`Il browser incluso non parte. Provo con: ${alternativo}`);
+    client.options.puppeteer.executablePath = alternativo;
+    await client.initialize();
+    console.log('Riuscito: iStudio userà questo browser d\'ora in poi.');
+  }
+}
+
 // Una sola operazione di ripristino alla volta: due in parallelo si ucciderebbero a vicenda
 // il browser a metà avvio, che è esattamente il guaio da cui stiamo uscendo.
 let ripristinoInCorso = false;
@@ -259,9 +280,11 @@ async function ripristinaWhatsApp(motivo) {
     chiudiBrowserOrfani();
     // 3. Un attimo di respiro: il profilo va rilasciato prima di riaprirlo.
     await attesa(2000);
-    // 4. Riapertura pulita.
+    // 4. Riapertura pulita. Se il browser incluso non parte su questo computer,
+    //    si ripiega su uno installato: altrimenti il pulsante «Ripristina»
+    //    fallirebbe sempre, e il cliente non avrebbe nessuna via d'uscita.
     console.log(`Ripristino collegamento WhatsApp (${motivo}): riapro…`);
-    await client.initialize();
+    await avviaBrowser();
     console.log(`Ripristino collegamento WhatsApp (${motivo}): riuscito.`);
     return { ok: true };
   } catch (err) {
@@ -276,13 +299,46 @@ async function ripristinaWhatsApp(motivo) {
 // Avvio. Se il profilo risulta già occupato è quasi sempre un orfano di un crash
 // precedente: lo si chiude e si riprova una volta sola, così iStudio riparte da sola
 // invece di restare bloccata a ogni riavvio (il 5 agosto 2026 fallì 5 riavvii di fila).
-client.initialize().catch(async (err) => {
+// Su alcuni computer il browser che iStudio si porta dietro NON parte: su macOS
+// datati manca un componente di sistema (`AVFAudio`) e l'errore è
+// «Failed to launch the browser process». Non è recuperabile riprovando: quel
+// browser non partirà mai. Però quasi tutti hanno un Chrome normale installato, e
+// va benissimo lo stesso. Prima si risolveva scrivendo a mano un file col percorso:
+// un passaggio che un cliente non farà mai. Adesso se lo cerca iStudio.
+function browserDiSistema() {
+  const candidati = process.platform === 'win32'
+    ? [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe'),
+        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+      ]
+    : [
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        path.join(os.homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
+        '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+        '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      ];
+  return candidati.find((p) => p && fs.existsSync(p)) || null;
+}
+
+function nonRiesceAdAprireIlBrowser(messaggio) {
+  return /Failed to launch the browser process|spawn .*ENOENT|Could not find (Chrome|browser)/i
+    .test(messaggio || '');
+}
+
+// Avvio. `avviaBrowser()` gestisce già il ripiego su un browser di sistema; qui resta
+// il solo caso del profilo occupato da un browser orfano di un crash precedente,
+// che si chiude e si riprova una volta sola (il 5 agosto 2026 fallì 5 riavvii di fila).
+avviaBrowser().catch(async (err) => {
   console.error('Errore inizializzazione WhatsApp:', err.message);
   if (/already running/i.test(err.message) && chiudiBrowserOrfani() > 0) {
     console.log('Riprovo l\'avvio di WhatsApp dopo aver chiuso il browser orfano…');
     await attesa(2000);
     try {
-      await client.initialize();
+      await avviaBrowser();
       return;
     } catch (err2) {
       console.error('Anche il secondo tentativo è fallito:', err2.message);
