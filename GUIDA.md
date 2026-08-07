@@ -55,7 +55,13 @@ esattamente da dove si era fermato, senza rimandare il messaggio a chi l'ha già
 ### Limite messaggi giornaliero
 
 Il menù **«Limite messaggi giornaliero»** è la protezione più utile per gli invii grossi. Scegli
-un valore già pronto (100, 200, 300, 400, 500) oppure **Nessun limite**. Se scegli 200, iStudio
+un valore già pronto (100, 200, 300, 400, 500) oppure **Nessun limite**.
+
+> **Parte già su 100 al giorno**, di proposito: è il valore prudente con cui conviene cominciare
+> finché non sai come reagisce il tuo numero. Puoi alzarlo quando vuoi — la scelta vale per il
+> singolo invio, non è un'impostazione fissa.
+
+Se scegli 200, iStudio
 ne manda 200 e poi **si mette in pausa da sola**; il giorno dopo **alle 9:00 riprende da sola**
 da dove si era fermata, senza che tu debba ricordarti niente. Così una rubrica da 1400 persone
 si smaltisce in pochi giorni invece che in un colpo solo.
@@ -128,6 +134,12 @@ Dalla freccia ▾ accanto al nome della conversazione puoi **aggiungere il conta
 con il numero già compilato.
 
 Si può disattivare da Impostazioni.
+
+> **La spia «Chat» in Dashboard.** La Chat legge le conversazioni dentro WhatsApp: se WhatsApp
+> non è collegato, non può funzionare anche se l'interruttore nelle Impostazioni è acceso. In quel
+> caso la spia diventa **gialla** e scrive **«WhatsApp scollegato»** — non è la Chat a essere
+> rotta, sta solo aspettando il collegamento. Verde «Attiva» vuol dire che funziona davvero;
+> rossa «Disattivata» vuol dire che l'hai spenta tu dalle Impostazioni.
 
 ### Rubrica
 I contatti: nome, cognome, email, telefono. La pagina mostra solo la lista, pulita.

@@ -538,7 +538,7 @@
         <label for="invio-tetto">Limite messaggi giornaliero</label>
         <select id="invio-tetto">
           <option value="">Nessun limite</option>
-          <option value="100">100</option>
+          <option value="100" selected>100</option>
           <option value="200">200</option>
           <option value="300">300</option>
           <option value="400">400</option>
@@ -821,9 +821,27 @@ async function caricaDashboard() {
     ? 'Attiva'
     : (d.email.configurata ? 'Da verificare' : 'Da configurare');
 
-  // Stato Chat
-  $('#dash-chat').className = 'stato-pill ' + (d.chat.attiva ? 'ok' : 'no');
-  $('#dash-chat-t').textContent = d.chat.attiva ? 'Attiva' : 'Disattivata';
+  // Stato Chat. Non basta l'interruttore delle Impostazioni: la Chat legge le
+  // conversazioni dentro WhatsApp Web, quindi a WhatsApp scollegato è accesa ma inutile.
+  // Prima la spia guardava solo l'interruttore e restava verde comunque: era la spia che
+  // mentiva di più, perché è proprio quando qualcosa non va che la si va a guardare.
+  const chatWa = d.whatsapp.status;
+  if (!d.chat.attiva) {
+    $('#dash-chat').className = 'stato-pill no';
+    $('#dash-chat-t').textContent = 'Disattivata';
+  } else if (chatWa === 'connesso') {
+    $('#dash-chat').className = 'stato-pill ok';
+    $('#dash-chat-t').textContent = 'Attiva';
+  } else {
+    // Gialla e non rossa: la Chat non è né spenta né rotta, sta solo aspettando WhatsApp.
+    // Il testo segue lo stato vero: dire «scollegato» mentre la spia WhatsApp qui accanto
+    // dice «Avvio in corso» sarebbe una contraddizione sotto gli occhi dell'utente.
+    $('#dash-chat').className = 'stato-pill warn';
+    $('#dash-chat-t').textContent =
+      chatWa === 'inizializzazione' ? 'In attesa di WhatsApp'
+      : chatWa === 'qr' ? 'WhatsApp da collegare'
+      : 'WhatsApp scollegato';
+  }
 
   // --- Riquadro RUBRICA: quante persone puoi raggiungere e come ---
   const tot = d.contatti.totale;
