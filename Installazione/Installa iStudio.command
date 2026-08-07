@@ -239,19 +239,52 @@ PLIST
   # peggio che non aprire niente — ed è lo stesso errore che «Avvia» e «Ferma» facevano
   # prima del 7 agosto 2026. Se non si trova nulla si avvisa con una finestra, invece di
   # restare muti: l'app non ha un Terminale dove scrivere.
-  cat > "$app/Contents/MacOS/avvia" <<LANCIA
+  cat > "$app/Contents/MacOS/avvia" <<'LANCIA'
 #!/bin/bash
-CARTELLA="$DESTINAZIONE"
-[ -d "\$CARTELLA" ] || CARTELLA="\$HOME/Documents/$cartella"
-AVVIO="\$CARTELLA/Mac/Avvia iStudio.command"
-if [ ! -x "\$AVVIO" ]; then
-  osascript -e 'display alert "Non trovo iStudio" message "La cartella di iStudio è stata spostata o rinominata. Aprila e fai doppio click su «Avvia iStudio»." as critical'
+# Lanciatore del collegamento sulla Scrivania. Scritto dall'installazione.
+CARTELLA="@@CARTELLA@@"
+[ -d "$CARTELLA" ] || CARTELLA="$HOME/Documents/@@NOMECARTELLA@@"
+AVVIO="$CARTELLA/Mac/Avvia iStudio.command"
+
+avviso() {  # l'app non ha un Terminale: l'unico modo di farsi sentire è una finestra
+  osascript -e "display alert \"$1\" message \"$2\" as critical" >/dev/null 2>&1
+}
+
+if [ ! -x "$AVVIO" ]; then
+  avviso "Non trovo iStudio" "La cartella di iStudio è stata spostata o rinominata. Aprila e fai doppio click su «Avvia iStudio»."
   exit 1
 fi
-# stdin da /dev/null: senza Terminale una eventuale richiesta di premere Invio
-# resterebbe appesa per sempre, e l'app sembrerebbe bloccata.
-"\$AVVIO" </dev/null >/dev/null 2>&1
+
+# Stessa regola di Avvia e Ferma: le copie cliente stanno sulla 3200.
+if [ -f "$CARTELLA/copia-cliente.txt" ]; then PORTA=3200; else PORTA=3100; fi
+viva() { lsof -ti :$PORTA >/dev/null 2>&1; }
+
+# Se è già accesa non si riavvia niente: si apre e basta. È il caso più frequente ed è
+# anche quello che evita di aprire DUE schede, visto che «Avvia» apre già il browser.
+if viva; then
+  open "http://localhost:$PORTA"
+  exit 0
+fi
+
+# Il registro serve perché qui non c'è nessuno che legga gli errori. Senza, un avvio
+# fallito si manifesta come «clicco e non apre», che è indiagnosticabile.
+REG="$HOME/Library/Logs/istudio-collegamento.log"
+mkdir -p "$HOME/Library/Logs"
+{ echo "--- $(date '+%d/%m/%Y %H:%M:%S') ---"; "$AVVIO"; } </dev/null >>"$REG" 2>&1
+
+# «Avvia» apre già il browser da solo. Qui si controlla solo che sia partita davvero, e
+# se non lo è si apre bocca invece di restare in silenzio.
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  viva && exit 0
+  sleep 1
+done
+avviso "iStudio non è partita" "Ho provato ad avviarla ma non risponde. I dettagli sono in Libreria → Logs → istudio-collegamento.log"
+exit 1
 LANCIA
+  # I due valori si sostituiscono DOPO: con un heredoc non quotato ogni «$» del
+  # lanciatore andrebbe protetto a mano, ed è il tipo di dettaglio che sfugge.
+  /usr/bin/sed -i '' -e "s|@@CARTELLA@@|$DESTINAZIONE|" -e "s|@@NOMECARTELLA@@|$cartella|" \
+    "$app/Contents/MacOS/avvia"
   chmod +x "$app/Contents/MacOS/avvia"
 
   if [ -f "$DESTINAZIONE/Installazione/iStudio.icns" ]; then
