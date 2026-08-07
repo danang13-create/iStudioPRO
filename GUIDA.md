@@ -1,17 +1,25 @@
-# iStudio BETA — Guida all'uso
+# iStudio — Guida all'uso
 
 Piattaforma per inviare messaggi WhatsApp e newsletter email a partire da una rubrica di contatti.
 Funziona sul tuo Mac: i dati restano qui, non su server esterni.
 
-> Questa è **iStudio BETA**, la versione singola e completa: gira solo sul tuo Mac e non dipende
-> da nient'altro. È lo stesso programma che viene installato sui Mac di altre persone: là serve
-> un seriale di abbonamento per usarlo, qui no. Per l'uso tuo di ogni giorno non cambia niente.
+> Gira solo sul tuo Mac e non dipende da nient'altro. È lo stesso programma che viene installato
+> sui Mac di altre persone: là serve un seriale di abbonamento per usarlo, qui no. Per l'uso tuo
+> di ogni giorno non cambia niente.
+>
+> **La scritta accanto al nome, in alto a sinistra, ti dice dove sei:** **MASTER** è la tua copia
+> di lavoro, **PRO** è quella in abbonamento installata dai clienti. Serve perché le due possono
+> stare accese insieme sullo stesso computer e per il resto sono identiche.
 
 ---
 
 ## Avviare e fermare
 
-**Per avviare:** apri la cartella **Mac** e fai doppio click su **`Avvia iStudio.command`**.
+**Il modo più comodo:** dopo l'installazione trovi **l'icona di iStudio sulla Scrivania**.
+Doppio click e si apre da sola nel browser. Non è una copia del programma, è solo un
+collegamento: gli aggiornamenti arrivano lo stesso e non va mai rifatto.
+
+**Oppure:** apri la cartella **Mac** e fai doppio click su **`Avvia iStudio.command`**.
 Si apre una finestrella del Terminale con la conferma e la piattaforma si apre nel browser
 all'indirizzo **http://localhost:3100**. La finestrella si può chiudere: iStudio resta attiva.
 

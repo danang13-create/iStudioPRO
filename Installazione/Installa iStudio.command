@@ -97,7 +97,7 @@ fi
 echo
 
 # --- 1. Scarico ---
-echo "⏳ [1/4] Scarico iStudio…"
+echo "⏳ [1/5] Scarico iStudio…"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 if ! curl -fsSL -m 180 "$URL" -o "$TMP/istudio.tar.gz"; then
@@ -118,7 +118,7 @@ fi
 echo "   ✅ scaricata"
 
 # --- 2. Metto al posto giusto ---
-echo "⏳ [2/4] Metto iStudio in Documenti…"
+echo "⏳ [2/5] Metto iStudio in Documenti…"
 mkdir -p "$HOME/Documents"
 if ! mv "$SORGENTE" "$DESTINAZIONE"; then
   echo "   ❌ Non riesco a creare la cartella. Controlla i permessi di Documenti."
@@ -133,7 +133,7 @@ xattr -dr com.apple.quarantine "$DESTINAZIONE" 2>/dev/null
 echo "   ✅ pronta"
 
 # --- 3. Node.js e librerie ---
-echo "⏳ [3/4] Installo quello che serve per farla funzionare…"
+echo "⏳ [3/5] Installo quello che serve per farla funzionare…"
 export PATH="$HOME/.local/node/bin:$PATH"
 if ! command -v node >/dev/null 2>&1; then
   echo "   ⏳ scarico Node.js (circa 50 MB)…"
@@ -186,11 +186,78 @@ if ! (cd "$DESTINAZIONE" && npm install --no-audit --no-fund >"$LOG_NPM" 2>&1); 
 fi
 echo "   ✅ fatto"
 
-# --- 4. Avvio ---
+# --- 4. Collegamento sulla Scrivania ---
+# Un alias al file «.command» erediterebbe l'icona del Terminale, che a un cliente non
+# dice niente. Serve una vera applicazione: una cartella «.app» con dentro un lanciatore
+# e l'icona. Costruirla a mano è banale e non richiede nessuno strumento da sviluppatore.
+# L'app NON contiene iStudio: apre quella installata, quindi gli aggiornamenti valgono
+# subito e il collegamento non va rifatto.
+crea_collegamento() {
+  local nome="$(basename "$DESTINAZIONE")"
+  local app="$HOME/Desktop/$nome.app"
+  rm -rf "$app"
+  mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" || return 1
+
+  cat > "$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>$nome</string>
+  <key>CFBundleDisplayName</key><string>$nome</string>
+  <key>CFBundleExecutable</key><string>avvia</string>
+  <key>CFBundleIconFile</key><string>iStudio</string>
+  <key>CFBundleIdentifier</key><string>it.istudio.avvio</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+PLIST
+
+  # Il percorso viene scritto qui dentro dall'installazione. L'unico ripiego è la cartella
+  # con lo STESSO NOME in Documenti, per il caso di chi la sposta e poi la rimette al suo
+  # posto. Di proposito NON si ripiega su un'altra iStudio qualsiasi: su un Mac dove
+  # convivono la copia di lavoro e quella cliente, aprire quella sbagliata in silenzio è
+  # peggio che non aprire niente — ed è lo stesso errore che «Avvia» e «Ferma» facevano
+  # prima del 7 agosto 2026. Se non si trova nulla si avvisa con una finestra, invece di
+  # restare muti: l'app non ha un Terminale dove scrivere.
+  cat > "$app/Contents/MacOS/avvia" <<LANCIA
+#!/bin/bash
+CARTELLA="$DESTINAZIONE"
+[ -d "\$CARTELLA" ] || CARTELLA="\$HOME/Documents/$nome"
+AVVIO="\$CARTELLA/Mac/Avvia iStudio.command"
+if [ ! -x "\$AVVIO" ]; then
+  osascript -e 'display alert "Non trovo iStudio" message "La cartella di iStudio è stata spostata o rinominata. Aprila e fai doppio click su «Avvia iStudio»." as critical'
+  exit 1
+fi
+# stdin da /dev/null: senza Terminale una eventuale richiesta di premere Invio
+# resterebbe appesa per sempre, e l'app sembrerebbe bloccata.
+"\$AVVIO" </dev/null >/dev/null 2>&1
+LANCIA
+  chmod +x "$app/Contents/MacOS/avvia"
+
+  if [ -f "$DESTINAZIONE/Installazione/iStudio.icns" ]; then
+    cp "$DESTINAZIONE/Installazione/iStudio.icns" "$app/Contents/Resources/iStudio.icns"
+  fi
+  # Il Finder tiene in cache le icone: senza un tocco alla cartella .app a volte
+  # continua a mostrare quella generica finché non si riavvia.
+  touch "$app"
+  [ -x "$app/Contents/MacOS/avvia" ]
+}
+
+echo "⏳ [4/5] Metto il collegamento sulla Scrivania…"
+if crea_collegamento; then
+  echo "   ✅ fatto: «$(basename "$DESTINAZIONE")» sulla Scrivania"
+else
+  # Non è un motivo per fermare l'installazione: iStudio funziona lo stesso, si apre
+  # dalla sua cartella. Meglio dirlo e proseguire che far fallire tutto per un'icona.
+  echo "   ⚠️  Non ci sono riuscito. Nessun problema: iStudio si apre dalla sua cartella."
+fi
+
+# --- 5. Avvio ---
 # Lascia in vista solo «Avvia» e «Ferma»: il resto è roba tecnica che confonde.
 [ -x "$DESTINAZIONE/Mac/riordina-cartella.sh" ] && "$DESTINAZIONE/Mac/riordina-cartella.sh" "$DESTINAZIONE"
 
-echo "⏳ [4/4] Avvio iStudio…"
+echo "⏳ [5/5] Avvio iStudio…"
 echo
 # ISTUDIO_DIR va passato per forza: senza, «Avvia» ripiega sul suo valore predefinito
 # ($HOME/Documents/iStudio) e accende UN'ALTRA iStudio invece di quella appena

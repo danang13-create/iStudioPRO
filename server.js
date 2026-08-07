@@ -1194,7 +1194,13 @@ app.get('/api/status', (req, res) => {
   const abb = modalitaAbbonamento
     ? { scadenza: abbonamento.scadenza, giorniRimasti: abbonamento.giorniRimasti }
     : null;
-  res.json({ ...state, authEnabled: Boolean(APP_PASSWORD), abbonamento: abb, versione: versioneInstallata() });
+  // La scritta accanto al nome, in alto a sinistra. Distingue a colpo d'occhio la copia
+  // di lavoro dell'autore da quella venduta ai clienti: le due girano sullo stesso Mac
+  // (3100 e 3200) e sono identiche a vedersi, quindi una conferma visiva evita di fare
+  // una prova sulla copia sbagliata. Lo decide lo stesso file che accende l'abbonamento.
+  const edizione = modalitaAbbonamento ? 'PRO' : 'MASTER';
+  res.json({ ...state, authEnabled: Boolean(APP_PASSWORD), abbonamento: abb, edizione,
+             versione: versioneInstallata() });
 });
 
 // Uscita dalla piattaforma (chiude la sessione di accesso, solo con password attiva)

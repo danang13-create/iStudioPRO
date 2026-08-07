@@ -199,7 +199,11 @@
 </head>
 <body>
 <header>
-  <div class="marchio"><h1>iStudio</h1><span class="beta-badge">BETA</span></div>
+  <!-- La scritta la decide il server (PRO sulle copie dei clienti, MASTER su quella di
+       lavoro). Parte nascosta e compare appena si sa quale delle due è: scriverne una
+       a caso e correggerla dopo mezzo secondo si vedrebbe, ed è proprio la scritta che
+       deve dire con sicurezza su quale copia stai lavorando. -->
+  <div class="marchio"><h1>iStudio</h1><span class="beta-badge" id="marchio-edizione" hidden></span></div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
     <!-- Le spie WhatsApp ed Email stavano qui. Tolte: lo stato dei tre servizi si
          legge già nella Dashboard, in alto, scritto per esteso e più chiaro. -->
@@ -1061,6 +1065,11 @@ async function aggiornaStato() {
     // Va impostato sempre, anche quando il riquadro non si ridisegna.
     $('#btn-esci').style.display = s.authEnabled ? 'flex' : 'none';
     mostraAvvisoAbbonamento(s.abbonamento);
+    // PRO sulle copie dei clienti, MASTER su quella di lavoro. Si imposta a ogni giro
+    // ma il valore non cambia mai a programma acceso: costa nulla e non richiede un
+    // percorso a parte per il primo caricamento.
+    const ed = $('#marchio-edizione');
+    if (ed && s.edizione) { ed.textContent = s.edizione; ed.hidden = false; }
     if (s.versione) $('#pie-versione').textContent = 'iStudio — versione ' + s.versione;
     if (ripristinoInCorsoUI) return;
     const firma = s.status + '|' + (s.me || '') + '|' + (s.qr || '').slice(0, 40);

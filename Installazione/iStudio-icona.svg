@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2ee06f"/>
+      <stop offset="1" stop-color="#0f7d70"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#g)"/>
+  <!-- fumetto della chat -->
+  <path d="M256 250h512c40 0 72 32 72 72v330c0 40-32 72-72 72H470L318 838c-16 14-40 2-40-20V724h-22c-40 0-72-32-72-72V322c0-40 32-72 72-72z"
+        fill="#ffffff"/>
+  <!-- tre righe di messaggio -->
+  <rect x="330" y="378" width="364" height="46" rx="23" fill="#0f7d70" opacity=".92"/>
+  <rect x="330" y="466" width="364" height="46" rx="23" fill="#0f7d70" opacity=".62"/>
+  <rect x="330" y="554" width="212" height="46" rx="23" fill="#0f7d70" opacity=".38"/>
+</svg>

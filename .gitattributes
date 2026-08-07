@@ -4,3 +4,7 @@
 # Gli script del Mac invece vogliono i fine-riga Unix, o bash si lamenta.
 *.command text eol=lf
 *.sh       text eol=lf
+# L'icona è un file binario: senza questa riga git potrebbe "correggere" i fine-riga
+# al suo interno e consegnarla rovinata ai clienti.
+*.icns binary
+*.png  binary
