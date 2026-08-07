@@ -152,8 +152,36 @@ if ! command -v node >/dev/null 2>&1; then
   read -r -p "Premi Invio per chiudere…"; exit 1
 fi
 echo "   ⏳ installo le librerie (qualche minuto, circa 100 MB)…"
-if ! (cd "$DESTINAZIONE" && npm install --no-audit --no-fund >/tmp/istudio-npm.log 2>&1); then
-  echo "   ❌ Installazione delle librerie non riuscita. Dettagli in /tmp/istudio-npm.log"
+# Il registro tiene la data nel nome: «/tmp/istudio-npm.log» era un nome fisso, e il primo
+# tentativo successivo ci scriveva sopra — cancellando le prove proprio del guasto che si
+# stava cercando di capire. Il collegamento «-ultimo» resta per chi sa già dove guardare.
+LOG_NPM="/tmp/istudio-npm-$(date '+%Y%m%d-%H%M%S').log"
+if ! (cd "$DESTINAZIONE" && npm install --no-audit --no-fund >"$LOG_NPM" 2>&1); then
+  ln -sf "$LOG_NPM" /tmp/istudio-npm-ultimo.log 2>/dev/null
+  echo "   ❌ Installazione delle librerie non riuscita."
+  echo
+  # L'errore va mostrato QUI. Mandare a cercare un file in /tmp significa, per chi non è
+  # tecnico, non leggerlo mai — e intanto il tentativo dopo lo sovrascrive.
+  echo "   ────────── ultime righe dell'errore ──────────"
+  tail -15 "$LOG_NPM" | sed 's/^/   /'
+  echo "   ──────────────────────────────────────────────"
+  echo
+  # Le due cause di gran lunga più frequenti, con il rimedio già scritto. Una delle
+  # cinque librerie (better-sqlite3) non è JavaScript puro: se non esiste un pacchetto
+  # già pronto per questo Mac, va compilata, e senza gli strumenti Apple non si può.
+  if grep -qiE "gyp|clang|xcodebuild|command line tools|make: \*\*\*|node-pre-gyp" "$LOG_NPM"; then
+    echo "   👉 Sembra mancare il compilatore di Apple. Prova così, poi rilancia:"
+    echo
+    echo "        xcode-select --install"
+    echo
+    echo "      Si apre una finestra di Apple: accetta e aspetta che finisca."
+  elif grep -qiE "ENOTFOUND|ETIMEDOUT|ECONNRESET|network|EAI_AGAIN" "$LOG_NPM"; then
+    echo "   👉 Sembra un problema di connessione, non del tuo Mac."
+    echo "      Controlla internet e rilancia questo file: riprende da capo senza danni."
+  fi
+  echo
+  echo "   Il registro completo è qui, e non verrà sovrascritto:"
+  echo "        $LOG_NPM"
   read -r -p "Premi Invio per chiudere…"; exit 1
 fi
 echo "   ✅ fatto"
