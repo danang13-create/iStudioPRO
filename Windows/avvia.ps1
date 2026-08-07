@@ -33,22 +33,36 @@ function Accendi {
   return $false
 }
 
+# L'aggiornamento va fatto PRIMA di guardare se la porta e' occupata. Se si controlla
+# la porta per prima, un'installazione che la trova occupata dice «e' gia' avviata» ed
+# esce: non si aggiorna MAI e resta bloccata per sempre su una versione vecchia.
+# E' successo davvero, su una copia cliente installata accanto a una iStudio in funzione.
+$Aggiornata = $false
+if ($env:ISTUDIO_GIA_AGGIORNATO) {
+  $Aggiornata = $true    # ci siamo appena riavviati dopo un aggiornamento
+} else {
+  $agg = Join-Path $PSScriptRoot 'aggiornamento-automatico.ps1'
+  if (Test-Path $agg) {
+    try {
+      if ((& $agg) -eq 10) {
+        # L'aggiornamento ha cambiato anche QUESTO script, gia' in esecuzione nella
+        # versione vecchia: si riparte da capo cosi' valgono subito le regole nuove.
+        $env:ISTUDIO_GIA_AGGIORNATO = '1'
+        & $PSCommandPath
+        exit
+      }
+    } catch { }
+  }
+}
+
+# Sulle copie dei clienti rimette in ordine la cartella: dopo un aggiornamento
+# i file appena arrivati tornerebbero visibili. Sulle altre non fa niente.
+$rio = Join-Path $PSScriptRoot 'riordina-cartella.ps1'
+if (Test-Path $rio) { try { & $rio $Base } catch { } }
+
 if (PortaOccupata) {
   Write-Host 'iStudio e'' gia'' avviata.' -ForegroundColor Green
 } else {
-  # Aggiornamento automatico: attivo solo sulle copie dei clienti (vedi lo script).
-  # Non può impedire l'avvio: se qualcosa non va, rinuncia e si prosegue.
-  $Aggiornata = $false
-  $agg = Join-Path $PSScriptRoot 'aggiornamento-automatico.ps1'
-  if (Test-Path $agg) {
-    try { if ((& $agg) -eq 10) { $Aggiornata = $true } } catch { }
-  }
-
-  # Sulle copie dei clienti rimette in ordine la cartella: dopo un aggiornamento
-  # i file appena arrivati tornerebbero visibili. Sulle altre non fa niente.
-  $rio = Join-Path $PSScriptRoot 'riordina-cartella.ps1'
-  if (Test-Path $rio) { try { & $rio $Base } catch { } }
-
   Write-Host 'Avvio iStudio...'
   if (Accendi) {
     Write-Host 'iStudio e'' partita.' -ForegroundColor Green

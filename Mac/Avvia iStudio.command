@@ -44,21 +44,32 @@ accendi() {
   return 1
 }
 
+# L'aggiornamento va fatto PRIMA di guardare se la porta è occupata, e prima di
+# qualunque altra cosa. Se si controlla la porta per prima, un'installazione che la
+# trova occupata dice «è già avviata» ed esce: non si aggiorna MAI, e resta bloccata
+# per sempre su una versione vecchia. È successo davvero il 7 agosto 2026, su una copia
+# cliente installata accanto a una iStudio già in funzione.
+AGGIORNATA=0
+if [ -n "$ISTUDIO_GIA_AGGIORNATO" ]; then
+  AGGIORNATA=1      # ci siamo appena riavviati dopo un aggiornamento (vedi sotto)
+elif [ -x "$ISTUDIO_DIR/Mac/aggiornamento-automatico.sh" ]; then
+  "$ISTUDIO_DIR/Mac/aggiornamento-automatico.sh"
+  if [ $? -eq 10 ]; then
+    # L'aggiornamento ha cambiato anche QUESTO script, che però è già in esecuzione
+    # nella versione vecchia. Ripartendo da capo valgono subito le regole nuove —
+    # per esempio la porta — invece che solo al prossimo avvio.
+    export ISTUDIO_GIA_AGGIORNATO=1
+    exec "$ISTUDIO_DIR/Mac/Avvia iStudio.command"
+  fi
+fi
+
+# Sulle copie dei clienti rimette in ordine la cartella: dopo un aggiornamento
+# i file appena arrivati tornerebbero visibili. Sulle altre non fa niente.
+[ -x "$ISTUDIO_DIR/Mac/riordina-cartella.sh" ] && "$ISTUDIO_DIR/Mac/riordina-cartella.sh" "$ISTUDIO_DIR"
+
 if lsof -ti :$PORTA >/dev/null 2>&1; then
   echo "✅ iStudio è già avviata."
 else
-  # Aggiornamento automatico: attivo solo sulle copie dei clienti (vedi lo script).
-  # Non può impedire l'avvio: se qualcosa non va, rinuncia e si prosegue.
-  AGGIORNATA=0
-  if [ -x "$ISTUDIO_DIR/Mac/aggiornamento-automatico.sh" ]; then
-    "$ISTUDIO_DIR/Mac/aggiornamento-automatico.sh"
-    [ $? -eq 10 ] && AGGIORNATA=1
-  fi
-
-  # Sulle copie dei clienti rimette in ordine la cartella: dopo un aggiornamento
-  # i file appena arrivati tornerebbero visibili. Sulle altre non fa niente.
-  [ -x "$ISTUDIO_DIR/Mac/riordina-cartella.sh" ] && "$ISTUDIO_DIR/Mac/riordina-cartella.sh" "$ISTUDIO_DIR"
-
   echo "⏳ Avvio iStudio…"
   if accendi; then
     echo "✅ iStudio è partita."
