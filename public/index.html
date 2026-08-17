@@ -1942,8 +1942,15 @@ $('#azione-aggiungi-anagrafica').addEventListener('click', async () => {
     return;
   }
 
-  // apre la scheda "Nuovo contatto" con i campi già compilati
-  annullaModifica();
+  // Apre la finestrella del nuovo contatto e POI la riempie.
+  // Qui c'era `annullaModifica()`, che invece la CHIUDE. Da quando la scheda contatto è
+  // dentro una finestrella, i campi venivano compilati in una finestrella mai aperta:
+  // il numero veniva letto davvero, ma non lo vedeva nessuno e il pulsante sembrava rotto.
+  // `apriNuovoContatto()` azzera il form, mette il consenso su «Sì», rimette la scritta
+  // giusta sul pulsante di salvataggio e la apre: va chiamata PRIMA di scrivere i campi,
+  // perché al suo interno fa `reset()`.
+  vaiScheda('anagrafiche');
+  apriNuovoContatto();
   const eSoloNumero = /^\+?[\d\s().-]+$/.test(nome);
   if (eSoloNumero) {
     $('#c-nome').value = '';
@@ -1956,9 +1963,8 @@ $('#azione-aggiungi-anagrafica').addEventListener('click', async () => {
   $('#c-telefono').value = telefono;
   $('#c-email').value = '';
 
-  vaiScheda('anagrafiche');
+  // Dopo apriNuovoContatto(), che l'ha già impostata su «Nuovo contatto».
   $('#form-titolo').textContent = 'Nuovo contatto (dalla chat)';
-  window.scrollTo({ top: 0, behavior: 'smooth' });
   if (telefono) {
     $('#c-nome').focus();
     toast('Completa i dati e premi «Aggiungi contatto»');
