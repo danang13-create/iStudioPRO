@@ -53,9 +53,10 @@ Il broadcast WhatsApp.
 - **Destinatari**: cerca e seleziona. «Seleziona tutti» agisce **solo sui contatti filtrati**,
   quindi puoi fare più ricerche di seguito e sommare le selezioni.
 
-Tra un messaggio e l'altro iStudio attende **10–15 secondi**, e **ogni 50 messaggi si ferma
-1–2 minuti** per non farsi notare. Con 100 destinatari servono quindi circa **25 minuti**:
-è normale, lascia lavorare.
+Tra un messaggio e l'altro iStudio attende **50–60 secondi**, e **ogni 25 messaggi si ferma
+3–5 minuti** per non farsi notare. Con 100 destinatari servono quindi circa **un'ora e 40**:
+è normale, lascia lavorare. Sono tempi lunghi di proposito — andare piano è l'unica difesa
+contro il blocco del numero che dipende davvero da te.
 
 Puoi **mettere in pausa** l'invio dalla Cronologia e riprenderlo quando vuoi: riparte
 esattamente da dove si era fermato, senza rimandare il messaggio a chi l'ha già ricevuto.
@@ -75,7 +76,7 @@ da dove si era fermata, senza che tu debba ricordarti niente. Così una rubrica 
 si smaltisce in pochi giorni invece che in un colpo solo.
 
 Sotto al menù compare una **stima del tempo**: in base a quanti destinatari hai selezionato,
-iStudio ti dice più o meno quanto ci metterà (es. *«150 destinatari · tempo stimato ≈ 34 minuti»*).
+iStudio ti dice più o meno quanto ci metterà (es. *«150 destinatari · tempo stimato ≈ 2 ore e mezza»*).
 Se i destinatari superano il limite giornaliero, ti dice anche in quanti giorni (es. *«500
 destinatari · 200 al giorno → circa 3 giorni»*). È una stima indicativa: i tempi fra un messaggio
 e l'altro sono volutamente un po' casuali.
@@ -110,7 +111,7 @@ Stati possibili:
 | Stato | Significato |
 |---|---|
 | **In corso** | Sta inviando |
-| **In riposo** | Pausa automatica di 1–2 minuti dopo 50 messaggi. Riparte da sola |
+| **In riposo** | Pausa automatica di 3–5 minuti dopo 25 messaggi. Riparte da sola |
 | **In pausa** | Fermo. Sotto c'è scritto il perché (l'hai fermato tu, WhatsApp si è scollegato, iStudio è stata chiusa). Si riprende col ▶️ |
 | **Completata** | Finito |
 

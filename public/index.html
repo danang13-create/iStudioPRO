@@ -1589,8 +1589,8 @@ function destinatariFiltrati() {
 // ---- stima del tempo di invio ----
 // Deve restare allineata al ritmo di server.js (PAUSA/RIPOSO). Valori medi in secondi.
 const RITMO = {
-  whatsapp: { pausa: 12.5, riposoOgni: 50, riposo: 90 }, // 10-15s + riposo 1-2 min ogni 50
-  email: { pausa: 1.75, riposoOgni: 0, riposo: 0 },       // 1-2,5s, nessun riposo
+  whatsapp: { pausa: 55, riposoOgni: 25, riposo: 240 },  // 50-60s + riposo 3-5 min ogni 25
+  email: { pausa: 1.75, riposoOgni: 0, riposo: 0 },      // 1-2,5s, nessun riposo
 };
 
 function stimaSecondi(m, canale) {

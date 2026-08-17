@@ -477,11 +477,17 @@ function emailHtml(text, conImmagine) {
 // ---------- Ritmo degli invii (anti-blocco) ----------
 // Valori consigliati: sono la difesa principale contro il ban. L'utente può ritoccarli
 // dalle Impostazioni; i default qui sotto restano quelli suggeriti. Tutti in secondi.
+// Valori consigliati, e ricaduta quando una chiave manca. Alzati parecchio il 17 agosto
+// 2026: si andava a 10-15 s con riposo ogni 50, adesso 50-60 s con riposo ogni 25.
+// Il blocco del numero non arriva dalla velocità in sé ma dalle segnalazioni; andare
+// piano però riduce l'impronta da automazione, ed è l'unica difesa che dipende da noi.
+// Conseguenza da conoscere: 100 messaggi passano da ~25 minuti a **circa 1 ora e 50**.
+// Con il tetto giornaliero che parte da 100, è una giornata di lavoro tranquilla.
 const RITMO_DEFAULT = {
-  wa_pausa_min: 10, wa_pausa_max: 15,     // pausa fra un messaggio WhatsApp e l'altro
-  wa_riposo_ogni: 50,                     // ogni quanti messaggi si fa la riposata lunga
-  wa_riposo_min: 60, wa_riposo_max: 120,  // durata della riposata (casuale di proposito)
-  email_pausa_min: 1, email_pausa_max: 3, // pausa fra un'email e l'altra
+  wa_pausa_min: 50, wa_pausa_max: 60,     // pausa fra un messaggio WhatsApp e l'altro
+  wa_riposo_ogni: 25,                     // ogni quanti messaggi si fa la riposata lunga
+  wa_riposo_min: 180, wa_riposo_max: 300, // durata della riposata: 3-5 minuti (in secondi)
+  email_pausa_min: 1, email_pausa_max: 3, // pausa fra un'email e l'altra (invariata: l'email non rischia il blocco)
 };
 
 // Legge un valore di ritmo dalle impostazioni, con ricaduta sul default se assente o assurdo
