@@ -495,7 +495,15 @@ const RITMO_DEFAULT = {
 // margine, perché in quel conto Google infila anche le email che mandi normalmente tu.
 // Superarlo non ritarda le email: il provider le RIFIUTA, e nei casi peggiori blocca la
 // casella per qualche ora.
-const TETTO_EMAIL_GIORNALIERO = 450;
+// Modificabile dalle Impostazioni, ma solo fra valori previsti: un campo libero qui
+// inviterebbe a scriverci 5000, e il risultato sarebbero email rifiutate in massa.
+const TETTI_EMAIL_AMMESSI = [100, 200, 300, 400];
+const TETTO_EMAIL_DEFAULT = 400;
+
+function tettoEmailGiornaliero() {
+  const v = parseInt(getSetting('tetto_email_giornaliero'), 10);
+  return TETTI_EMAIL_AMMESSI.includes(v) ? v : TETTO_EMAIL_DEFAULT;
+}
 
 // Legge un valore di ritmo dalle impostazioni, con ricaduta sul default se assente o assurdo
 function ritmoNum(key) {
@@ -1216,7 +1224,7 @@ app.get('/api/status', (req, res) => {
   // Mandarlo invece di riscriverlo nel frontend evita di avere lo stesso numero in due
   // posti: è già successo col ritmo delle pause, e la stima aveva cominciato a mentire.
   res.json({ ...state, authEnabled: Boolean(APP_PASSWORD), abbonamento: abb, edizione,
-             tettoEmail: TETTO_EMAIL_GIORNALIERO, versione: versioneInstallata() });
+             tettoEmail: tettoEmailGiornaliero(), versione: versioneInstallata() });
 });
 
 // Uscita dalla piattaforma (chiude la sessione di accesso, solo con password attiva)
@@ -1577,14 +1585,14 @@ app.post('/api/email/send', (req, res) => {
     return res.status(400).json({ error: 'Nessuno dei contatti selezionati ha un indirizzo email, o hanno tutti chiesto di non essere più contattati' });
   }
 
-  // Il tetto delle newsletter NON lo sceglie l'utente: è sempre TETTO_EMAIL_GIORNALIERO.
-  // Non è una limitazione, è l'unica risposta giusta — il numero dipende dal provider di
-  // posta, non da cosa preferisce chi invia, e chiederglielo significava solo spostargli
-  // addosso una decisione tecnica che non ha modo di prendere bene. Si ignora di proposito
-  // quello che arriva dal browser: la regola deve valere anche se la pagina viene scavalcata.
+  // Il tetto delle newsletter NON si sceglie invio per invio come su WhatsApp: vale quello
+  // impostato una volta sola nelle Impostazioni. Il numero dipende dal provider di posta,
+  // non da cosa serve in questo momento, quindi non ha senso richiederlo ogni volta.
+  // Si ignora di proposito quello che arriva dal browser: la regola deve valere anche se
+  // la pagina viene scavalcata.
   const info = db
     .prepare("INSERT INTO campaigns (message, subject, channel, total, alias, daily_limit) VALUES (?, ?, 'email', ?, ?, ?)")
-    .run(message, subject, contacts.length, (alias || '').trim() || null, TETTO_EMAIL_GIORNALIERO);
+    .run(message, subject, contacts.length, (alias || '').trim() || null, tettoEmailGiornaliero());
   const campaignId = info.lastInsertRowid;
   const insertMsg = db.prepare(
     'INSERT INTO campaign_messages (campaign_id, contact_id, destinatario, telefono) VALUES (?, ?, ?, ?)'
@@ -1904,7 +1912,12 @@ const RITMO_CAMPI = [
 app.get('/api/ritmo', (req, res) => {
   const attuale = {};
   for (const k of RITMO_CAMPI) attuale[k] = ritmoNum(k);
-  res.json({ attuale, consigliato: RITMO_DEFAULT, disattivato: pauseDisattivate() });
+  // Il tetto giornaliero delle email viaggia qui accanto perché sta nella stessa scheda,
+  // ma NON è un valore di ritmo: non entra in RITMO_CAMPI, non è una durata e ha una sua
+  // validazione a elenco chiuso.
+  res.json({ attuale, consigliato: RITMO_DEFAULT, disattivato: pauseDisattivate(),
+             tettoEmail: tettoEmailGiornaliero(), tettiEmailAmmessi: TETTI_EMAIL_AMMESSI,
+             tettoEmailConsigliato: TETTO_EMAIL_DEFAULT });
 });
 
 app.post('/api/ritmo', (req, res) => {
@@ -1922,9 +1935,10 @@ app.post('/api/ritmo', (req, res) => {
   // se il body è vuoto (o "reset") si torna ai valori consigliati
   if (b.reset) {
     for (const k of RITMO_CAMPI) db.prepare('DELETE FROM settings WHERE key = ?').run('ritmo_' + k);
+    db.prepare('DELETE FROM settings WHERE key = ?').run('tetto_email_giornaliero');
     const attuale = {};
     for (const k of RITMO_CAMPI) attuale[k] = ritmoNum(k);
-    return res.json({ ok: true, attuale, disattivato: pauseDisattivate() });
+    return res.json({ ok: true, attuale, disattivato: pauseDisattivate(), tettoEmail: tettoEmailGiornaliero() });
   }
   for (const k of RITMO_CAMPI) {
     const v = parseFloat(b[k]);
@@ -1943,9 +1957,18 @@ app.post('/api/ritmo', (req, res) => {
   fix('wa_riposo_min', 'wa_riposo_max');
   fix('email_pausa_min', 'email_pausa_max');
   setSetting('ritmo_wa_riposo_ogni', String(Math.max(1, Math.round(parseFloat(b.wa_riposo_ogni)))));
+  // Tetto email: si accetta solo se è uno dei valori previsti. Un valore fuori elenco non
+  // viene "aggiustato" ma ignorato — meglio tenere quello di prima che salvarne uno a caso.
+  if (b.tettoEmail !== undefined) {
+    const te = parseInt(b.tettoEmail, 10);
+    if (!TETTI_EMAIL_AMMESSI.includes(te)) {
+      return res.status(400).json({ error: 'Tetto giornaliero email non valido' });
+    }
+    setSetting('tetto_email_giornaliero', String(te));
+  }
   const attuale = {};
   for (const k of RITMO_CAMPI) attuale[k] = ritmoNum(k);
-  res.json({ ok: true, attuale, disattivato: pauseDisattivate() });
+  res.json({ ok: true, attuale, disattivato: pauseDisattivate(), tettoEmail: tettoEmailGiornaliero() });
 });
 
 app.get('/api/chats', async (req, res) => {

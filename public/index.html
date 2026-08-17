@@ -373,10 +373,30 @@
               <input type="number" id="r-email-pausa-max" min="0.5" step="0.5"><span>secondi</span>
             </div>
           </div>
+          <!-- Elenco chiuso e non campo libero: un campo libero inviterebbe a scriverci
+               5000, e il risultato sarebbero email rifiutate in massa dal provider. -->
+          <div>
+            <label for="r-tetto-email">Massimo di email al giorno</label>
+            <div class="coppia-campi">
+              <select id="r-tetto-email" style="width:auto;padding:9px 12px">
+                <option value="100">100</option>
+                <option value="200">200</option>
+                <option value="300">300</option>
+                <option value="400">400</option>
+              </select>
+              <span>al giorno</span>
+            </div>
+          </div>
         </div>
+        <small style="color:var(--grigio);display:block;margin-top:6px">
+          Superato questo numero la newsletter si mette in pausa da sola e riprende il giorno
+          dopo alle 9:00. Serve perché i provider di posta rifiutano le email oltre un certo
+          numero giornaliero: Gmail si ferma intorno a 500, contando anche quelle che mandi tu
+          normalmente. Se non sai cosa scegliere lascia il valore più alto.
+        </small>
 
         <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
-          <button class="btn" id="btn-salva-ritmo">Salva pause</button>
+          <button class="btn" id="btn-salva-ritmo">Salva impostazioni</button>
           <button class="btn btn-secondario" id="btn-ripristina-ritmo">Ripristina valori consigliati</button>
         </div>
       </div>
@@ -2468,8 +2488,26 @@ async function caricaRitmo() {
   try {
     const r = await (await fetch('/api/ritmo')).json();
     caricaRitmoNeiCampi(r.attuale);
+    // Il tetto email non sta dentro «attuale»: non è un valore di ritmo, ha una sua
+    // validazione a elenco chiuso e vive in una chiave sua nelle impostazioni.
+    if (r.tettoEmail) impostaTettoEmail(r.tettoEmail);
     applicaStatoPause(r.disattivato);
   } catch {}
+}
+
+// Il valore arriva sempre dal server: se un domani l'elenco cambiasse e quello salvato non
+// fosse più fra le voci, il menù resterebbe sulla prima e mostrerebbe il falso. Meglio
+// aggiungere la voce mancante che far vedere un numero che non è quello in uso.
+function impostaTettoEmail(v) {
+  const sel = $('#r-tetto-email');
+  if (!sel) return;
+  if (![...sel.options].some((o) => +o.value === +v)) {
+    sel.add(new Option(String(v), String(v)));
+  }
+  sel.value = String(v);
+  tettoEmail = +v;
+  const testo = $('#email-tetto-testo');
+  if (testo) testo.textContent = v;
 }
 
 // Mostra/nasconde lo stato "pause disattivate": interruttore, campi sbiaditi e avviso fisso
@@ -2477,7 +2515,9 @@ function applicaStatoPause(disattivato) {
   $('#toggle-pause').checked = !disattivato;
   const blocco = $('#blocco-campi-pause');
   blocco.classList.toggle('disabilitato', disattivato);
-  blocco.querySelectorAll('input, button').forEach((el) => { el.disabled = disattivato; });
+  // anche i menù, non solo input e button: senza, il tetto email restava modificabile
+  // dentro un blocco che si presenta come spento.
+  blocco.querySelectorAll('input, button, select').forEach((el) => { el.disabled = disattivato; });
   $('#avviso-pause-disattivate').style.display = disattivato ? 'block' : 'none';
 }
 
@@ -2509,6 +2549,7 @@ $('#btn-salva-ritmo').addEventListener('click', async () => {
     wa_riposo_max: (parseFloat($('#r-wa-riposo-max').value) || 0) * 60,
     email_pausa_min: $('#r-email-pausa-min').value,
     email_pausa_max: $('#r-email-pausa-max').value,
+    tettoEmail: $('#r-tetto-email').value,
   };
   const res = await fetch('/api/ritmo', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -2516,7 +2557,8 @@ $('#btn-salva-ritmo').addEventListener('click', async () => {
   const d = await res.json();
   if (!res.ok) return toast(d.error || 'Errore nel salvataggio');
   caricaRitmoNeiCampi(d.attuale);
-  toast('Pause salvate: valgono dal prossimo invio');
+  if (d.tettoEmail) impostaTettoEmail(d.tettoEmail);
+  toast('Impostazioni salvate: valgono dal prossimo invio');
 });
 
 $('#btn-ripristina-ritmo').addEventListener('click', async () => {
@@ -2527,6 +2569,7 @@ $('#btn-ripristina-ritmo').addEventListener('click', async () => {
   const d = await res.json();
   if (!res.ok) return toast(d.error || 'Errore');
   caricaRitmoNeiCampi(d.attuale);
+  if (d.tettoEmail) impostaTettoEmail(d.tettoEmail);
   toast('Valori consigliati ripristinati');
 });
 
