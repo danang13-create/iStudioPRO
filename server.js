@@ -490,6 +490,13 @@ const RITMO_DEFAULT = {
   email_pausa_min: 1, email_pausa_max: 3, // pausa fra un'email e l'altra (invariata: l'email non rischia il blocco)
 };
 
+// Quante email al giorno al massimo. Fisso, non scelto dall'utente: il numero dipende dal
+// provider di posta, non da chi invia. 450 sta sotto il tetto di Gmail (~500/giorno) con un
+// margine, perché in quel conto Google infila anche le email che mandi normalmente tu.
+// Superarlo non ritarda le email: il provider le RIFIUTA, e nei casi peggiori blocca la
+// casella per qualche ora.
+const TETTO_EMAIL_GIORNALIERO = 450;
+
 // Legge un valore di ritmo dalle impostazioni, con ricaduta sul default se assente o assurdo
 function ritmoNum(key) {
   const v = parseFloat(getSetting('ritmo_' + key));
@@ -1205,8 +1212,11 @@ app.get('/api/status', (req, res) => {
   // (3100 e 3200) e sono identiche a vedersi, quindi una conferma visiva evita di fare
   // una prova sulla copia sbagliata. Lo decide lo stesso file che accende l'abbonamento.
   const edizione = modalitaAbbonamento ? 'PRO' : 'MASTER';
+  // Il tetto delle email viaggia di qui perché la pagina lo usa per la stima dei tempi.
+  // Mandarlo invece di riscriverlo nel frontend evita di avere lo stesso numero in due
+  // posti: è già successo col ritmo delle pause, e la stima aveva cominciato a mentire.
   res.json({ ...state, authEnabled: Boolean(APP_PASSWORD), abbonamento: abb, edizione,
-             versione: versioneInstallata() });
+             tettoEmail: TETTO_EMAIL_GIORNALIERO, versione: versioneInstallata() });
 });
 
 // Uscita dalla piattaforma (chiude la sessione di accesso, solo con password attiva)
@@ -1567,9 +1577,14 @@ app.post('/api/email/send', (req, res) => {
     return res.status(400).json({ error: 'Nessuno dei contatti selezionati ha un indirizzo email, o hanno tutti chiesto di non essere più contattati' });
   }
 
+  // Il tetto delle newsletter NON lo sceglie l'utente: è sempre TETTO_EMAIL_GIORNALIERO.
+  // Non è una limitazione, è l'unica risposta giusta — il numero dipende dal provider di
+  // posta, non da cosa preferisce chi invia, e chiederglielo significava solo spostargli
+  // addosso una decisione tecnica che non ha modo di prendere bene. Si ignora di proposito
+  // quello che arriva dal browser: la regola deve valere anche se la pagina viene scavalcata.
   const info = db
     .prepare("INSERT INTO campaigns (message, subject, channel, total, alias, daily_limit) VALUES (?, ?, 'email', ?, ?, ?)")
-    .run(message, subject, contacts.length, (alias || '').trim() || null, leggiTetto(dailyLimit));
+    .run(message, subject, contacts.length, (alias || '').trim() || null, TETTO_EMAIL_GIORNALIERO);
   const campaignId = info.lastInsertRowid;
   const insertMsg = db.prepare(
     'INSERT INTO campaign_messages (campaign_id, contact_id, destinatario, telefono) VALUES (?, ?, ?, ?)'

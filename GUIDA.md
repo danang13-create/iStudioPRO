@@ -63,8 +63,14 @@ esattamente da dove si era fermato, senza rimandare il messaggio a chi l'ha già
 
 ### Limite messaggi giornaliero
 
-Il menù **«Limite messaggi giornaliero»** è la protezione più utile per gli invii grossi. Scegli
-un valore già pronto (100, 200, 300, 400, 500) oppure **Nessun limite**.
+Il menù **«Limite messaggi giornaliero»**, nella scheda «Invia messaggio», è la protezione più
+utile per gli invii WhatsApp grossi. Scegli un valore già pronto (100, 200, 300, 400, 500)
+oppure **Nessun limite**.
+
+> **Nella Newsletter quel menù non c'è, ed è voluto.** Le email hanno un tetto fisso di **450 al
+> giorno**, deciso dal programma: quante email accetta il tuo provider di posta non è una tua
+> preferenza, è un dato tecnico, e sbagliarlo si paga con le email rifiutate. Se i destinatari
+> sono di più, l'invio va in pausa e riprende il giorno dopo alle 9:00. Non devi impostare niente.
 
 > **Parte già su 100 al giorno**, di proposito: è il valore prudente con cui conviene cominciare
 > finché non sai come reagisce il tuo numero. Puoi alzarlo quando vuoi — la scelta vale per il
@@ -85,7 +91,8 @@ Se premi ▶️ quando il limite di oggi è già stato raggiunto, iStudio te lo 
 conferma: puoi insistere, ma sai che lo stai facendo. Il limite torna valido il giorno dopo.
 
 ### Newsletter
-Come sopra ma via email. Due campi da non confondere:
+Come sopra ma via email, **senza il menù del limite giornaliero**: le email hanno un tetto fisso
+di 450 al giorno (vedi sopra). Due campi da non confondere:
 - **Nome dell'invio** → solo per te
 - **Oggetto** → questo sì che il destinatario lo vede
 

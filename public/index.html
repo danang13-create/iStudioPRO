@@ -635,20 +635,17 @@
         <label for="email-alias">Nome dell'invio (facoltativo, solo per te)</label>
         <input id="email-alias" placeholder="es. Newsletter luglio — non viene inviato ai destinatari">
       </div>
+      <!-- Niente menù del tetto giornaliero, al contrario degli invii WhatsApp: quanti
+           messaggi al giorno accetta il provider di posta non è una preferenza di chi
+           invia, è un dato tecnico. Lo decide il programma (TETTO_EMAIL_GIORNALIERO in
+           server.js) e arriva qui dentro /api/status, così il numero non è scritto due volte. -->
       <div style="margin-bottom:12px">
-        <label for="email-tetto">Limite messaggi giornaliero</label>
-        <select id="email-tetto">
-          <option value="">Nessun limite</option>
-          <option value="100">100</option>
-          <option value="200">200</option>
-          <option value="300">300</option>
-          <option value="400">400</option>
-          <option value="500">500</option>
-        </select>
         <div id="email-stima" class="stima-tempo"></div>
         <small style="color:var(--grigio)">
-          Raggiunto il limite l'invio si mette in pausa da solo e riprende il giorno dopo alle 9:00.
-          Utile perché molti provider limitano il numero di email inviabili ogni giorno.
+          iStudio manda al massimo <b id="email-tetto-testo">…</b> email al giorno: è il limite
+          oltre il quale i provider di posta cominciano a rifiutarle. Se i destinatari sono di
+          più, l'invio si mette in pausa da solo e <b>riprende il giorno dopo alle 9:00</b>,
+          da dove si era fermato. Non devi fare niente.
         </small>
       </div>
       <div style="margin-bottom:12px">
@@ -1070,6 +1067,12 @@ async function aggiornaStato() {
     // percorso a parte per il primo caricamento.
     const ed = $('#marchio-edizione');
     if (ed && s.edizione) { ed.textContent = s.edizione; ed.hidden = false; }
+    // Tetto giornaliero delle email: deciso dal server, mai scritto a mano qui.
+    if (Number.isFinite(s.tettoEmail)) {
+      tettoEmail = s.tettoEmail;
+      const t = $('#email-tetto-testo');
+      if (t) t.textContent = s.tettoEmail;
+    }
     if (s.versione) $('#pie-versione').textContent = 'iStudio — versione ' + s.versione;
     if (ripristinoInCorsoUI) return;
     const firma = s.status + '|' + (s.me || '') + '|' + (s.qr || '').slice(0, 40);
@@ -1586,6 +1589,11 @@ function destinatariFiltrati() {
     (c.nome + ' ' + c.cognome + ' ' + c.telefono + ' ' + c.email).toLowerCase().includes(q));
 }
 
+// Quante email al giorno: lo decide il server (TETTO_EMAIL_GIORNALIERO) e arriva con
+// /api/status. Parte a null di proposito, non con un numero copiato qui: un valore
+// scritto due volte prima o poi diverge, ed è già successo col ritmo delle pause.
+let tettoEmail = null;
+
 // ---- stima del tempo di invio ----
 // Deve restare allineata al ritmo di server.js (PAUSA/RIPOSO). Valori medi in secondi.
 const RITMO = {
@@ -1616,7 +1624,10 @@ function aggiornaStima(canale) {
   const box = $(isWa ? '#invio-stima' : '#email-stima');
   if (!box) return;
   if (!n) { box.innerHTML = '<span style="color:var(--grigio)">Seleziona i destinatari per vedere il tempo stimato.</span>'; return; }
-  const limite = parseInt($(isWa ? '#invio-tetto' : '#email-tetto').value, 10);
+  // WhatsApp: lo sceglie l'utente dal menù. Email: lo decide il programma e arriva dal
+  // server (vedi TETTO_EMAIL_GIORNALIERO). Finché /api/status non ha risposto vale null,
+  // e la stima mostra semplicemente il tempo totale invece di un numero di giorni sbagliato.
+  const limite = isWa ? parseInt($('#invio-tetto').value, 10) : tettoEmail;
   if (Number.isFinite(limite) && limite > 0 && n > limite) {
     const giorni = Math.ceil(n / limite);
     box.innerHTML = `⏱️ <b>${n}</b> destinatari · ${limite} al giorno → circa <b>${giorni} giorni</b>`
@@ -1626,7 +1637,7 @@ function aggiornaStima(canale) {
   }
 }
 $('#invio-tetto').addEventListener('change', () => aggiornaStima('whatsapp'));
-$('#email-tetto').addEventListener('change', () => aggiornaStima('email'));
+// Per le email non c'è nessun menù da ascoltare: il tetto è fisso.
 
 function disegnaDestinatari() {
   const box = $('#lista-destinatari');
@@ -2133,8 +2144,8 @@ $('#btn-invia-email').addEventListener('click', async () => {
   const res = await fetch('/api/email/send', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      // Niente dailyLimit: il tetto delle email lo mette il server, sempre lo stesso.
       subject, message, contactIds: [...emailSelezionati], alias,
-      dailyLimit: $('#email-tetto').value,
       image: immagineEmail.dataUrl, imageName: immagineEmail.filename,
     }),
   });
