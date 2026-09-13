@@ -13,7 +13,7 @@
 DEPOSITO="danang13-create/iStudioPRO"
 # Le due variabili qui sotto si possono cambiare da fuori, ma servono UNICAMENTE per
 # collaudare l'installazione su una cartella finta senza rischiare quella vera
-# (vedi NOTE-TECNICHE.md). Con il doppio click valgono sempre i valori normali.
+# (vedi docs/NOTE-TECNICHE.md). Con il doppio click valgono sempre i valori normali.
 DESTINAZIONE="${ISTUDIO_DEST:-$HOME/Documents/iStudio}"
 URL="${ISTUDIO_URL:-https://codeload.github.com/$DEPOSITO/tar.gz/refs/heads/main}"
 # Dove finisce una SECONDA iStudio installata accanto a una che c'è già (vedi più sotto).

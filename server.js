@@ -1311,7 +1311,7 @@ if (modalitaAbbonamento) {
 // chiede si vedrebbe rispondere con l'HTML della pagina d'accesso, e nella
 // scheda resterebbe il quadratino vuoto proprio quando si sta entrando.
 // Non è un dato riservato: è il logo.
-app.get('/icona.svg', (req, res) => res.sendFile(path.join(__dirname, 'public', 'icona.svg')));
+app.get('/icona.svg', (req, res) => res.sendFile(path.join(__dirname, 'public', 'comune', 'icona.svg')));
 
 app.post('/api/login', (req, res) => {
   if (!APP_PASSWORD) return res.json({ ok: true });
