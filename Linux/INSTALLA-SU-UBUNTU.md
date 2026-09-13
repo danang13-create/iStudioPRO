@@ -104,20 +104,24 @@ come un file mancante invece che come quello che è.
 Serve quando il mini-PC è lontano e la chiavetta non c'è. In più richiede un passaggio
 in più, ed è quello che si dimentica.
 
-#### ⚠️ Prima, dal Mac: pubblica la versione
+#### ⚠️ Prima: nel deposito deve esserci la versione giusta
 
-Il mini-PC **non** prende il programma da questo Mac: lo scarica dal deposito pubblico
+Il mini-PC **non** prende il programma da un Mac: lo scarica dal deposito pubblico
 `iStudioPRO`. Se lì c'è una versione vecchia, è quella che si installa — e i guai non si
 vedono come «versione vecchia», si vedono come **file che mancano**.
 
-Quindi, sul Mac e in quest'ordine:
+**Dalla versione 2026.09.13.1 nel deposito ci finisce da sola** ogni versione che arriva su
+`main`, dopo che tutte le prove sono passate (`.github/workflows/pubblica.yml`). Serve una
+cosa sola, una volta: sul Mac, `Comandi avanzati` → **Collega la pubblicazione
+automatica.command**. Per controllare che sia arrivata, da qualunque terminale:
 
-1. `Comandi avanzati` → **Scarica da GitHub.command** — porta questo Mac all'ultima versione.
-2. `Comandi avanzati` → **Pubblica versione per i clienti.command** — la mette nel deposito.
+```sh
+curl -fsSL https://raw.githubusercontent.com/danang13-create/iStudioPRO/main/VERSIONE.txt
+```
 
-La catena è **GitHub → Mac → deposito → mini-PC**, e saltare uno dei primi due anelli è
-l'errore che costa più tempo di tutti. Dalla versione 2026.09.12.1 il comando di
-pubblicazione se ne accorge da solo e avvisa.
+Se per qualche motivo GitHub non pubblica, resta la strada a mano dal Mac — in quest'ordine:
+**Scarica da GitHub.command**, poi **Pubblica versione per i clienti.command**. Tutti e due
+avvisano se il Mac è rimasto indietro.
 
 #### Poi, sul mini-PC
 
