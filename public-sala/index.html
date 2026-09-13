@@ -41,7 +41,7 @@
     --sfondo: #f0f2f5; --carta: #ffffff; --testo: #111b21; --grigio: #667781;
     --rosso: #ea4335; --bordo: #e0e4e8;
     --oggi: #eafff2;              /* il giorno di oggi, e il verde appena acceso */
-    --avviso-fondo: #fff4e5; --avviso-bordo: #ffd8a8;
+    --avviso-fondo: #fff4e5; --avviso-bordo: #ffd8a8; --avviso-testo: #8a4b00;
     --nota-fondo: #fff4d6; --nota-testo: #5a4212; --nota-bordo: #e6d3a3;
     --ombra: rgba(0,0,0,.28);
     /* ⚠️ Il toast è «al contrario»: fondo scuro su pagina chiara. Scritto come
@@ -63,7 +63,7 @@
     --sfondo: #10171c; --carta: #1a232a; --testo: #e6edf3; --grigio: #9bacb8;
     --rosso: #ff6b5e; --bordo: #2b3740;
     --oggi: #12332a;
-    --avviso-fondo: #3a2d18; --avviso-bordo: #6b5220;
+    --avviso-fondo: #3a2d18; --avviso-bordo: #6b5220; --avviso-testo: #ffc978;
     --nota-fondo: #3a2f14; --nota-testo: #f0dfb0; --nota-bordo: #6b5a24;
     --ombra: rgba(0,0,0,.6);
     --toast-fondo: #e6edf3; --toast-testo: #10171c;
@@ -202,7 +202,21 @@
   .matita:hover, .matita:focus { border-color: var(--verde); color: var(--verde-scuro); }
   .pren .chi b { font-size: 1rem; }
   .pren.annullata { opacity: .45; }
-  .pren .note { color: var(--grigio); font-size: .84rem; }
+  /* ⚠️ Quello che il cliente ha comunicato — un'allergia, un compleanno, un
+     seggiolone — era scritto in grigio piccolo come tutto il resto, e in sala
+     si legge solo se si va a cercarlo. Un'allergia non si cerca: si deve
+     vedere. Perciò ha un colore e un «Attenzione:» in grassetto davanti. */
+  .pren .note { color: var(--avviso-testo); font-size: .88rem; }
+  .pren .note b { font-weight: 700; }
+  /* Il riepilogo sopra l'elenco: quante ce ne sono stasera, e di chi. Serve a
+     sapere PRIMA di cominciare che c'è qualcosa da leggere. */
+  #avvisi[hidden] { display: none; }
+  #avvisi {
+    background: var(--avviso-fondo); border: 1px solid var(--avviso-bordo);
+    border-radius: 9px; padding: 10px 12px; margin: 0 0 10px;
+    color: var(--avviso-testo); font-size: .9rem; line-height: 1.5;
+  }
+  #avvisi b { font-weight: 700; }
   /* Il tavolo si scrive nella riga: un campo stretto fra il nome e la matita,
      col numero al centro. Si salva da solo appena lo si lascia. */
   .pren .tavolo-campo { flex: 0 0 auto; width: 88px; padding: 9px 8px; text-align: center;
@@ -513,6 +527,9 @@ window.TemaSala = (function () {
     </div>
     <!-- Chi aspetta un posto per questo giorno: sta sopra l'elenco perché è la
          domanda che si fa PRIMA di dare via un tavolo. -->
+    <!-- Quello che i clienti hanno comunicato, tutto insieme: si legge una
+         volta prima del servizio invece di scoprirlo riga per riga. -->
+    <div id="avvisi" hidden></div>
     <div id="attese" class="conteggio" style="margin:0 0 10px;display:none"></div>
     <div id="righe"></div>
   </div>
@@ -659,6 +676,26 @@ function soldiDi(r) {
     : `💳 acconto di ${euroSala(r.importo_dovuto)} non versato`;
 }
 
+// ⚠️ Quello che il cliente ha comunicato — un'allergia, un compleanno, un
+// seggiolone — stava scritto in grigio piccolo in fondo alla riga, come il
+// numero di telefono. Ma un'allergia non è un dettaglio da consultare: è una
+// cosa che deve saltare all'occhio PRIMA che il piatto parta. Qui si raccoglie
+// tutto sopra l'elenco, così si legge una volta all'inizio del servizio invece
+// di scoprirlo riga per riga a metà serata.
+// Gli annullati restano fuori: l'avviso di un tavolo che non viene è rumore.
+function disegnaAvvisi(righe) {
+  const box = document.getElementById('avvisi');
+  if (!box) return;
+  const conNota = (righe || []).filter((r) => r.stato !== 'annullata' && String(r.note || '').trim());
+  box.hidden = !conNota.length;
+  if (!conNota.length) return;
+  box.innerHTML = `<b>⚠️ ${conNota.length === 1 ? 'Una prenotazione ha' : conNota.length + ' prenotazioni hanno'} un avviso</b>`
+    + conNota.map((r) => {
+      const nome = sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || '—');
+      return `<br>${sicuro(r.ora)} · <b>${nome}</b> — ${sicuro(String(r.note).trim())}`;
+    }).join('');
+}
+
 let quantePrima = null;   // quante prenotazioni ha il giorno che si sta guardando
 // ⚠️ Gli id già visti, per poter dire CHI è arrivato e non solo quanti. «null»
 // vuol dire «primo caricamento»: lì non è arrivato niente, si sta solo aprendo
@@ -684,6 +721,7 @@ async function caricaGiorno() {
   // Quante ce n'erano, per accorgersi che ne è arrivata una nuova: una riga
   // annullata resta in elenco, quindi questo numero sale solo per gli arrivi.
   quantePrima = vive.length;
+  disegnaAvvisi(vive);
   appenaArrivate = idVisti ? vive.filter((p) => !idVisti.has(p.id)) : [];
   idVisti = new Set(vive.map((p) => p.id));
   if (!vive.length) {
@@ -729,7 +767,7 @@ async function caricaGiorno() {
           ${soldiDi(r) ? `<br><span class="conteggio">${soldiDi(r)}</span>` : ''}
           ${numeroPulito(r.telefono_contatto || r.telefono)
             ? `<br><span class="conteggio">${sicuro(numeroPulito(r.telefono_contatto || r.telefono))}</span>` : ''}
-          ${r.note ? `<br><span class="note">${sicuro(r.note)}</span>` : ''}
+          ${r.note ? `<br><span class="note"><b>Attenzione:</b> ${sicuro(r.note)}</span>` : ''}
         </span>
         ${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}"
           value="${sicuro(r.tavolo || '')}" maxlength="20" autocomplete="off" placeholder="Tavolo"

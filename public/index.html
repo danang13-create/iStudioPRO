@@ -18,6 +18,10 @@
     --grigio: #667781;
     --rosso: #ea4335;
     --bordo: #e0e4e8;
+
+    /* Quello che il cliente ha comunicato: allergie, compleanni, seggioloni.
+       Non è un dettaglio grigio come gli altri — si deve vedere. */
+    --avviso-testo: #8a4b00;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   /* Il doppio tocco su un pulsante, su un telefono, ingrandisce la pagina: si
@@ -4482,7 +4486,8 @@ async function caricaServizio() {
           value="${testoSicuro(r.tavolo || '')}" maxlength="20" autocomplete="off" placeholder="—"
           title="Il tavolo assegnato a questa prenotazione: si salva da solo"
           aria-label="Tavolo di ${testoSicuro([r.nome, r.cognome].filter(Boolean).join(' ') || 'questo cliente')}">`}</td>
-      <td style="padding:8px;font-size:.85rem;color:var(--grigio)">${testoSicuro(r.note || '')}</td>
+      <td style="padding:8px;font-size:.85rem;color:${r.note ? 'var(--avviso-testo)' : 'var(--grigio)'}">${
+        r.note ? `<b>Attenzione:</b> ${testoSicuro(r.note)}` : ''}</td>
       <td style="padding:8px">
         <select data-stato="${r.id}" autocomplete="off" style="width:auto;padding:6px 30px 6px 10px"${
           r.stato === 'attesa_pagamento' ? ' disabled' : ''}>
