@@ -213,12 +213,19 @@ Stanno in `~/iStudio/Linux/`:
 |---|---|
 | `bash Diagnostica.sh` | È viva? A che indirizzo? Cosa dice il registro? Non ripara niente di proposito |
 | `bash Avvia.sh` | La aggiorna e la riavvia |
+| `bash "Aggiorna adesso.sh"` | Prende subito la versione pubblicata, senza aspettare le 5 |
 | `bash Ferma.sh` | La ferma (riparte da sola se la macchina si riavvia) |
 | `journalctl -u istudio -f` | Il registro dal vivo |
 
 **L'aggiornamento è automatico alle 5 del mattino**, a locale chiuso — mai nel mezzo del
 servizio della sera. Se la versione nuova non risponde entro un minuto, torna da sola alla
 precedente: alle 5 non c'è nessuno che possa farlo.
+
+Per non aspettare — una correzione urgente, una prova da fare adesso — c'è
+`bash "Aggiorna adesso.sh"`, che fa esattamente quello che farebbe la notte, subito. Se qui
+c'è già la versione pubblicata non fa niente e lo dice: non è un errore, un numero uguale
+vuol dire programma uguale. **Il numero si legge in fondo a ogni pagina**, piattaforma e
+sala: è il modo più veloce per sapere se un tablet sta guardando la copia aggiornata.
 
 ---
 

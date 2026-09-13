@@ -154,6 +154,12 @@
      riga, «pagamento» su quella dopo — e mezza etichetta non dice niente. */
   .stato-eti { white-space: nowrap; }
   .vuoto { color: var(--grigio); padding: 14px 0; }
+  /* Il numero di versione, come in piattaforma: in sala serve a rispondere alla
+     domanda «ma questo tablet è aggiornato?» senza chiamare nessuno. */
+  #pie-versione {
+    text-align: center; color: var(--grigio); font-size: .78rem;
+    padding: 4px 16px 26px; letter-spacing: .3px;
+  }
   /* Col pannello aperto la pagina dietro non si muove. Su iPhone «overflow:
      hidden» sul corpo non basta: si fissa la pagina e si tiene da parte il
      punto in cui era, per rimetterla lì alla chiusura. */
@@ -364,6 +370,10 @@
     <div id="righe"></div>
   </div>
 </main>
+
+<!-- Numero di versione: la stessa scritta della piattaforma, nello stesso posto.
+     Serve a capire al volo se il tablet sta guardando la copia aggiornata. -->
+<footer id="pie-versione"></footer>
 
 <!-- IL PANNELLO: nuova prenotazione e modifica sono la stessa cosa, con la
      stessa disposizione della piattaforma. Chi impara qui sa usare anche l'altra. -->
@@ -736,6 +746,15 @@ function mostraAvvisoPrefisso() {
 const VERSIONE_PAGINA = '__VERSIONE__';
 const SEGNAPOSTO = '__' + 'VERSIONE__';
 
+// Il numero in fondo alla pagina e l'avviso «questa pagina è vecchia» si
+// aggiornano insieme, dallo stesso dato: due chiamate separate si
+// dimenticherebbero l'una dell'altra.
+function mostraVersione(versioneServer) {
+  const piede = document.getElementById('pie-versione');
+  if (piede && versioneServer) piede.textContent = 'iStudio — versione ' + versioneServer;
+  guardaSeVecchia(versioneServer);
+}
+
 function guardaSeVecchia(versioneServer) {
   if (!versioneServer || VERSIONE_PAGINA === SEGNAPOSTO) return;
   const avviso = $('#pagina-vecchia');
@@ -1068,7 +1087,7 @@ setInterval(guardaSeCambiato, OGNI);
 setInterval(async () => {
   try {
     const s = await (await fetch('/api/sala/stato')).json();
-    guardaSeVecchia(s.versione);
+    mostraVersione(s.versione);
   } catch {}
 }, 5 * 60 * 1000);
 // Il tablet che si risveglia deve mostrare la situazione di ADESSO, non quella
@@ -1081,7 +1100,7 @@ window.addEventListener('focus', guardaSeCambiato);
   try {
     const s = await (await fetch('/api/sala/stato')).json();
     $('#quale-locale').textContent = s.locale || '';
-    guardaSeVecchia(s.versione);
+    mostraVersione(s.versione);
   } catch {}
   await caricaGiorno();
   await Planning.carica(opzioniPlanning());

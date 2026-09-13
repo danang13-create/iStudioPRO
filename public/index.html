@@ -2308,8 +2308,7 @@ async function aggiornaStato() {
       const t = $('#email-tetto-testo');
       if (t) t.textContent = s.tettoEmail;
     }
-    if (s.versione) $('#pie-versione').textContent = 'iStudio — versione ' + s.versione;
-    guardaSeVecchia(s.versione);
+    mostraVersione(s.versione);
     if (ripristinoInCorsoUI) return;
     const firma = s.status + '|' + (s.me || '') + '|' + (s.qr || '').slice(0, 40);
     if (firma === statoDisegnato) return;
@@ -5052,6 +5051,15 @@ const VERSIONE_PAGINA = '__VERSIONE__';
 // sostituisce OGNI «__VERSIONE__» del file, compreso quello del confronto, e
 // l'avviso non sarebbe comparso mai. Spezzato in due, resta un confronto.
 const SEGNAPOSTO = '__' + 'VERSIONE__';
+
+// Il numero in fondo alla pagina e l'avviso «questa pagina è vecchia» si
+// aggiornano insieme, dallo stesso dato: due chiamate separate si
+// dimenticherebbero l'una dell'altra. La sala ha la stessa identica funzione.
+function mostraVersione(versioneServer) {
+  const piede = document.getElementById('pie-versione');
+  if (piede && versioneServer) piede.textContent = 'iStudio — versione ' + versioneServer;
+  guardaSeVecchia(versioneServer);
+}
 
 function guardaSeVecchia(versioneServer) {
   if (!versioneServer || !VERSIONE_PAGINA || VERSIONE_PAGINA === SEGNAPOSTO) return;
