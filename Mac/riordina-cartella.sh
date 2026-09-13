@@ -37,7 +37,7 @@ done
 # Tutto il resto sparisce dalla vista. L'elenco è esplicito e non un «tutto tranne»:
 # se un domani arriva un file nuovo resterà visibile, ed è meglio che nascondere
 # per sbaglio qualcosa che il cliente deve vedere.
-for elemento in server.js package.json package-lock.json public node_modules \
+for elemento in server.js package.json package-lock.json public public-sala node_modules \
                 Mac Windows Installazione \
                 GUIDA.md INSTALLA-CLIENTE.md README.md VERSIONE.txt .gitattributes \
                 chiave-seriali-pubblica.pem copia-cliente.txt \

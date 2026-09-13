@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- «Aggiungi a Home» sull'iPhone: da lì si apre a tutto schermo, senza la barra
+     degli indirizzi, e in sala sembra un'app invece di una pagina web. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prenotazioni">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#128c7e">
+<title>Sala — Prenotazioni</title>
+<link rel="icon" href="/comune/icona.svg" type="image/svg+xml">
+<!-- Sulla schermata Home dell'iPhone serve un'immagine piena: un'icona
+     trasparente lì diventa un rettangolo nero. -->
+<link rel="apple-touch-icon" href="/comune/apple-touch-icon.png">
+<link rel="stylesheet" href="/comune/planning.css">
+<script src="/comune/planning.js"></script>
+<script src="/comune/turni.js"></script>
+<script src="/comune/numero.js"></script>
+<style>
+  /* Gli stessi colori della piattaforma: chi passa dall'una all'altra deve
+     riconoscere lo stesso programma, non trovarsi davanti un'altra cosa. */
+  :root {
+    --verde: #25d366; --verde-scuro: #128c7e; --sfondo: #f0f2f5;
+    --bianco: #ffffff; --testo: #111b21; --grigio: #667781;
+    --rosso: #ea4335; --bordo: #e0e4e8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  /* Il doppio tocco su un pulsante, su iPhone, ingrandisce la pagina: si tocca
+     due volte di fretta e ci si ritrova la pagina zoomata storta. Su ciò che si
+     tocca apposta questo comportamento si toglie — restando invece possibile
+     ingrandire con due dita, che serve a chi ci vede poco. */
+  button, .giorno, .matita, label, input, select { touch-action: manipulation; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: var(--sfondo); color: var(--testo); }
+  header { background: var(--verde-scuro); color: #fff; padding: 14px 20px;
+           display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 1.1rem; font-weight: 600; }
+  header .quale { font-size: .82rem; opacity: .85; }
+  main { max-width: 1000px; margin: 0 auto;
+         padding: 18px 16px calc(60px + env(safe-area-inset-bottom)); }
+  header { padding-top: calc(14px + env(safe-area-inset-top)); }
+  .card { background: var(--bianco); border: 1px solid var(--bordo); border-radius: 12px;
+          padding: 18px; margin-bottom: 16px; }
+  h2 { font-size: 1rem; margin-bottom: 12px; }
+  .riga-strumenti { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  /* ⚠️ I tre tasti della settimana non si separano MAI. Sulla larghezza di un
+     telefono andavano a capo uno per volta, e «‹» finiva su una riga e «Da oggi ›»
+     su quella dopo: tre comandi in ordine sparso che nessuno collega più fra loro. */
+  .frecce { display: flex; align-items: center; gap: 8px; }
+  .conteggio { color: var(--grigio); font-size: .84rem; }
+  /* In sala si tocca con le dita, spesso di fretta e con le mani occupate:
+     i bersagli sono più grandi che sulla piattaforma, non per estetica. */
+  /* ⚠️ Bianco sul verde chiaro del marchio fa 1,9:1 di contrasto, e in sala
+     si legge di sera, di fretta, spesso con un riflesso sullo schermo: il
+     verde scuro fa 4,5:1. Il pulsante in TESTATA invece è bianco su verde:
+     scuro sullo scuro della barra sparirebbe, e quello è il comando che si
+     usa più di tutti. */
+  .btn { background: var(--verde-scuro); color: #fff; border: none; border-radius: 9px;
+         padding: 11px 16px; font-size: .95rem; font-weight: 600; cursor: pointer; }
+  .btn:hover { background: #0f7a6d; }
+  header .btn { background: var(--bianco); color: var(--verde-scuro); }
+  header .btn:hover { background: #eafff2; }
+  /* Chi usa la tastiera — o un tablet con tastiera — deve vedere dov'è. */
+  button:focus-visible, .matita:focus-visible, .chi-tocca:focus-visible {
+    outline: 2px solid var(--verde); outline-offset: 2px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn-secondario { background: var(--bianco); color: var(--testo); border: 1px solid var(--bordo); }
+  .btn-secondario:hover { background: var(--sfondo); color: var(--testo); }
+  .btn-piccolo { padding: 7px 12px; font-size: .88rem; }
+  input, select, textarea { width: 100%; padding: 11px; border: 1px solid var(--bordo);
+                            border-radius: 9px; font-size: 1rem; font-family: inherit;
+                            background: var(--bianco); color: var(--testo);
+                            /* Il campo della data porta con sé il pulsantino del
+                               calendario ed è più alto degli altri: con l'altezza
+                               di riga scritta, i bordi dei campi affiancati
+                               finiscono alla stessa altezza. */
+                            line-height: 1.25; }
+  /* ⚠️ Su iPhone il campo della data si dimensiona sul PROPRIO contenuto e non
+     rimpicciolisce: «width:100%» non basta, e il riquadro straborda dalla sua
+     colonna finendo sotto quello dell'ora. Servono tutte e tre le cose qui
+     sotto: senza «appearance:none» Safari continua a usare la sua misura. */
+  /* La tendina, vestita come i campi: la veste di sistema in mezzo a controlli
+     disegnati stona. Tolta quella, la freccia va ridisegnata. */
+  select {
+    -webkit-appearance: none; appearance: none; cursor: pointer;
+    padding-right: 36px;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23667781' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 13px center;
+  }
+  select:focus, input:focus, textarea:focus { outline: 2px solid var(--verde); border-color: transparent; }
+  input[type="date"], input[type="time"] {
+    -webkit-appearance: none; appearance: none;
+    min-width: 0; max-width: 100%; text-align: left;
+  }
+  label { display: block; font-size: .85rem; color: var(--grigio); font-weight: 600; }
+  label input, label select { margin-top: 5px; font-weight: 400; color: var(--testo); }
+  /* Un blocco per turno: l'ora scritta una volta, in testa, col totale già
+     fatto. Prima l'ora si ripeteva su ogni riga — venti volte «20:30» — e per
+     sapere quante persone c'erano alle 22:30 bisognava leggerle tutte. */
+  .turno { margin-bottom: 18px; }
+  .turno:last-child { margin-bottom: 0; }
+  /* L'ora del turno resta ferma in cima mentre si scorre la sua lista: con
+     trenta prenotazioni in una sera, a metà elenco non si sapeva più se si
+     stava guardando le 20:00 o le 21:30. Sotto l'avviso «pagina vecchia»
+     (z 200), sopra le righe. */
+  .turno-testa { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+                 padding: 8px 12px; background: var(--sfondo); border-radius: 9px;
+                 position: sticky; top: 0; z-index: 2; }
+  .turno-ora { font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .pren { border-top: 1px solid var(--bordo); padding: 12px 2px; display: flex;
+          align-items: center; gap: 12px; flex-wrap: wrap; }
+  /* ⚠️ Non «:first-of-type»: il primo <div> del blocco è l'intestazione del
+     turno, non una prenotazione, quindi quella regola non prendeva niente.
+     La prima prenotazione si riconosce da chi la precede. */
+  .turno-testa + .pren { border-top: none; }
+  .pren .chi { flex: 1; min-width: 140px; }
+  /* Le persone stanno accanto al nome, non su una riga loro: sono la seconda
+     cosa che si guarda, e una riga in meno per prenotazione su un telefono si
+     sente. */
+  .pren .quanti { font-size: 1rem; font-weight: 600; white-space: nowrap; margin-left: 6px; }
+  /* La matita al posto di «Apri»: il tasto scritto prendeva un terzo della
+     riga. ⚠️ Un'icona da sola non dice niente a chi non la riconosce e a chi
+     usa un lettore di schermo: `title` e `aria-label` dicono cosa fa, e col
+     nome del cliente dentro. */
+  .matita {
+    flex: 0 0 auto; width: 44px; height: 44px; border-radius: 10px;
+    border: 1px solid var(--bordo); background: var(--bianco); color: var(--grigio);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    margin-left: auto;
+  }
+  .matita:hover, .matita:focus { border-color: var(--verde); color: var(--verde-scuro); }
+  .pren .chi b { font-size: 1rem; }
+  .pren.annullata { opacity: .45; }
+  .pren .note { color: var(--grigio); font-size: .84rem; }
+  /* Il tavolo si scrive nella riga: un campo stretto fra il nome e la matita,
+     col numero al centro. Si salva da solo appena lo si lascia. */
+  .pren .tavolo-campo { flex: 0 0 auto; width: 88px; padding: 9px 8px; text-align: center;
+                        font-weight: 600; font-variant-numeric: tabular-nums; }
+  /* «⏳ attende il pagamento» andava a capo a metà — «attende il» su una
+     riga, «pagamento» su quella dopo — e mezza etichetta non dice niente. */
+  .stato-eti { white-space: nowrap; }
+  .vuoto { color: var(--grigio); padding: 14px 0; }
+  /* Col pannello aperto la pagina dietro non si muove. Su iPhone «overflow:
+     hidden» sul corpo non basta: si fissa la pagina e si tiene da parte il
+     punto in cui era, per rimetterla lì alla chiusura. */
+  body.bloccato { position: fixed; width: 100%; overflow: hidden; }
+  .velo { display: none; position: fixed; inset: 0; background: rgba(17,27,33,.5); z-index: 50;
+          align-items: center; justify-content: center; padding: 16px; }
+  /* dvh e non vh: quando si apre la tastiera dell'iPhone lo schermo utile si
+     dimezza, ma «vh» continua a misurare quello intero — e il pannello resta
+     più alto di quello che si vede. */
+  .velo .card { width: 460px; max-width: 100%; max-height: 92vh; max-height: 92dvh;
+                overflow-y: auto; margin: 0; padding-top: 0;
+                /* ⚠️ Senza questo, arrivati in cima o in fondo al pannello il
+                   dito continua a trascinare LA PAGINA DIETRO: il pannello
+                   sembra muoversi e ballare sotto le dita. «contain» ferma lo
+                   scorrimento dentro al pannello, dov'è cominciato. */
+                overscroll-behavior: contain; }
+  /* ⚠️ Il titolo resta fermo in cima mentre il resto scorre. Senza, scorrendo
+     il primo campo finiva incollato al bordo — sotto la barra degli indirizzi,
+     senza nemmeno più il titolo — e non si capiva più dove cominciava il
+     pannello: sembrava che la pagina fosse tagliata. */
+  .velo .card > h2 {
+    position: sticky; top: 0; z-index: 1; margin: 0 -18px 14px;
+    padding: 16px 18px 12px; background: var(--bianco);
+    border-bottom: 1px solid var(--bordo); border-radius: 14px 14px 0 0;
+  }
+  .griglia2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  /* I figli di una griglia, di norma, non scendono sotto la larghezza del loro
+     contenuto: senza questo la colonna si allarga invece di stringersi. */
+  .griglia2 > * { min-width: 0; }
+  /* Il campo della data è più alto degli altri (si porta dietro il pulsantino
+     del calendario): invece di indovinare un'altezza, si lascia che ogni campo
+     riempia la sua cella — la riga la decide il più alto, gli altri lo
+     raggiungono, e i bordi finiscono alla stessa altezza. */
+  .griglia2 label { display: flex; flex-direction: column; }
+  .griglia2 label input, .griglia2 label select { flex: 1; }
+  /* Sotto una certa larghezza due colonne sono una forzatura: i campi
+     diventano stretti, la data non ci sta e si tocca male. Una colonna sola
+     allunga il modulo — che tanto scorre — e rende ogni campo largo un dito. */
+  /* ⚠️ Le coppie corte restano affiancate anche sul telefono: Giorno e Ora,
+     Nome e Cognome sono due metà della stessa decisione, e messe in colonna
+     facevano diventare il pannello una scala di dieci gradini da scorrere —
+     259 pixel di scorrimento su un iPhone SE, con «Salva» sotto l'orizzonte.
+     Persone sta su una riga sua ma stretta: è un numero di due cifre, e
+     affiancarlo a un cognome lasciava il cognome spaiato mezzo vuoto. */
+  @media (max-width: 430px) {
+    /* Sul telefono il campo del tavolo si stringe un po', sennò «2 pers. ·
+       admin» accanto al nome va a capo a metà. */
+    .pren .tavolo-campo { width: 74px; padding: 9px 4px; }
+    .griglia2 { gap: 10px; }
+    .griglia2 label:has(#p-persone),
+    .griglia2 label:has(#p-telefono) { grid-column: 1 / -1; }
+    .griglia2 label:has(#p-persone) select { max-width: 170px; }
+  }
+
+  /* ── Il pannello sul telefono: un foglio in tre fasce ─────────────────────
+     Una finestrella che galleggia su uno schermo da 375 pixel non ha spazio
+     per galleggiare: si vede la pagina dietro che si muove, il foglio balla, e
+     con la tastiera aperta resta un ritaglio in mezzo. Così invece sta fermo:
+     titolo in cima, tasti in fondo, e in mezzo scorre SOLO la fascia dei
+     campi — non tutto il pannello. */
+  .velo .card { display: flex; flex-direction: column; overflow: hidden; }
+  .pann-corpo {
+    flex: 1 1 auto; overflow-y: auto; min-height: 0;
+    /* Arrivati in fondo, il dito non deve trascinare la pagina dietro. */
+    overscroll-behavior: contain;
+    padding: 0 18px;
+    margin: 0 -18px;
+  }
+  .pann-tasti { flex: 0 0 auto; display: flex; gap: 9px; flex-wrap: wrap;
+                padding-top: 14px; margin-top: 4px; border-top: 1px solid var(--bordo); }
+
+  @media (max-width: 520px) {
+    .velo .card { padding-left: 14px; padding-right: 14px; }
+    .velo .card > h2 { margin: 0 -14px 0; }
+    .pann-corpo { padding: 14px 14px 8px; margin: 0 -14px; }
+    /* ⚠️ «Salva» non deve mai finire sotto l'orizzonte: con la tastiera aperta
+       lo si cercava scorrendo, e chi scorre con la tastiera aperta chiude il
+       pannello per sbaglio. Sta in fondo, sempre, e prende metà riga per uno:
+       in sala si preme col pollice, spesso con l'altra mano occupata. */
+    .pann-tasti { margin: 0 -14px; padding: 12px 14px 0; }
+    .pann-tasti .btn { flex: 1; min-height: 48px; }
+  }
+  .avviso { background: #fff4e5; border: 1px solid #ffd8a8; border-radius: 9px;
+            padding: 10px 12px; font-size: .88rem; }
+  @media (max-width: 520px) {
+    /* Il tasto che si usa di più prende tutta la riga: in sala si preme col
+       pollice, spesso con l'altra mano occupata. */
+    header #nuova { width: 100%; padding: 13px; }
+    /* ⚠️ La settimana su due colonne prendeva TUTTO il primo schermo: quattro
+       righe di caselle, e l'elenco del servizio — cioè quello che serve in
+       sala — cominciava sotto la piega. Sette caselle in una striscia che
+       scorre di lato: un decimo dello spazio, e la giornata si vede subito.
+       L'ombra sui lati dice da che parte continua; «oggi» si centra da solo
+       (vedi centraOggi). Vale solo qui: il planning è un file condiviso con la
+       piattaforma, e lì le sette colonne ci stanno. */
+    .settimana {
+      display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px;
+      scroll-snap-type: x proximity; scrollbar-width: none;
+      background-image:
+        linear-gradient(to right, var(--bianco) 40%, rgba(255,255,255,0)),
+        linear-gradient(to left, var(--bianco) 40%, rgba(255,255,255,0)),
+        radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.16), transparent),
+        radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.16), transparent);
+      background-position: 0 0, 100% 0, 0 0, 100% 0;
+      background-repeat: no-repeat;
+      background-size: 36px 100%, 36px 100%, 12px 100%, 12px 100%;
+      background-attachment: local, local, scroll, scroll;
+    }
+    .settimana::-webkit-scrollbar { display: none; }
+    .settimana .giorno { flex: 0 0 108px; scroll-snap-align: start; }
+    /* Meno cornice, più contenuto: 18px di imbottitura per lato su 390 di
+       schermo sono un decimo della larghezza buttato via. */
+    main { padding: 12px 10px calc(40px + env(safe-area-inset-bottom)); }
+    .card { padding: 14px 12px; }
+    /* ⚠️ La barra del servizio andava a capo tre volte: titolo e data, poi i
+       turni, poi «Aggiorna». Ora la data si prende quello che resta della
+       prima riga, e «Aggiorna» sale accanto ai turni. */
+    .riga-strumenti { gap: 8px; }
+    #giorno { flex: 1 1 auto; min-width: 0; width: auto; }
+    /* I turni vanno a capo da soli: sono lunghi, e su una riga con la data
+       spezzerebbero tutto. Il tasto Aggiorna resta invece in alto, ridotto al
+       suo disegno — serve quando un altro prende una prenotazione mentre tu
+       guardi la pagina. */
+    #turni { flex: 1 1 100%; }
+    #aggiorna .etichetta { display: none; }
+    #aggiorna { padding: 10px 12px; }
+    .velo { padding: 0; align-items: flex-end; }
+    .velo .card { width: 100%; border-radius: 14px 14px 0 0;
+                  max-height: 94vh; max-height: 94dvh;
+                  padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  }
+  /* ---- La scheda di un cliente ----
+     Chi apparecchia si chiede «chi è questo che arriva stasera?»: è già stato
+     qui, quante volte, ha un'allergia che si ripete. Una riga di storico si
+     legge IN COLONNA — la data a sinistra, ora e persone incolonnate — non
+     come una frase separata da puntini. */
+  .cli-numeri { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 14px; }
+  .cli-numeri .n { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .cli-note { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .cli-nota { display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 10px;
+              border-radius: 999px; background: var(--sfondo); font-size: .84rem; }
+  /* Quella che torna più volte è un fatto, non la nota di una sera. */
+  .cli-nota.torna { background: #fff4d6; }
+  .cli-nota b { font-weight: 600; font-size: .76rem; color: var(--grigio); }
+  .sto-titolo { display: flex; align-items: baseline; justify-content: space-between;
+                gap: 10px; margin: 14px 0 4px; }
+  .sto-titolo b { font-size: .95rem; }
+  .sto-riga { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 12px;
+              align-items: baseline; padding: 8px 0; border-top: 1px solid var(--bordo); }
+  .sto-riga .quando { font-size: .92rem; }
+  .sto-riga .ora, .sto-riga .pers { font-variant-numeric: tabular-nums; font-size: .88rem; color: var(--grigio); }
+  .sto-riga .nota { grid-column: 1 / -1; font-size: .84rem; color: var(--grigio); }
+  .sto-riga.annullata { opacity: .55; }
+  .sto-riga.annullata .quando { text-decoration: line-through; }
+  /* Quelle in arrivo sono l'unica parte che riguarda stasera. */
+  .sto-riga.arrivo { border-left: 3px solid var(--verde); padding-left: 10px; border-top: none; }
+  /* Il nome, nell'elenco, si tocca: è il gesto che viene naturale. Ma resta un
+     pulsante vero, con la sua area da 44px, non un testo colorato. */
+  .chi-tocca { border: none; background: none; padding: 6px 0; margin: -6px 0; font: inherit;
+               color: inherit; text-align: left; cursor: pointer; min-height: 44px; }
+  .chi-tocca b { color: var(--verde-scuro); }
+  /* ⚠️ Il caso peggiore della pagina vecchia è proprio questo tablet, lasciato
+     acceso da martedì: nessun ricaricamento lo salva, e da lì in poi una pagina
+     vecchia parla con un server nuovo. Deve accorgersene da sola e dirlo. */
+  /* ⚠️ Questa riga non è di contorno. Una regola su un #id batte il
+     «[hidden] { display: none }» del browser, perché ha più peso: senza,
+     l'attributo «hidden» non spegne niente e l'avviso resta acceso per
+     sempre — anche a versioni uguali, anche dopo un ricaricamento. */
+  #pagina-vecchia[hidden] { display: none; }
+  #pagina-vecchia {
+    position: sticky; top: 0; z-index: 200; display: flex; gap: 12px; align-items: center;
+    flex-wrap: wrap; justify-content: center; background: #fff4d6; color: #5a4212;
+    border-bottom: 1px solid #e6d3a3; padding: 10px 14px; font-size: .88rem;
+  }
+  #pagina-vecchia button {
+    border: 1px solid #b8933f; background: #fff; color: #5a4212; border-radius: 8px;
+    padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer; min-height: 44px;
+  }
+  #toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+           background: var(--testo); color: #fff; padding: 12px 20px; border-radius: 9px;
+           opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 90; }
+  #toast.visibile { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="pagina-vecchia" hidden>
+  <span>Questa pagina è di una versione precedente.</span>
+  <button type="button" id="pagina-ricarica">Ricarica</button>
+</div>
+<header>
+  <h1>Prenotazioni</h1>
+  <span class="quale" id="quale-locale"></span>
+  <span style="flex:1"></span>
+  <button class="btn btn-piccolo" id="nuova">+ Nuova prenotazione</button>
+</header>
+
+<main>
+  <div class="card">
+    <div class="riga-strumenti">
+      <h2 style="margin:0">La settimana</h2>
+      <span id="sett-periodo" class="conteggio"></span>
+      <span style="flex:1"></span>
+      <span class="frecce">
+        <button class="btn btn-secondario btn-piccolo" id="sett-indietro" title="Settimana precedente">‹</button>
+        <button class="btn btn-secondario btn-piccolo" id="sett-oggi">Questa settimana</button>
+        <button class="btn btn-secondario btn-piccolo" id="sett-avanti" title="Settimana successiva">›</button>
+      </span>
+    </div>
+    <div id="sett-griglia" class="settimana"></div>
+  </div>
+
+  <div class="card">
+    <div class="riga-strumenti">
+      <h2 style="margin:0">Il servizio</h2>
+      <input type="date" id="giorno" style="width:auto">
+      <button class="btn btn-secondario btn-piccolo" id="aggiorna" title="Aggiorna l'elenco">
+        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false"
+             style="vertical-align:-3px">
+          <path d="M12 5V2L8 6l4 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z" fill="currentColor"/>
+        </svg>
+        <span class="etichetta">Aggiorna</span>
+      </button>
+      <span id="turni" class="conteggio"></span>
+    </div>
+    <!-- Chi aspetta un posto per questo giorno: sta sopra l'elenco perché è la
+         domanda che si fa PRIMA di dare via un tavolo. -->
+    <div id="attese" class="conteggio" style="margin:0 0 10px;display:none"></div>
+    <div id="righe"></div>
+  </div>
+</main>
+
+<!-- IL PANNELLO: nuova prenotazione e modifica sono la stessa cosa, con la
+     stessa disposizione della piattaforma. Chi impara qui sa usare anche l'altra. -->
+<!-- LA SCHEDA DI UN CLIENTE. Si apre toccando un nome nell'elenco, e serve a
+     rispondere a una domanda sola: chi è questo che arriva stasera?
+     ⚠️ Qui NON c'è la ricerca: quella è un modo di sfogliare l'archivio dei
+     clienti a partire da niente, e resta sulla piattaforma. Da qui si guarda
+     solo la storia di una persona che si ha già davanti. -->
+<div class="velo" id="cliente">
+  <div class="card">
+    <h2 id="cli-nome">Cliente</h2>
+    <div class="pann-corpo">
+      <div class="conteggio" id="cli-recapiti" style="margin:0 0 12px"></div>
+      <div class="cli-numeri" id="cli-numeri"></div>
+      <div id="cli-note"></div>
+      <div id="cli-righe"></div>
+    </div>
+    <div class="pann-tasti">
+      <button class="btn btn-secondario" id="cli-chiudi" type="button">Chiudi</button>
+    </div>
+  </div>
+</div>
+
+<div class="velo" id="pannello">
+  <div class="card">
+    <h2 id="pann-titolo">Prenotazione</h2>
+    <!-- Niente ricerca in rubrica qui: da questo modulo si scrive una
+         prenotazione, non si sfoglia l'archivio dei clienti. Il tablet della
+         sala sta sul bancone e lo guardano in tanti; l'elenco dei nomi e dei
+         numeri resta dove ha un padrone solo. -->
+    <div class="pann-corpo">
+    <div class="griglia2">
+      <label>Giorno<input type="date" id="p-data"></label>
+      <label>Ora<select id="p-ora"></select></label>
+      <label>Persone<select id="p-persone"></select></label>
+      <label>Nome<input id="p-nome"></label>
+      <label>Cognome<input id="p-cognome"></label>
+      <label>Telefono<input id="p-telefono" placeholder="333 1234567" inputmode="tel">
+        <span class="conteggio" id="p-telefono-avviso" style="display:none;margin-top:4px"></span></label>
+    </div>
+    <label style="margin-top:12px">Email<input id="p-email" type="email" inputmode="email"
+      autocomplete="off" placeholder="nome@esempio.it"></label>
+    <div style="display:grid;grid-template-columns:1fr 110px;gap:10px;margin-top:12px">
+      <label>Note<input id="p-note" placeholder="allergie, compleanno, seggiolone…"></label>
+      <label>Tavolo<input id="p-tavolo" maxlength="20" autocomplete="off" placeholder="es. 12"></label>
+    </div>
+    <label style="margin-top:12px">Stato<select id="p-stato">
+      <option value="confermata">Confermata</option>
+      <option value="presentata">✅ Conclusa</option>
+      <option value="annullata">❌ Cancellata</option>
+    </select></label>
+    <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-weight:400;cursor:pointer">
+      <input type="checkbox" id="p-avvisa" checked style="width:auto;margin-top:3px">
+      <span><b>Avvisa il cliente su WhatsApp</b><br>
+        <span class="conteggio">Se cambi giorno, ora o persone gli arriva la prenotazione aggiornata. Senza, si presenta all'orario vecchio.</span></span>
+    </label>
+    <div id="p-errore" class="avviso" style="display:none;margin-top:12px"></div>
+    </div><!-- /pann-corpo -->
+    <div class="pann-tasti">
+      <button class="btn" id="p-salva">Salva</button>
+      <button class="btn btn-secondario" id="p-chiudi">Annulla</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ⚠️ Un guasto silenzioso è il peggiore: la pagina smette di aggiornarsi e chi
+// è in sala continua a fidarsi di numeri fermi.
+window.addEventListener('error', (e) => {
+  try { toast('Qualcosa non ha funzionato. Ricarica la pagina.'); } catch {}
+  console.error('Sala:', e.error || e.message);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  try { toast('Qualcosa non ha funzionato. Ricarica la pagina.'); } catch {}
+  console.error('Sala:', e.reason);
+});
+
+const $ = (s) => document.querySelector(s);
+let idAperto = null;
+
+function sicuro(v) {
+  return String(v === null || v === undefined ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function toast(m) {
+  const t = $('#toast');
+  t.textContent = m;
+  t.classList.add('visibile');
+  setTimeout(() => t.classList.remove('visibile'), 2800);
+}
+// Con gli indirizzi interni di WhatsApp il numero può non essere noto: meglio
+// dirlo che far leggere una stringa incomprensibile e far pensare a un guasto.
+function numeroPulito(v) {
+  const t = String(v || '');
+  if (!t || t.includes('@')) return '';
+  const cifre = t.replace(/\D/g, '');
+  if (cifre.length > 14 || cifre.length < 8) return '';
+  return '+' + cifre;
+}
+
+function opzioniPlanning() {
+  return {
+    griglia: '#sett-griglia', periodo: '#sett-periodo',
+    // In sala si ragiona per settimane intere, lunedì → domenica: la griglia
+    // resta ferma su quella e i giorni stanno sempre nella stessa colonna.
+    settimanaIntera: true,
+    alGiorno: (data) => { $('#giorno').value = data; caricaGiorno(); },
+  };
+}
+
+// Tre stati soli: prenotata, conclusa, cancellata. «Confermata» non si scrive
+// accanto al nome — è la normalità, e ripeterla su ogni riga è rumore.
+// ⚠️ «attesa_pagamento» non c'era, e una prenotazione non ancora pagata si
+// leggeva in sala esattamente come una confermata: si apparecchiava un tavolo
+// per qualcuno che non ha pagato e a cui il posto sta per essere tolto.
+const ETICHETTA = {
+  confermata: '', presentata: '✅ conclusa', annullata: '❌ cancellata',
+  attesa_pagamento: '⏳ attende il pagamento',
+};
+
+// Un importo in centesimi come lo legge un italiano.
+const euroSala = (c) => (Math.round(Number(c) || 0) / 100).toFixed(2).replace('.', ',') + ' €';
+
+// Quello che in sala serve sapere dei soldi di una prenotazione: se c'è ancora
+// da incassare qualcosa, o se è già entrato. Senza, chi apparecchia non ha modo
+// di sapere che a quel tavolo va chiesto il saldo.
+function soldiDi(r) {
+  if (!r.importo_dovuto) return '';
+  if (r.pagato_at) return `💳 ${euroSala(r.importo_dovuto)} incassati`;
+  return r.stato === 'attesa_pagamento'
+    ? `💳 ${euroSala(r.importo_dovuto)} da pagare`
+    : `💳 acconto di ${euroSala(r.importo_dovuto)} non versato`;
+}
+
+let quantePrima = null;   // quante prenotazioni ha il giorno che si sta guardando
+
+async function caricaGiorno() {
+  const d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent($('#giorno').value))).json();
+  if (d.error) return;
+  $('#turni').textContent = d.turni.length
+    ? d.turni.map((t) => `${t.ora}: ${t.occupati}/${d.capienza}`).join('  ·  ')
+    : 'Chiuso in questo giorno';
+  // Il cartello «pieno» sta PRIMA dei numeri: è la cosa che cambia il senso di
+  // tutto il resto. Chi legge «20:00: 3/6» senza sapere che il bot rifiuta
+  // crede che i tre posti siano ancora vendibili.
+  if (d.soldOut) $('#turni').textContent = '🚫 Sold out — il bot non prende prenotazioni  ·  ' + $('#turni').textContent;
+  else if (d.chiuso) $('#turni').textContent = '🔒 Chiusura — il bot non prende prenotazioni';
+  disegnaAttese(d.attese || []);
+  const vive = d.righe;
+  // Quante ce n'erano, per accorgersi che ne è arrivata una nuova: una riga
+  // annullata resta in elenco, quindi questo numero sale solo per gli arrivi.
+  quantePrima = vive.length;
+  if (!vive.length) {
+    $('#righe').innerHTML = '<p class="vuoto">Nessuna prenotazione per questo giorno.</p>';
+    return;
+  }
+
+  // ⚠️ Le prenotazioni si raggruppano per TURNO. Un elenco piatto ripete l'ora
+  // su ogni riga — venti volte «20:30» — e chi è in sala deve leggerle tutte
+  // per capire quante persone ha alle 22:30. Con un blocco per turno la domanda
+  // ha già la risposta scritta in testa, e sul telefono si smette di scorrere
+  // un muro di testo.
+  const turni = [];
+  for (const r of vive) {
+    let t = turni.find((x) => x.ora === r.ora);
+    if (!t) { t = { ora: r.ora, righe: [] }; turni.push(t); }
+    t.righe.push(r);
+  }
+  turni.sort((a, b) => a.ora.localeCompare(b.ora));
+
+  $('#righe').innerHTML = turni.map((t) => {
+    // Gli annullati non si contano nel totale del turno: sono lì per memoria,
+    // non per il servizio. Contarli farebbe apparecchiare tavoli che non
+    // servono.
+    const vivi = t.righe.filter((r) => r.stato !== 'annullata');
+    const persone = vivi.reduce((n, r) => n + r.persone, 0);
+    return `
+    <div class="turno">
+      <div class="turno-testa">
+        <span class="turno-ora">${sicuro(t.ora)}</span>
+        <span class="conteggio">${vivi.length} ${vivi.length === 1 ? 'prenotazione' : 'prenotazioni'}
+          · ${persone} ${persone === 1 ? 'persona' : 'persone'}</span>
+      </div>
+      ${t.righe.map((r) => `
+      <div class="pren ${r.stato === 'annullata' ? 'annullata' : ''}">
+        <span class="chi">
+          <button type="button" class="chi-tocca" data-cliente="${r.id}"
+                  aria-label="Vedi le altre prenotazioni di ${sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || 'questo cliente')}"
+            ><b>${sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || '—')}</b></button>
+          <span class="quanti">${r.persone} <span class="conteggio">pers.</span></span>
+          ${r.origine === 'manuale' ? '<span class="conteggio"> · admin</span>' : ''}
+          ${ETICHETTA[r.stato] ? `<span class="conteggio stato-eti"> · ${ETICHETTA[r.stato]}</span>` : ''}
+          ${soldiDi(r) ? `<br><span class="conteggio">${soldiDi(r)}</span>` : ''}
+          ${numeroPulito(r.telefono_contatto || r.telefono)
+            ? `<br><span class="conteggio">${sicuro(numeroPulito(r.telefono_contatto || r.telefono))}</span>` : ''}
+          ${r.note ? `<br><span class="note">${sicuro(r.note)}</span>` : ''}
+        </span>
+        ${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}"
+          value="${sicuro(r.tavolo || '')}" maxlength="20" autocomplete="off" placeholder="Tavolo"
+          enterkeyhint="done" aria-label="Tavolo di ${sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || 'questo cliente')}">`}
+        <button class="matita" data-apri="${r.id}" title="Modifica la prenotazione"
+                aria-label="Modifica la prenotazione di ${sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || 'questo cliente')}">
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
+            <path d="M4 17.2V20h2.8L17 9.8 14.2 7 4 17.2zM19.7 7.3c.4-.4.4-1 0-1.4l-1.6-1.6c-.4-.4-1-.4-1.4 0L15.3 5.7 18.3 8.7l1.4-1.4z"
+                  fill="currentColor"/>
+          </svg>
+        </button>
+      </div>`).join('')}
+    </div>`;
+  }).join('');
+  $('#righe').querySelectorAll('[data-apri]').forEach((b) => {
+    b.addEventListener('click', () => apri(vive.find((x) => String(x.id) === b.dataset.apri)));
+  });
+  $('#righe').querySelectorAll('[data-cliente]').forEach((b) => {
+    b.addEventListener('click', () => apriScheda(b.dataset.cliente));
+  });
+  // Il tavolo si scrive nella riga e si salva da solo appena si lascia il
+  // campo: a inizio servizio si assegnano tutti di fila, e un pannello per
+  // ognuno sono venti pannelli. Invio chiude la tastiera e salva.
+  $('#righe').querySelectorAll('[data-tavolo]').forEach((i) => {
+    i.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') i.blur(); });
+    i.addEventListener('change', () => salvaTavolo(i, vive.find((x) => String(x.id) === i.dataset.tavolo)));
+    i.addEventListener('blur', ricaricaSeNonScrive);
+  });
+}
+
+// ⚠️ `riga` è la copia in memoria della prenotazione: la matita aperta un
+// attimo dopo legge quella, e senza aggiornarla mostrava il tavolo di prima.
+// La lista d'attesa del giorno, con la ✕ per togliere qualcuno. «avvisato»
+// vuol dire che il bot gli ha già proposto un posto e aspetta il sì.
+function disegnaAttese(attese) {
+  const dove = $('#attese');
+  if (!attese.length) { dove.style.display = 'none'; dove.innerHTML = ''; return; }
+  dove.style.display = '';
+  dove.innerHTML = `⏳ <b>In lista d'attesa:</b> ` + attese.map((a) => `<span style="white-space:nowrap">${
+    sicuro([a.nome, a.cognome].filter(Boolean).join(' ') || numeroPulito(a.telefono) || 'senza nome')
+  } (${a.persone})${a.ora ? ' alle ' + sicuro(a.ora) : ''}${a.stato === 'avvisata' ? ' · avvisato' : ''
+  } <button type="button" class="chi-tocca" data-togli-attesa="${a.id}" aria-label="Togli ${
+    sicuro(a.nome || 'questa persona')} dalla lista d'attesa" style="padding:6px">✕</button></span>`).join(' · ');
+  dove.querySelectorAll('[data-togli-attesa]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      if (!confirm('Togliere dalla lista d\'attesa? Non riceverà più l\'avviso se si libera un posto.')) return;
+      const r = await fetch('/api/bot/attese/' + b.dataset.togliAttesa, { method: 'DELETE' });
+      const d = await r.json().catch(() => ({}));
+      if (d.error) { alert(d.error); return; }
+      toast('Tolto dalla lista');
+      await caricaGiorno();
+    });
+  });
+}
+
+async function salvaTavolo(campo, riga) {
+  let d = {};
+  let ok = false;
+  try {
+    const r = await fetch('/api/bot/prenotazioni/' + campo.dataset.tavolo, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tavolo: campo.value.trim() }),
+    });
+    ok = r.ok;
+    d = await r.json().catch(() => ({}));
+  } catch { /* rete che balla: lo dice l'alert qui sotto */ }
+  if (!ok || d.error) { alert(d.error || 'Non riesco a salvare il tavolo: riprova'); return; }
+  // Com'è stato salvato davvero: spazi stretti, venti caratteri al massimo.
+  campo.value = d.tavolo || '';
+  if (riga) riga.tavolo = d.tavolo || '';
+  toast(d.tavolo ? `Tavolo ${d.tavolo} assegnato` : 'Tavolo tolto');
+}
+
+function apri(p) {
+  idAperto = p ? p.id : null;
+  // ⚠️ Aprendo il pannello si ripartono a chiedere i numeri: orari liberi e
+  // coperti possono essere cambiati un attimo fa nelle impostazioni, e aprire
+  // un modulo con i numeri di prima è il modo migliore per far credere che la
+  // modifica non abbia funzionato. È una richiesta sola in più, per apertura.
+  Turni.dimentica();
+  $('#pann-titolo').textContent = p ? 'Prenotazione' : 'Nuova prenotazione';
+  $('#p-data').value = p ? p.data : $('#giorno').value;
+  // Gli orari sono quelli del locale, per quella giornata: scritti a mano ci
+  // finiva anche un turno che il locale non fa, e nessuno se ne accorgeva.
+  Turni.riempi('#p-ora', $('#p-data').value, p ? p.ora : '');
+  // Le persone si scelgono, non si scrivono: più dei coperti di un turno non
+  // ce ne stanno, e «12» battuto al posto di «2» è un tavolo che non esiste,
+  // scoperto la sera quando arrivano in due.
+  // I posti liberi dipendono dal TURNO, non dal giorno: si passa anche l'ora.
+  Turni.riempiPersone('#p-persone', $('#p-data').value, p ? p.persone : '', p ? p.ora : '');
+  // Il numero della chat non è un numero da mostrare: con gli indirizzi «@lid»
+  // WhatsApp non lo passa affatto.
+  $('#p-telefono').value = p ? (p.telefono_contatto || (String(p.telefono).includes('@') ? '' : p.telefono)) : '';
+  mostraAvvisoPrefisso();
+  $('#p-nome').value = p ? p.nome : '';
+  $('#p-cognome').value = p ? (p.cognome || '') : '';
+  $('#p-email').value = p ? (p.email || '') : '';
+  $('#p-note').value = p ? (p.note || '') : '';
+  $('#p-tavolo').value = p ? (p.tavolo || '') : '';
+  // ⚠️ Uno stato che non è fra i tre della tendina — «attesa_pagamento» — la
+  // lasciava sulla PRIMA voce, «Confermata»: bastava aprire una prenotazione
+  // non pagata e salvare per confermarla, saltando il controllo dei posti e
+  // senza che nessuno avesse pagato niente. Un dato che cambia da solo perché
+  // hai aperto una finestra.
+  //
+  // Si aggiunge una voce che dice com'è davvero, e la tendina si blocca: da qui
+  // un pagamento non si conferma — quello passa dal pulsante della piattaforma,
+  // che i posti li ricontrolla.
+  const tendina = $('#p-stato');
+  const straniero = tendina.querySelector('option[data-fuori]');
+  if (straniero) straniero.remove();
+  const statoSuo = p ? p.stato : 'confermata';
+  const previsto = [...tendina.options].some((o) => o.value === statoSuo);
+  if (!previsto) {
+    const o = document.createElement('option');
+    o.value = statoSuo;
+    o.textContent = ETICHETTA[statoSuo] || statoSuo;
+    o.setAttribute('data-fuori', '1');
+    tendina.appendChild(o);
+  }
+  tendina.value = statoSuo;
+  tendina.disabled = !previsto;
+  $('#p-stato').parentElement.style.display = p ? '' : 'none';
+  $('#p-avvisa').checked = true;
+  // Un elenco rimasto lì dalla volta prima si tocca per sbaglio, e la
+  // prenotazione va all'altro cliente.
+  $('#p-errore').style.display = 'none';
+  apriIlVelo();
+}
+
+// La pagina dietro si ferma dove sta, e alla chiusura torna dov'era: senza,
+// chiudendo il pannello ci si ritrova in cima all'elenco invece che sulla
+// prenotazione che si stava guardando.
+let scorrimentoPrima = 0;
+function apriIlVelo() {
+  scorrimentoPrima = window.scrollY;
+  document.body.style.top = `-${scorrimentoPrima}px`;
+  document.body.classList.add('bloccato');
+  $('#pannello').style.display = 'flex';
+  // ⚠️ Il pannello si riapre da CAPO — e questa riga va DOPO averlo mostrato:
+  // finché è nascosto non ha altezza, e azzerarne lo scorrimento non fa niente.
+  // Restava dove l'aveva lasciato la volta prima: si apriva una prenotazione e
+  // ci si trovava a metà modulo, senza nemmeno il nome sotto gli occhi.
+  const card = $('#pannello .card');
+  if (card) card.scrollTop = 0;
+}
+
+function chiudiPannello() {
+  $('#pannello').style.display = 'none';
+  document.body.classList.remove('bloccato');
+  document.body.style.top = '';
+  window.scrollTo(0, scorrimentoPrima);
+  // Quello che è cambiato mentre il pannello era aperto è rimasto in attesa:
+  // adesso si può mostrare senza portare via niente a nessuno.
+  if (daRicaricare) { daRicaricare = false; ricaricaTutto({ dillo: true }); }
+}
+
+// Il prefisso internazionale si aggiunge da solo, ma si fa vedere mentre si
+// scrive: un «39» comparso dal niente dopo il salvataggio sembra un guasto.
+$('#p-telefono').addEventListener('input', mostraAvvisoPrefisso);
+function mostraAvvisoPrefisso() {
+  const box = $('#p-telefono-avviso');
+  const testo = window.Numero ? Numero.avvisoPrefisso($('#p-telefono').value) : '';
+  box.textContent = testo;
+  box.style.display = testo ? '' : 'none';
+}
+
+// La versione con cui QUESTA pagina è stata servita: la scrive il server
+// dentro al file. Il segnaposto non si scrive intero nel confronto — il server
+// sostituisce OGNI occorrenza, compresa quella, e l'avviso non comparirebbe mai.
+const VERSIONE_PAGINA = '__VERSIONE__';
+const SEGNAPOSTO = '__' + 'VERSIONE__';
+
+function guardaSeVecchia(versioneServer) {
+  if (!versioneServer || VERSIONE_PAGINA === SEGNAPOSTO) return;
+  const avviso = $('#pagina-vecchia');
+  if (avviso) avviso.hidden = versioneServer === VERSIONE_PAGINA;
+}
+
+$('#pagina-ricarica').addEventListener('click', () => location.reload());
+
+// ---- La scheda di un cliente ----
+// Chi apparecchia si chiede «chi è questo che arriva stasera?»: è già stato
+// qui, quante volte, ha un'allergia che si ripete.
+let storicoTutto = false;
+const STORICO_A_VISTA = 8;
+
+async function apriScheda(id) {
+  const p = $('#cliente');
+  p.style.display = 'flex';
+  storicoTutto = false;
+  $('#cli-nome').textContent = 'Un momento…';
+  $('#cli-recapiti').textContent = '';
+  $('#cli-numeri').innerHTML = '';
+  $('#cli-note').innerHTML = '';
+  $('#cli-righe').innerHTML = '';
+  let d;
+  try { d = await (await fetch('/api/bot/cliente?id=' + encodeURIComponent(id))).json(); }
+  catch { $('#cli-nome').textContent = 'Non sono riuscito a leggere la scheda.'; return; }
+  if (d.error) { $('#cli-nome').textContent = d.error; return; }
+
+  $('#cli-nome').textContent = d.nome || '—';
+  $('#cli-recapiti').textContent = [numeroPulito(d.telefono), d.email].filter(Boolean).join(' · ');
+
+  // ⚠️ «Prenotazioni» sono TUTTE quelle fatte, annullate comprese. E si scrive
+  // «prenotazioni», non «visite»: finché non c'è l'appello di fine serata il
+  // locale non sa chi si è presentato davvero, e un numero inventato con l'aria
+  // di essere vero è peggio di nessun numero.
+  const numeri = [
+    ['Prenotazioni', d.prenotazioni],
+    ['In corso', d.prossime],
+    ['Annullate', d.annullate],
+  ];
+  // ⚠️ Mai stampare «undefined». Se un conto manca — pagina vecchia contro
+  // server nuovo — si scrive un trattino: un numero che non c'è è una cosa,
+  // «undefined» in mezzo ai conti è un guasto che il cliente vede.
+  const conto = (n) => (Number.isFinite(n) ? n : '—');
+  $('#cli-numeri').innerHTML = numeri.map(([t, n]) => `
+    <div><div class="n">${conto(n)}</div><div class="conteggio" style="margin:0">${t}</div></div>`).join('')
+    + (d.ultimaVolta ? `<div><div style="font-size:1rem;font-weight:600;padding-top:5px">${dataStoricaUI(d.ultimaVolta)}</div>
+       <div class="conteggio" style="margin:0">Ultima volta · ${tempoFa(d.ultimaVolta)}</div></div>` : '');
+
+  // Le note che si ripetono sono la cosa più utile qui dentro: un'allergia
+  // scritta due anni fa vale quanto una scritta ieri.
+  $('#cli-note').innerHTML = d.note && d.note.length
+    ? '<div class="conteggio" style="margin:0 0 5px">Note lasciate</div>'
+      + '<div class="cli-note">' + d.note.slice(0, 6).map((n) => `
+        <span class="cli-nota${n.volte > 1 ? ' torna' : ''}">${sicuro(n.testo)}${
+          n.volte > 1 ? `<b>${n.volte} volte</b>` : ''}</span>`).join('')
+      + (d.note.length > 6 ? `<span class="conteggio" style="margin:0;align-self:center">+${d.note.length - 6}</span>` : '')
+      + '</div>'
+    : '';
+  disegnaStorico(d);
+}
+
+// Quanto tempo è passato. «7 mesi fa» dice in un attimo quello che «3 febbraio»
+// costringe a calcolare — ed è la cosa che si vuole sapere aprendo una scheda.
+function tempoFa(iso) {
+  const giorni = Math.round((Date.now() - new Date(iso + 'T12:00:00')) / 86400000);
+  if (giorni < 1) return 'oggi';
+  if (giorni === 1) return 'ieri';
+  if (giorni < 30) return `${giorni} giorni fa`;
+  const mesi = Math.round(giorni / 30.4);
+  if (mesi < 24) return mesi === 1 ? 'un mese fa' : `${mesi} mesi fa`;
+  return `${Math.floor(giorni / 365)} anni fa`;
+}
+
+// ⚠️ Nello storico l'anno serve: «martedì 3 febbraio» in un elenco che copre
+// tre anni non dice quale febbraio, ed è proprio quello che si sta cercando di
+// capire. Solo quando NON è l'anno in corso: metterlo sempre allunga ogni riga.
+function dataStoricaUI(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  const opzioni = { weekday: 'long', day: 'numeric', month: 'long' };
+  if (d.getFullYear() !== new Date().getFullYear()) opzioni.year = 'numeric';
+  return d.toLocaleDateString('it-IT', opzioni);
+}
+
+function disegnaStorico(d) {
+  const oggi = new Date().toLocaleDateString('sv-SE');
+  const arrivo = d.righe.filter((r) => r.data >= oggi && r.stato !== 'annullata')
+    .sort((a, b) => (a.data + a.ora < b.data + b.ora ? -1 : 1));
+  const passate = d.righe.filter((r) => !arrivo.includes(r));
+
+  const riga = (r, classe = '') => `
+    <div class="sto-riga ${classe}${r.stato === 'annullata' ? ' annullata' : ''}">
+      <span class="quando">${dataStoricaUI(r.data)}</span>
+      <span class="ora">${sicuro(r.ora)}</span>
+      <span class="pers">${r.persone} pers.</span>
+      ${sottoRiga(r, classe === 'arrivo')}
+    </div>`;
+
+  const visibili = storicoTutto ? passate : passate.slice(0, STORICO_A_VISTA);
+  let html = '';
+  if (arrivo.length) {
+    html += '<div class="sto-titolo"><b>In arrivo</b></div>' + arrivo.map((r) => riga(r, 'arrivo')).join('');
+  }
+  if (!passate.length) {
+    html += '<div class="sto-titolo"><b>Storico</b></div>'
+      + '<div class="conteggio" style="margin:6px 0 0">È la sua prima prenotazione.</div>';
+  } else {
+    // Raggruppate per anno: su uno storico lungo l'anno è il primo appiglio che
+    // l'occhio cerca, e senza si scorre una colonna di date tutte uguali.
+    let annoScritto = null;
+    for (const r of visibili) {
+      const anno = r.data.slice(0, 4);
+      if (anno !== annoScritto) {
+        annoScritto = anno;
+        const quante = passate.filter((x) => x.data.startsWith(anno)).length;
+        html += `<div class="sto-titolo"><b>${anno}</b>`
+          + `<span class="conteggio" style="margin:0">${quante} ${quante === 1 ? 'prenotazione' : 'prenotazioni'}</span></div>`;
+      }
+      html += riga(r);
+    }
+    if (!storicoTutto && passate.length > STORICO_A_VISTA) {
+      html += `<button type="button" id="cli-tutte" class="btn btn-secondario"
+        style="margin-top:10px">Mostra tutte (${passate.length})</button>`;
+    }
+  }
+  $('#cli-righe').innerHTML = html;
+  const tasto = $('#cli-tutte');
+  if (tasto) tasto.addEventListener('click', () => { storicoTutto = true; disegnaStorico(d); });
+}
+
+// La nota e lo stato sulla STESSA riga: separati erano due righe in più per
+// prenotazione, e su uno storico lungo vuol dire scorrere il doppio.
+function sottoRiga(r, inArrivo) {
+  const pezzi = [];
+  // Il tavolo solo per quelle in arrivo: su una serata passata non dice niente.
+  if (inArrivo && r.tavolo) pezzi.push('🪑 tavolo ' + sicuro(r.tavolo));
+  if (r.note) pezzi.push(sicuro(r.note));
+  const segno = segnoDi(r, inArrivo);
+  if (segno) pezzi.push(segno);
+  return pezzi.length ? `<span class="nota">${pezzi.join(' · ')}</span>` : '';
+}
+
+// ⚠️ Su una prenotazione passata e confermata NON si scrive «prenotata»: è
+// vero e non dice niente. Quello che serve sapere è se quella sera è venuto, e
+// il locale non l'ha registrato — finché non c'è l'appello di fine serata,
+// l'unica cosa onesta è dire che non è stato segnato.
+function segnoDi(r, inArrivo) {
+  if (r.stato === 'attesa_pagamento') return '⏳ attende il pagamento';
+  if (r.stato === 'annullata') return '❌ cancellata';
+  if (r.stato === 'presentata') return '✅ venuto';
+  if (inArrivo) return '';
+  return '<span title="Nessuno ha segnato se quella sera si è presentato">non segnata</span>';
+}
+
+$('#cli-chiudi').addEventListener('click', () => { $('#cliente').style.display = 'none'; });
+$('#cliente').addEventListener('click', (ev) => {
+  // Il tocco sullo sfondo chiude: su un pannello che copre tutto è il gesto che
+  // viene naturale per uscirne.
+  if (ev.target === $('#cliente')) $('#cliente').style.display = 'none';
+});
+
+async function salva() {
+  // ⚠️ Due tocchi su «Salva» facevano due prenotazioni identiche. Su un
+  // telefono, in servizio, succede di continuo: si tocca, non si vede subito
+  // niente, si ritocca.
+  const tasto = $('#p-salva');
+  if (tasto.disabled) return;
+  tasto.disabled = true;
+  try { return await salvaDavvero(); } finally { tasto.disabled = false; }
+}
+
+async function salvaDavvero() {
+  const corpo = {
+    data: $('#p-data').value, ora: $('#p-ora').value.trim(),
+    persone: $('#p-persone').value, nome: $('#p-nome').value.trim(),
+    cognome: $('#p-cognome').value.trim(), note: $('#p-note').value.trim(),
+    tavolo: $('#p-tavolo').value.trim(),
+    telefono: $('#p-telefono').value.trim(), email: $('#p-email').value.trim(),
+    avvisa: $('#p-avvisa').checked,
+  };
+  // ⚠️ Lo stato si manda solo se da qui lo si può DAVVERO cambiare. Una
+  // prenotazione in attesa di pagamento ha la tendina bloccata: mandandolo lo
+  // stesso, il server rispondeva «Stato non valido» — e in sala non si poteva
+  // più correggere nemmeno un cognome, con un errore che non spiegava niente.
+  if (idAperto && !$('#p-stato').disabled) corpo.stato = $('#p-stato').value;
+  if (!corpo.ora) {
+    $('#p-errore').textContent = 'Scegli un orario.';
+    $('#p-errore').style.display = '';
+    return;
+  }
+  const r = await fetch(idAperto ? '/api/bot/prenotazioni/' + idAperto : '/api/bot/prenotazioni', {
+    method: idAperto ? 'PATCH' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo),
+  });
+  const d = await r.json();
+  if (d.error) {
+    $('#p-errore').textContent = d.error;
+    $('#p-errore').style.display = '';
+    return;
+  }
+  chiudiPannello();
+  // ⚠️ Un avviso non partito va detto: «Salvata» e basta lascia credere che il
+  // cliente sappia del cambiamento, e quello si presenta all'ora vecchia.
+  if (d.avvisoFallito) toast('Salvata, ma il cliente NON è stato avvisato');
+  else toast(d.avvisato ? 'Salvata, cliente avvisato' : 'Salvata');
+  // ⚠️ Soldi già incassati su una prenotazione che si sta annullando: non è un
+  // avviso che può scorrere via in tre secondi, è una cosa da fare. In sala si
+  // annulla più che altrove, quindi è qui che serve di più.
+  if (d.avvisoSoldi) alert(d.avvisoSoldi);
+  Turni.dimentica();   // i posti liberi nella tendina ora sono vecchi
+  $('#giorno').value = corpo.data;
+  await caricaGiorno();
+  await Planning.carica(opzioniPlanning());
+}
+
+// Su telefono la settimana è una striscia che scorre di lato, e «oggi» è il
+// quinto giorno: senza questo, all'apertura si vedevano lunedì e martedì, e
+// la casella evidenziata stava fuori dallo schermo. Si guarda la griglia
+// invece di toccare ogni punto che la ridisegna: ne ha tre, e uno dei tre
+// prima o poi verrebbe dimenticato. Solo scrollLeft, mai scrollIntoView:
+// quello sposta anche la pagina in verticale, e in sala non deve muoversi
+// niente che non si sia toccato.
+function centraOggi() {
+  const griglia = $('#sett-griglia');
+  const oggi = griglia && griglia.querySelector('.giorno.oggi');
+  if (!oggi || griglia.scrollWidth <= griglia.clientWidth) return;
+  griglia.scrollLeft = oggi.offsetLeft - griglia.offsetLeft - (griglia.clientWidth - oggi.offsetWidth) / 2;
+}
+new MutationObserver(centraOggi).observe($('#sett-griglia'), { childList: true });
+window.addEventListener('resize', centraOggi);
+
+$('#sett-indietro').addEventListener('click', () => Planning.sposta(-7, opzioniPlanning()));
+$('#sett-avanti').addEventListener('click', () => Planning.sposta(7, opzioniPlanning()));
+$('#sett-oggi').addEventListener('click', () => Planning.daOggi(opzioniPlanning()));
+$('#giorno').addEventListener('change', caricaGiorno);
+// Cambiando giorno cambiano i turni: pranzo, cena, giorni di chiusura.
+$('#p-data').addEventListener('change', () => {
+  Turni.riempi('#p-ora', $('#p-data').value, '');
+  // ⚠️ Qui si passa '' e non l'ora del campo: «Turni.riempi» è asincrona, e un
+  // istante dopo il campo contiene ancora l'ora VECCHIA. I posti liberi
+  // risulterebbero quelli di un turno che non è più scelto.
+  Turni.riempiPersone('#p-persone', $('#p-data').value, $('#p-persone').value, '');
+});
+// ⚠️ E cambiando ORA cambiano i posti liberi: senza questa riga la tendina
+// delle persone restava ferma sui numeri del turno di prima, e diceva «6» su
+// un'ora dove ne restavano due. Il numero c'era, e non veniva riletto.
+$('#p-ora').addEventListener('change', () => {
+  Turni.riempiPersone('#p-persone', $('#p-data').value, $('#p-persone').value, $('#p-ora').value);
+});
+$('#aggiorna').addEventListener('click', () => { caricaGiorno(); Planning.carica(opzioniPlanning()); });
+$('#nuova').addEventListener('click', () => apri(null));
+$('#p-chiudi').addEventListener('click', chiudiPannello);
+$('#p-salva').addEventListener('click', salva);
+$('#pannello').addEventListener('click', (e) => {
+  if (e.target === $('#pannello')) chiudiPannello();
+});
+
+// ---------------------------------------------------------------------------
+//  Tenersi aggiornati da soli
+// ---------------------------------------------------------------------------
+//  Le prenotazioni cambiano mentre il tablet è lì aperto sul bancone: ne arriva
+//  una da WhatsApp, un'altra la sposta chi è in ufficio, una la segna il collega
+//  dall'altro tablet. Finché bisognava premere «Aggiorna», quello che si vedeva
+//  era la situazione di quando si era acceso lo schermo — e nessuno preme un
+//  tasto per una cosa che non sa di dover sapere.
+//
+//  Non si riscarica l'elenco ogni pochi secondi: si chiede solo un NUMERO (il
+//  contatore che l'archivio alza a ogni tocco, da qualunque parte arrivi), e si
+//  ricarica davvero solo quando è salito. Una richiesta da una riga contro
+//  l'elenco di una serata intera.
+const OGNI = 4000;
+let versioneVista = null;
+let daRicaricare = false;
+
+function pannelloAperto() { return $('#pannello').style.display === 'flex'; }
+
+async function ricaricaTutto({ dillo } = {}) {
+  const prima = quantePrima;
+  await caricaGiorno();
+  await Planning.carica(opzioniPlanning());
+  // Si avvisa solo se sono ARRIVATE prenotazioni: un elenco che si riordina da
+  // solo non merita un messaggio, una prenotazione nuova sì — è l'unica cosa
+  // per cui vale la pena alzare gli occhi dal lavoro.
+  if (dillo && prima !== null && quantePrima > prima) {
+    const nuove = quantePrima - prima;
+    toast(nuove === 1 ? '🆕 Una prenotazione nuova' : `🆕 ${nuove} prenotazioni nuove`);
+  }
+}
+
+async function leggiVersione() {
+  try {
+    const r = await fetch('/api/bot/prenotazioni/versione');
+    if (!r.ok) return null;               // sessione scaduta o bot fermo: si riproverà
+    return (await r.json()).versione;
+  } catch { return null; }                // rete che balla: si riproverà fra quattro secondi
+}
+
+async function guardaSeCambiato() {
+  // Schermo spento o pagina in secondo piano: non si chiede niente. Su un
+  // tablet lasciato acceso tutto il giorno sono migliaia di richieste inutili.
+  if (document.hidden) return;
+  const versione = await leggiVersione();
+  if (versione === null) return;
+  // ⚠️ Il riferimento si fissa all'APERTURA, non al primo controllo: fissarlo
+  // qui vorrebbe dire ingoiare tutto quello che è arrivato nei primi secondi —
+  // e quella prenotazione non comparirebbe mai, senza che nessuno lo sappia.
+  if (versioneVista === null) { versioneVista = versione; return; }
+  if (versione === versioneVista) return;
+  versioneVista = versione;
+  // ⚠️ Mentre uno sta scrivendo NON si tocca niente: ricaricare sotto le dita
+  // gli farebbe perdere quello che ha appena battuto. Si aspetta che chiuda.
+  // I posti liberi e la capienza mostrati nelle tendine sono di un attimo fa:
+  // se l'archivio è cambiato, vanno richiesti di nuovo.
+  Turni.dimentica();
+  if (pannelloAperto() || scrivendoUnTavolo()) { daRicaricare = true; return; }
+  await ricaricaTutto({ dillo: true });
+}
+
+// Lo stesso vale per il tavolo scritto nella riga: rifare l'elenco mentre lo
+// si batte porta via il campo, e con lui il numero.
+function scrivendoUnTavolo() {
+  const a = document.activeElement;
+  return !!(a && a.matches && a.matches('[data-tavolo]'));
+}
+// Il dito passa da un tavolo al successivo: si aspetta un attimo, e se è già
+// su un altro campo si aspetta ancora. Quello che è arrivato nel frattempo si
+// mostra appena si può, senza portare via niente a nessuno.
+function ricaricaSeNonScrive() {
+  setTimeout(() => {
+    if (!daRicaricare || pannelloAperto() || scrivendoUnTavolo()) return;
+    daRicaricare = false;
+    ricaricaTutto({ dillo: true });
+  }, 400);
+}
+
+setInterval(guardaSeCambiato, OGNI);
+
+// La versione del programma si guarda ogni cinque minuti, non ogni quattro
+// secondi: cambia una volta al mese, e il tablet resta acceso per giorni. È
+// l'unico modo perché una pagina lasciata aperta si accorga di essere vecchia.
+setInterval(async () => {
+  try {
+    const s = await (await fetch('/api/sala/stato')).json();
+    guardaSeVecchia(s.versione);
+  } catch {}
+}, 5 * 60 * 1000);
+// Il tablet che si risveglia deve mostrare la situazione di ADESSO, non quella
+// di quando è stato bloccato: è il momento in cui l'elenco vecchio inganna di più.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) guardaSeCambiato(); });
+window.addEventListener('focus', guardaSeCambiato);
+
+(async () => {
+  $('#giorno').value = new Date().toLocaleDateString('sv-SE');
+  try {
+    const s = await (await fetch('/api/sala/stato')).json();
+    $('#quale-locale').textContent = s.locale || '';
+    guardaSeVecchia(s.versione);
+  } catch {}
+  await caricaGiorno();
+  await Planning.carica(opzioniPlanning());
+  // Da qui in poi ogni cambiamento è roba nuova da mostrare.
+  versioneVista = await leggiVersione();
+})();
+</script>
+</body>
+</html>

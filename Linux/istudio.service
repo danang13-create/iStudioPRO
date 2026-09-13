@@ -1,0 +1,59 @@
+# ============================================================
+#  iStudio come servizio di sistema
+#
+#  ⚠️ Questo file è un MODELLO: l'installatore ci sostituisce @@UTENTE@@ e
+#     @@CARTELLA@@ e lo copia in /etc/systemd/system/istudio.service.
+#     Modificarlo qui non cambia niente su una macchina già installata.
+#
+#  Perché un servizio e non un file da cliccare: se avviare iStudio
+#  richiedesse un click, dopo un blackout alle 3 di notte non la avvierebbe
+#  nessuno e il bot resterebbe muto fino al mattino. Così parte da sola
+#  all'accensione, PRIMA e INDIPENDENTEMENTE dal login — vale anche su
+#  Ubuntu Desktop, dove al login grafico non ci arriva nessuno.
+# ============================================================
+
+[Unit]
+Description=iStudio — prenotazioni e newsletter
+Documentation=https://github.com/danang13-create/iStudioPRO
+# Senza rete il browser di WhatsApp non parte. «network-online» non è la stessa
+# cosa di «network»: il secondo si accontenta che la scheda esista, il primo
+# aspetta che un indirizzo ci sia davvero.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@@UTENTE@@
+WorkingDirectory=@@CARTELLA@@
+ExecStart=@@NODE@@ @@CARTELLA@@/server.js
+
+# ⚠️ Riparte SEMPRE, non solo quando esce con errore: whatsapp-web.js a volte
+# esce con codice 0 dopo aver perso la sessione, e con «on-failure» resterebbe
+# spenta senza che nessuno se ne accorga fino alla sera.
+Restart=always
+RestartSec=10
+
+# Se il browser si pianta, un riavvio ogni 10 secondi riempirebbe il disco di
+# registri in una notte. Cinque tentativi in cinque minuti, poi si ferma: a quel
+# punto il guasto è vero e va guardato, non ritentato all'infinito.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Il registro va nel giornale di sistema: si legge con «Diagnostica.sh», e
+# ruota da solo senza riempire il disco.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=istudio
+
+# Chromium apre parecchi processi e altrettanti file. Il limite normale di
+# Ubuntu basta, ma su una macchina che sta accesa per mesi conviene abbondare.
+LimitNOFILE=65536
+
+# Fermarla deve chiudere anche i processi di Chromium, non solo node: gli orfani
+# tengono occupato il profilo di WhatsApp, e al riavvio successivo iStudio non
+# riesce ad aprirlo (è successo il 5 agosto 2026, cinque riavvii di fila).
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

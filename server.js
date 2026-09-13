@@ -41,7 +41,10 @@ process.on('uncaughtException', (err) => {
   console.error('Errore imprevisto (iStudio resta accesa):', (err && err.stack) || err);
 });
 
-const PORT = process.env.PORT || 3100;
+// ⚠️ Number(), non il valore così com'è: da `process.env` arriva una STRINGA, e
+// «3110» + 1 fa «31101» invece di 3111. La porta della sala qui sotto si
+// ricava da questa, e con la stringa nasceva un numero di porta assurdo.
+const PORT = Number(process.env.PORT) || 3100;
 // Su hosting: DATA_DIR punta al disco persistente, ISTUDIO_PASSWORD protegge l'accesso
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 const APP_PASSWORD = process.env.ISTUDIO_PASSWORD || '';
@@ -318,6 +321,20 @@ function browserDiSistema() {
         'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
         'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
       ]
+    : process.platform === 'linux'
+    // ⚠️ Su Linux il ripiego non esisteva: qui si finiva nel ramo di macOS, a cercare
+    // dei «.app» che su Ubuntu non ci sono e non ci saranno mai. La funzione tornava
+    // sempre «nessun browser», in silenzio — cioè il piano B non c'era proprio, e
+    // sarebbe saltato fuori solo il giorno in cui il browser incluso non parte, su
+    // una macchina in un ristorante.
+    ? [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+        '/snap/bin/chromium',          // su Ubuntu Chromium si installa come snap
+        '/usr/bin/microsoft-edge',
+      ]
     : [
         '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
         path.join(os.homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
@@ -398,6 +415,27 @@ function normalizePhone(raw) {
   // Numeri italiani senza prefisso internazionale (es. 3401234567)
   if (/^3\d{8,9}$/.test(p)) p = '39' + p;
   return p;
+}
+
+// Come si SCRIVE un numero in rubrica.
+//
+// ⚠️ Finora ci finiva quello che capitava: «+393429872741» battuto a mano,
+// «393245927803» preso da una prenotazione, «340 123 4567» arrivato da un CSV.
+// Nessuno dei tre è sbagliato — si confrontano e si inviano tutti passando da
+// `normalizePhone`, che il «+» lo toglie comunque — ma messi in colonna nella
+// stessa tabella sembrano tre cose diverse, e chi ne aggiunge uno a mano non sa
+// più quale sia il formato giusto.
+//
+// Il formato scelto è quello internazionale col «+»: è come lo scrive WhatsApp,
+// ed è l'unico che si può comporre anche da fuori dall'Italia.
+//
+// ⚠️ Quello che NON somiglia a un numero si lascia esattamente com'è. In una
+// rubrica vera può esserci scritto «chiamare in ufficio» o un interno di
+// centralino: riscriverlo vorrebbe dire buttare via l'unica cosa che c'era.
+function numeroInRubrica(valore) {
+  const originale = String(valore || '').trim();
+  const cifre = normalizePhone(originale);
+  return /^\d{8,15}$/.test(cifre) ? '+' + cifre : originale;
 }
 
 function renderTemplate(message, contact) {
@@ -829,6 +867,11 @@ function riprendiInviiAutomatici() {
 // Se WhatsApp non è ancora collegato non si forza nulla: resume_after resta nel passato
 // e il controllo riprova al giro dopo.
 function controllaRiprese() {
+  // ⚠️ Le pagine sono bloccate dall'abbonamento scaduto, ma un invio messo in
+  // pausa per la notte riprendeva da solo la mattina dopo: il programma
+  // risultava fermo e intanto mandava centinaia di messaggi. Bloccare la porta
+  // e lasciare aperta la finestra non è bloccare.
+  if (!abbonamentoAttivo()) return;
   const pronte = db.prepare(
     "SELECT * FROM campaigns WHERE status = 'in_pausa' AND resume_after IS NOT NULL AND resume_after <= ?"
   ).all(new Date().toISOString());
@@ -932,7 +975,13 @@ function verificaSeriale(seriale) {
   try { valido = crypto.verify(null, Buffer.from(payload), chiavePubblica, firma); } catch { valido = false; }
   if (!valido) return { ok: false, motivo: 'Questo seriale non è valido.' };
 
-  const [codice, scadenza] = payload.split('|');
+  // Il terzo campo, se c'è, elenca le funzioni comprese (es. «bot»).
+  // Sta IN FONDO di proposito: le installazioni non ancora aggiornate leggono
+  // solo i primi due pezzi e ignorano questo, quindi un seriale nuovo continua
+  // a funzionare anche su una copia vecchia. Messo prima della data,
+  // romperebbe ogni installazione non aggiornata.
+  const [codice, scadenza, funzioniGrezze] = payload.split('|');
+  const funzioni = String(funzioniGrezze || '').split(',').map((f) => f.trim().toLowerCase()).filter(Boolean);
   if (codice !== codiceInstallazione()) {
     return { ok: false, motivo: 'Questo seriale è di un\'altra installazione: chiedine uno per il tuo codice.' };
   }
@@ -944,15 +993,16 @@ function verificaSeriale(seriale) {
   if (scadenza < oggi) {
     return { ok: false, scaduto: true, scadenza, motivo: `Questo seriale è scaduto il ${scadenza.split('-').reverse().join('/')}.` };
   }
-  return { ok: true, scadenza };
+  return { ok: true, scadenza, funzioni };
 }
 
-const abbonamento = { valido: false, scadenza: null, giorniRimasti: null };
+const abbonamento = { valido: false, scadenza: null, giorniRimasti: null, funzioni: [] };
 
 function ricalcolaAbbonamento() {
   if (!modalitaAbbonamento) { abbonamento.valido = true; return; }
   const esito = verificaSeriale(getSetting('abbonamento_seriale'));
   abbonamento.valido = esito.ok;
+  abbonamento.funzioni = esito.funzioni || [];
   abbonamento.scadenza = esito.scadenza || null;
   abbonamento.giorniRimasti = esito.ok
     ? Math.round((new Date(esito.scadenza + 'T23:59:59') - Date.now()) / 86400000)
@@ -988,7 +1038,7 @@ p{color:#667781;font-size:.92rem;margin:0 0 16px;line-height:1.6}
 .codice b{display:block;font-size:1.7rem;letter-spacing:2px;color:#111b21;font-family:ui-monospace,Menlo,monospace}
 .codice span{font-size:.8rem;color:#667781}
 textarea{width:100%;padding:11px;border:1px solid #e0e4e8;border-radius:8px;font-size:.85rem;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;resize:vertical;min-height:78px}
-button{width:100%;padding:12px;background:#25d366;color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;font-family:inherit;margin-top:10px}
+button{width:100%;padding:12px;background:#128c7e;color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;font-family:inherit;margin-top:10px}
 button:hover{background:#128c7e}button:disabled{background:#a8d5bd;cursor:default}
 .err{color:#ea4335;font-size:.87rem;min-height:1.2em;margin-top:10px;text-align:center}
 .ok{color:#1c7c4b;font-size:.95rem;text-align:center;line-height:1.6}
@@ -1132,19 +1182,19 @@ function isAuthed(req) {
 }
 
 const loginPage = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0"><title>iStudio — Accesso</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"><title>iStudio — Accesso</title>\n<link rel="icon" href="/icona.svg" type="image/svg+xml">
 <style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
 .box{background:#fff;border:1px solid #e0e4e8;border-radius:14px;padding:34px;width:320px;text-align:center}
 h1{font-size:1.3rem;color:#128c7e;margin:0 0 6px}p{color:#667781;font-size:.9rem;margin:0 0 18px}
 input{width:100%;padding:11px;border:1px solid #e0e4e8;border-radius:8px;font-size:1rem;box-sizing:border-box;margin-bottom:12px}
-button{width:100%;padding:11px;background:#25d366;color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer}
+button{width:100%;padding:11px;background:#128c7e;color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer}
 button:hover{background:#128c7e}.err{color:#ea4335;font-size:.85rem;min-height:1.2em;margin-top:10px}</style></head>
 <body><form class="box" id="f"><h1>iStudio</h1><p>Inserisci la password per accedere</p>
 <input type="password" id="p" placeholder="Password" autofocus>
 <button type="submit">Entra</button><div class="err" id="e"></div></form>
 <script>document.getElementById('f').addEventListener('submit',async(ev)=>{ev.preventDefault();
 const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('p').value})});
-if(r.ok)location.reload();else document.getElementById('e').textContent='Password errata';});</script></body></html>`;
+if(r.ok){location.reload();return;}let d={};try{d=await r.json();}catch{}document.getElementById('e').textContent=d.error||'Password errata';});</script></body></html>`;
 
 // ---------- API ----------
 const app = express();
@@ -1160,6 +1210,10 @@ if (modalitaAbbonamento) {
       valido: abbonamento.valido,
       scadenza: abbonamento.scadenza,
       giorniRimasti: abbonamento.giorniRimasti,
+      // Cosa comprende: il cliente lo deve poter leggere, e l'amministratore al
+      // telefono deve poterglielo far leggere — «hai il bot?» non deve
+      // richiedere di aprire il seriale.
+      funzioni: abbonamento.funzioni,
       assistenza: numeroAssistenza(),
       assistenzaEmail: emailAssistenza(),
       versione: versioneInstallata(),
@@ -1187,10 +1241,16 @@ if (modalitaAbbonamento) {
 }
 
 
+// ⚠️ L'icona sta PRIMA del controllo della password: dopo, il browser che la
+// chiede si vedrebbe rispondere con l'HTML della pagina d'accesso, e nella
+// scheda resterebbe il quadratino vuoto proprio quando si sta entrando.
+// Non è un dato riservato: è il logo.
+app.get('/icona.svg', (req, res) => res.sendFile(path.join(__dirname, 'public', 'icona.svg')));
+
 app.post('/api/login', (req, res) => {
   if (!APP_PASSWORD) return res.json({ ok: true });
-  const tentativo = Buffer.from(String(req.body.password || ''));
-  const attesa = Buffer.from(APP_PASSWORD);
+  const tentativo = Buffer.from(String(req.body.password || '').trim());
+  const attesa = Buffer.from(String(APP_PASSWORD).trim());
   const valida = tentativo.length === attesa.length && crypto.timingSafeEqual(tentativo, attesa);
   if (!valida) return res.status(401).json({ error: 'Password errata' });
   const token = crypto.randomBytes(32).toString('hex');
@@ -1204,6 +1264,51 @@ app.use((req, res, next) => {
   if (isAuthed(req)) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Accesso non autorizzato' });
   res.send(loginPage);
+});
+
+// ⚠️ La pagina non si mette in cache, e porta dentro la versione con cui è
+// stata servita.
+//
+// Il guasto visto: dopo un aggiornamento il browser continuava a usare la
+// pagina vecchia contro il server nuovo. Il risultato era un «undefined» in
+// mezzo ai conti — e il piede della pagina, che la versione la chiede al
+// SERVER, mostrava tranquillamente quella nuova. Cioè la pagina diceva di
+// essere aggiornata mentre non lo era: il modo migliore per far cercare il
+// guasto dalla parte sbagliata.
+//
+// Il caso peggiore non è nemmeno il browser: è il tablet della sala, con la
+// pagina aperta da martedì. Lì non c'è nessun ricaricamento che la salvi, e
+// serve che sia la pagina ad accorgersene e a dirlo.
+const paginePronte = new Map();
+function paginaConVersione(percorso) {
+  const versione = versioneInstallata() || 'ignota';
+  const chiave = `${percorso}@${versione}`;
+  if (!paginePronte.has(chiave)) {
+    // Una volta per versione: il file non cambia sotto i piedi, l'aggiornamento
+    // riavvia il programma.
+    paginePronte.set(chiave, fs.readFileSync(percorso, 'utf8').split('__VERSIONE__').join(versione));
+  }
+  return paginePronte.get(chiave);
+}
+
+function serviPagina(percorso) {
+  return (req, res) => {
+    // `no-cache` e non `no-store`: il browser può tenersela, ma deve chiedere
+    // ogni volta se è cambiata. Costa un 304 e vale un aggiornamento che arriva.
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    res.type('html').send(paginaConVersione(percorso));
+  };
+}
+
+for (const via of ['/', '/index.html']) {
+  app.get(via, serviPagina(path.join(__dirname, 'public', 'index.html')));
+}
+
+// Gli stessi file condivisi dalle due pagine: se restano in cache mentre la
+// pagina è nuova, si ottiene la stessa mescolanza al contrario.
+app.use('/comune', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  next();
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -1224,7 +1329,11 @@ app.get('/api/status', (req, res) => {
   // Mandarlo invece di riscriverlo nel frontend evita di avere lo stesso numero in due
   // posti: è già successo col ritmo delle pause, e la stima aveva cominciato a mentire.
   res.json({ ...state, authEnabled: Boolean(APP_PASSWORD), abbonamento: abb, edizione,
-             tettoEmail: tettoEmailGiornaliero(), versione: versioneInstallata() });
+             tettoEmail: tettoEmailGiornaliero(), versione: versioneInstallata(),
+             // Il nome del locale, per l'intestazione: le copie di prova e quella
+             // vera sono identiche a vedersi, e questa è l'unica riga che dice di
+             // chi è la pagina che si ha davanti.
+             locale: botDisponibile() ? String(bot.leggi(db, 'bot_locale') || '').trim() : '' });
 });
 
 // Uscita dalla piattaforma (chiude la sessione di accesso, solo con password attiva)
@@ -1306,7 +1415,7 @@ app.post('/api/contacts', (req, res) => {
   const negato = consensoNegato(req.body.consenso); // di base il consenso c'è
   const info = db
     .prepare('INSERT INTO contacts (nome, cognome, email, telefono, opt_out, opt_out_at, opt_out_motivo) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(nome.trim(), (cognome || '').trim(), (email || '').trim(), telefono.trim(),
+    .run(nome.trim(), (cognome || '').trim(), (email || '').trim(), numeroInRubrica(telefono),
       negato ? 1 : 0, negato ? new Date().toISOString() : null, negato ? 'Consenso: No' : null);
   res.json(db.prepare('SELECT * FROM contacts WHERE id = ?').get(info.lastInsertRowid));
 });
@@ -1325,7 +1434,7 @@ app.put('/api/contacts/:id', (req, res) => {
   const opt_out_at = negato ? (prima.opt_out ? prima.opt_out_at : new Date().toISOString()) : null;
   const opt_out_motivo = negato ? (prima.opt_out && prima.opt_out_motivo ? prima.opt_out_motivo : 'Consenso: No') : null;
   db.prepare('UPDATE contacts SET nome = ?, cognome = ?, email = ?, telefono = ?, opt_out = ?, opt_out_at = ?, opt_out_motivo = ? WHERE id = ?').run(
-    nome.trim(), (cognome || '').trim(), (email || '').trim(), telefono.trim(),
+    nome.trim(), (cognome || '').trim(), (email || '').trim(), numeroInRubrica(telefono),
     negato ? 1 : 0, opt_out_at, opt_out_motivo, req.params.id
   );
   res.json(db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id));
@@ -1435,7 +1544,7 @@ app.post('/api/contacts/import', (req, res) => {
       if (phoneSet.has(phoneKey) || (email && emailSet.has(email.toLowerCase()))) { saltati++; continue; }
       // consenso 'no' nel CSV = non contattare, come la colonna non_contattare
       const escluso = vero(r.non_contattare) || consensoNegato(r.consenso);
-      insert.run(nome, cognome, email, telefono,
+      insert.run(nome, cognome, email, numeroInRubrica(telefono),
         escluso ? 1 : 0,
         escluso ? new Date().toISOString() : null,
         escluso ? 'Importato dal CSV' : null);
@@ -1994,6 +2103,17 @@ app.post('/api/chat/telefono', async (req, res) => {
     return res.json({ nome, telefono: nome.trim() });
   }
 
+  // Prima strada, e la più affidabile: il numero imparato da un messaggio
+  // ricevuto. Sugli account WhatsApp Business il pannello informazioni il
+  // numero non lo mostra affatto, quindi senza questo non ci sarebbe modo di
+  // arrivarci — era il limite dichiarato «non risolvibile» in NOTE-TECNICHE.
+  try {
+    const visto = db.prepare('SELECT telefono FROM numeri_visti WHERE nome = ?').get(nome);
+    if (visto && visto.telefono) {
+      return res.json({ nome, telefono: '+' + visto.telefono, fonte: 'messaggio ricevuto' });
+    }
+  } catch { /* la tabella può non esserci: si prosegue col pannello */ }
+
   let nomeRiferimento = nome; // nome della conversazione effettivamente letta
 
   try {
@@ -2410,8 +2530,3845 @@ app.get('/api/campaigns/:id', (req, res) => {
   res.json(campaign);
 });
 
+// ===========================================================================
+//  BOT PRENOTAZIONI
+// ===========================================================================
+//  Il motore sta in `bot-prenotazioni.js`. Qui c'è solo il ponte verso
+//  WhatsApp e le API della pagina.
+//
+//  Il `require` è dentro un try: se quel file mancasse (un aggiornamento a
+//  metà, un pacchetto incompleto) iStudio deve continuare a mandare messaggi
+//  e newsletter come sempre. Un errore di caricamento all'avvio spegnerebbe
+//  la piattaforma di TUTTI i clienti per una funzione che magari non usano.
+let bot = null;
+try {
+  bot = require('./bot-prenotazioni.js');
+  bot.preparaDatabase(db);
+  console.log('Bot prenotazioni: motore caricato');
+} catch (e) {
+  console.error('Bot prenotazioni non disponibile:', e.message);
+  bot = null;
+}
+
+const botDisponibile = () => bot !== null;
+
+// Sulla copia di lavoro (MASTER) il bot c'è sempre. Sulle copie dei clienti
+// si accende solo se il seriale porta la funzione «bot»: e' cosi' che diventa
+// una cosa da vendere invece che un regalo a tutti alla prima pubblicazione.
+const botPermesso = () => !modalitaAbbonamento || abbonamento.funzioni.includes('bot');
+// Con l'abbonamento scaduto il bot si ferma, come le pagine. Prima si fermavano
+// solo quelle: il bot continuava a rispondere ai clienti e a prendere
+// prenotazioni, cioè proprio la cosa che si vende.
+const abbonamentoAttivo = () => !modalitaAbbonamento || abbonamento.valido;
+// ⚠️ La LICENZA da sola: motore caricato, bot compreso nel seriale, abbonamento
+// non scaduto — senza l'interruttore quotidiano del ristoratore. È il cancello
+// dei lavori sui soldi: chi ha appena pagato va confermato anche se stasera il
+// bot è spento; ma su una copia che il bot non lo ha, o è scaduta, non si crea
+// nessun collegamento e non si scrive a nessuno. Fino a qui i tre lavori del
+// pagamento guardavano solo «motore caricato», e su un cliente che al rinnovo
+// aveva perso il bot continuavano a mandare messaggi: la porta bloccata e la
+// finestra aperta.
+const botConcesso = () => botDisponibile() && botPermesso() && abbonamentoAttivo();
+const botAcceso = () => botConcesso() && bot.boolDi(bot.leggi(db, 'bot_attivo'));
+
+// I numeri del personale: ricevono gli avvisi e sono SEMPRE esclusi dal
+// percorso di prenotazione. Se il responsabile scrive al locale, il bot non
+// deve chiedergli per quante persone vuole un tavolo.
+function personale() {
+  if (!botDisponibile()) return [];
+  return db.prepare('SELECT * FROM bot_personale').all()
+    .map((p) => ({ ...p, telefono: normalizePhone(p.telefono) }));
+}
+function eDelPersonale(telefono) {
+  return personale().some((p) => telefono && p.telefono === telefono);
+}
+
+// Trova la persona del personale che sta scrivendo. Si riconosce dal numero
+// oppure dall'indirizzo della chat, imparato la prima volta: con gli indirizzi
+// `@lid` il numero può non arrivare mai, e senza questa seconda strada il
+// responsabile resterebbe per sempre un cliente qualunque agli occhi del bot.
+function personaCheScrive(telefono, chatId) {
+  const elenco = personale();
+  const perIndirizzo = elenco.find((p) => p.chat_id && p.chat_id === chatId);
+  if (perIndirizzo) return perIndirizzo;
+  const perNumero = elenco.find((p) => telefono && p.telefono === telefono);
+  if (perNumero && chatId && perNumero.chat_id !== chatId) {
+    db.prepare('UPDATE bot_personale SET chat_id = ? WHERE id = ?').run(chatId, perNumero.id);
+    annota('personale', `${perNumero.nome}: imparato l'indirizzo della sua chat`);
+  }
+  return perNumero || null;
+}
+
+// Riconoscere i propri messaggi. Serve alla PRESA IN CARICO: un messaggio
+// uscito dal numero del locale che il bot non ha mandato lui vuol dire che una
+// persona sta rispondendo a mano, e allora il bot deve tacere.
+//
+// ⚠️ L'id da solo NON basta, ed è costato una mattinata. WhatsApp annuncia il
+// messaggio in uscita PRIMA che `sendMessage()` restituisca il suo id: per
+// qualche istante il bot non riconosce come propria la risposta che sta
+// mandando in quel momento, si scambia per una persona e si zittisce da solo
+// per sei ore. Dal registro sembrava che qualcuno avesse risposto a mano.
+//
+// Quindi si segna il testo PRIMA di inviarlo, e lo si riconosce anche da
+// quello. Le tracce scadono da sole: servono per pochi secondi.
+const mieiMessaggi = new Set();
+const testiInviati = [];
+function segnaCheStoInviando(chatId, testo) {
+  testiInviati.push({ chatId: String(chatId), testo: String(testo), quando: Date.now() });
+  while (testiInviati.length > 60) testiInviati.shift();
+}
+function loHoMandatoIo(chatId, testo, id) {
+  if (id && mieiMessaggi.has(id)) return true;
+  const adesso = Date.now();
+  const i = testiInviati.findIndex((t) =>
+    adesso - t.quando < 60000 && t.chatId === String(chatId) && t.testo === String(testo));
+  if (i === -1) return false;
+  testiInviati.splice(i, 1);
+  return true;
+}
+
+// ---------- Che cosa è questa conversazione ----------
+// WhatsApp identifica le chat con un indirizzo, non con un numero, e i formati
+// sono cambiati nel tempo: alle chat singole di sempre (`@c.us`) si sono
+// aggiunte quelle con identificativo collegato (`@lid`). Il primo controllo
+// scritto qui conosceva solo `@c.us` e scambiava per gruppo ogni conversazione
+// normale in formato nuovo — il bot riceveva i messaggi e li buttava.
+//
+// La garanzia importante resta: si risponde SOLO alle conversazioni fra due
+// persone. Gruppi, stati, liste broadcast e canali non ricevono mai niente.
+function tipoChat(id) {
+  const x = String(id || '');
+  if (x.endsWith('@g.us')) return 'gruppo';
+  if (x.endsWith('@broadcast')) return 'stato';
+  if (x.endsWith('@newsletter')) return 'canale';
+  if (x.endsWith('@c.us') || x.endsWith('@lid')) return 'privata';
+  return 'sconosciuto';
+}
+
+// Il numero leggibile del mittente, quando si riesce a saperlo. Con gli
+// indirizzi `@lid` il numero non sta nell'indirizzo: WhatsApp lo mette (a
+// volte) in un campo a parte. Se non c'è, meglio tenersi l'indirizzo che
+// inventare un numero sbagliato — finirebbe stampato su una prenotazione.
+// Le cifre dentro un indirizzo `@lid` NON sono un numero di telefono: sono un
+// identificativo interno di WhatsApp, e assomigliano abbastanza a un numero da
+// passare per tale. E' successo davvero: in tabella e' comparso
+// «📞 +120839039090895», e il responsabile di sala non veniva piu' riconosciuto
+// perche' il confronto col suo numero vero non tornava mai.
+function eIdentificativoInterno(cifre, chatId) {
+  const daLid = String(chatId || '').includes('@lid')
+    ? String(chatId).replace(/@.*$/, '').replace(/\D/g, '')
+    : '';
+  if (daLid && cifre === daLid) return true;
+  // I numeri di telefono nel mondo arrivano a 15 cifre col prefisso, ma quelli
+  // veri che passano di qui ne hanno 10-13. Sopra le 14 e' quasi certamente un
+  // identificativo, e nel dubbio si preferisce non avere il numero che averne
+  // uno inventato.
+  return cifre.length > 14;
+}
+
+function numeroPlausibile(cifre, chatId) {
+  return cifre.length >= 8 && cifre.length <= 14 && !eIdentificativoInterno(cifre, chatId);
+}
+
+// ⚠️ La stessa persona può comparire in archivio con PIÙ indirizzi: WhatsApp
+// usa `@lid` per le chat nuove e `@c.us` per quelle di sempre, e chi risponde
+// a mano dal telefono del locale fa scattare il silenzio sull'indirizzo che ha
+// in mano lui, che non è per forza quello da cui il cliente scrive.
+//
+// Da qui un guaio visto in prova: «LIBERA R1» rispondeva ✅ ma il bot restava
+// muto. Aveva liberato UN indirizzo — quello scritto nella richiesta — mentre
+// il silenzio stava su un altro indirizzo della stessa persona. Il comando
+// diceva di aver fatto una cosa che non aveva fatto, ed è il tipo di bugia
+// peggiore: chi lo usa non ha modo di accorgersene.
+//
+// Quindi: quando si tocca il silenzio di una conversazione, si toccano TUTTI
+// gli indirizzi con cui quella conversazione può comparire.
+function formeDelNumero(valore) {
+  const s = String(valore || '').trim();
+  if (!s) return [];
+  const forme = new Set([s]);
+  const cifre = s.replace(/@.*$/, '').replace(/\D/g, '');
+  // Un identificativo interno di WhatsApp non è un numero: dai suoi zeri e uni
+  // non si ricava nessun «@c.us», e provarci accosterebbe due persone diverse.
+  if (numeroPlausibile(cifre, s)) {
+    forme.add(cifre);
+    forme.add(cifre + '@c.us');
+  }
+  return [...forme];
+}
+
+function chiaviStessaConversazione(...valori) {
+  const chiavi = new Set();
+  for (const v of valori) for (const f of formeDelNumero(v)) chiavi.add(f);
+  // Le richieste tengono insieme le due facce della stessa conversazione
+  // (l'indirizzo della chat e il numero): è l'unico posto dove un `@lid` e un
+  // numero risultano essere la stessa persona, e va letto invece che indovinato.
+  for (const r of db.prepare('SELECT telefono, chat_id FROM bot_richieste').all()) {
+    if (chiavi.has(String(r.chat_id || '')) || chiavi.has(String(r.telefono || ''))) {
+      for (const f of formeDelNumero(r.chat_id)) chiavi.add(f);
+      for (const f of formeDelNumero(r.telefono)) chiavi.add(f);
+    }
+  }
+  chiavi.delete('');
+  return [...chiavi];
+}
+
+// Toglie il silenzio su tutti gli indirizzi di quella conversazione e dice
+// QUANTE ne ha davvero liberate: zero è un'informazione, non un dettaglio.
+function ridaiLaParola(...valori) {
+  let cambiate = 0;
+  for (const chiave of chiaviStessaConversazione(...valori)) {
+    cambiate += db.prepare(
+      'UPDATE bot_conversazioni SET muto_fino = NULL WHERE telefono = ? AND muto_fino IS NOT NULL'
+    ).run(chiave).changes;
+  }
+  return cambiate;
+}
+
+// Chi è questa conversazione, per mostrarla nell'elenco di quelle su cui il
+// bot tace — senza questo si vedrebbe solo un indirizzo tecnico illeggibile
+// («98071434281145@lid»), e non si capirebbe MAI di chi si tratta.
+//
+// Si cerca prima fra le prenotazioni (è il posto con più probabilità di avere
+// un nome vero, essendo scritto dal cliente stesso), poi fra i nomi imparati
+// dalla rubrica di WhatsApp. Se non si trova niente, meglio dirlo che
+// inventare: è lo stesso principio già seguito per i numeri.
+function identitaPerChiave(chiave) {
+  const daPrenotazione = db.prepare(
+    'SELECT nome, cognome FROM prenotazioni WHERE chat_id = ? OR telefono = ? ORDER BY id DESC LIMIT 1'
+  ).get(chiave, chiave);
+  const cifre = String(chiave).replace(/@.*$/, '').replace(/\D/g, '');
+  const numero = numeroPlausibile(cifre, chiave) ? cifre : '';
+  if (daPrenotazione) {
+    const nome = [daPrenotazione.nome, daPrenotazione.cognome].filter(Boolean).join(' ');
+    if (nome) return { nome, telefono: numero };
+  }
+  if (numero) {
+    const daRubrica = db.prepare('SELECT nome FROM numeri_visti WHERE telefono = ?').get(numero);
+    if (daRubrica) return { nome: daRubrica.nome, telefono: numero };
+  }
+  return { nome: '', telefono: numero };
+}
+
+function numeroLeggibile(msg, chatId) {
+  const dati = (msg && msg._data) || {};
+  // `senderPn` è il numero vero che WhatsApp allega alle chat in formato `@lid`
+  const candidati = [dati.senderPn, dati.notifyNumber, msg && msg.author, chatId];
+  for (const c of candidati) {
+    const testo = String(c || '');
+    if (!testo || testo.includes('@lid')) continue;   // mai dall'indirizzo interno
+    const soloCifre = testo.replace(/@.*$/, '').replace(/\D/g, '');
+    if (!numeroPlausibile(soloCifre, chatId)) continue;
+    if (testo.includes('@c.us') || !testo.includes('@')) return soloCifre;
+  }
+  return '';
+}
+
+// Il numero vero del mittente. `numeroLeggibile()` lo ricava dall'indirizzo
+// quando c'è; con gli indirizzi `@lid` non c'è affatto, e allora lo si chiede
+// a WhatsApp — è l'unico modo di sapere chi sta scrivendo.
+//
+// Senza questo, due cose si rompevano insieme: il responsabile di sala non
+// veniva riconosciuto come tale (e il bot gli chiedeva per quante persone
+// voleva prenotare), e nella tabella delle prenotazioni al posto del numero
+// del cliente compariva l'indirizzo interno di WhatsApp.
+async function numeroDelMittente(msg, chatId) {
+  const diretto = numeroLeggibile(msg, chatId);
+  if (diretto) return diretto;
+  try {
+    const contatto = await msg.getContact();
+    // `number` è il numero di telefono; `id.user` invece è l'identificativo, e
+    // vale solo quando l'indirizzo è del tipo `c.us`. Prenderlo sempre è
+    // esattamente l'errore che ha prodotto «+120839039090895».
+    const candidati = [
+      contatto && contatto.number,
+      contatto && contatto.id && contatto.id.server === 'c.us' ? contatto.id.user : '',
+    ];
+    for (const c of candidati) {
+      const pulito = String(c || '').replace(/\D/g, '');
+      if (numeroPlausibile(pulito, chatId)) return pulito;
+    }
+  } catch (e) {
+    // Non è un guasto: si continua senza numero, che è meglio che inventarlo.
+    annota('avviso', `non riesco a leggere il numero di ${chatId}: ${e.message}`);
+  }
+  return '';
+}
+
+// Ricorda il numero di chi scrive, associato al nome con cui compare nella
+// lista chat. È la fonte più affidabile che ci sia: il numero arriva insieme
+// al messaggio, senza dover interrogare pagine che cambiano.
+async function imparaNumero(msg, chatId) {
+  if (!botDisponibile()) return '';
+  try {
+    const nome = (msg._data && msg._data.notifyName) || '';
+    if (!nome) return '';
+    const gia = db.prepare('SELECT telefono FROM numeri_visti WHERE nome = ?').get(nome);
+    if (gia && gia.telefono) return gia.telefono;
+    const numero = await numeroDelMittente(msg, chatId);
+    if (!numero) return '';
+    db.prepare("INSERT INTO numeri_visti (nome, telefono) VALUES (?, ?) "
+      + "ON CONFLICT(nome) DO UPDATE SET telefono = excluded.telefono, visto_at = datetime('now','localtime')")
+      .run(nome, numero);
+    return numero;
+  } catch { return ''; }
+}
+
+// Risponde DENTRO la conversazione da cui è arrivato il messaggio, usando
+// l'indirizzo così com'è. È l'unico modo che funziona sia con `@c.us` sia con
+// `@lid`: cercare di risalire al numero e poi ricomporre l'indirizzo fallisce
+// proprio nei casi nuovi.
+async function inviaAChat(chatId, testo) {
+  if (state.status !== 'connesso') throw new Error('WhatsApp non collegato');
+  return inCoda(async () => {
+    segnaCheStoInviando(chatId, testo);
+    const inviato = await client.sendMessage(chatId, testo);
+    if (inviato && inviato.id && inviato.id._serialized) mieiMessaggi.add(inviato.id._serialized);
+    return inviato;
+  });
+}
+
+// «Sta scrivendo…»: il puntino che WhatsApp mostra in cima alla chat.
+//
+// ⚠️ NON è un messaggio — è uno stato della conversazione. Non entra nella coda
+// degli invii, non conta per WhatsApp come traffico, e non costa niente a
+// nessuno. È la differenza con un messaggio «attendi», che finirebbe nella
+// stessa fila della risposta e arriverebbe quando la risposta sarebbe già
+// arrivata: con dieci clienti insieme, il decimo lo riceverebbe al secondo 15,
+// cioè esattamente quando avrebbe già avuto la risposta.
+//
+// Se fallisce non importa: è un ornamento, non un messaggio. Mai fermare una
+// risposta perché non si è riusciti ad accendere un puntino.
+async function staScrivendo(chatId) {
+  try { const c = await client.getChatById(chatId); await c.sendStateTyping(); } catch {}
+}
+async function hoFinitoDiScrivere(chatId) {
+  try { const c = await client.getChatById(chatId); await c.clearState(); } catch {}
+}
+
+let ultimoInvioChat = 0;
+async function rispondiConRitmo(chatId, testo) {
+  const minimo = pauseDisattivate() ? 0 : 1500;
+  const passati = Date.now() - ultimoInvioChat;
+  if (passati < minimo) await sleep(minimo - passati);
+  ultimoInvioChat = Date.now();
+  return inviaAChat(chatId, testo);
+}
+
+// Invio singolo. Passa da `inCoda` come tutto il resto che tocca WhatsApp
+// Web: due operazioni insieme si pestano i piedi.
+async function inviaBot(telefono, testo) {
+  if (state.status !== 'connesso') throw new Error('WhatsApp non collegato');
+  // Se è già un indirizzo di chat si usa così com'è: cercare di ricavarne un
+  // numero e poi ricomporlo è proprio il giro che si rompe con gli `@lid`.
+  if (String(telefono).includes('@')) return inviaAChat(telefono, testo);
+  return inCoda(async () => {
+    const numberId = await client.getNumberId(normalizePhone(telefono));
+    if (!numberId) throw new Error('Numero non registrato su WhatsApp');
+    segnaCheStoInviando(numberId._serialized, testo);
+    const inviato = await client.sendMessage(numberId._serialized, testo);
+    if (inviato && inviato.id && inviato.id._serialized) mieiMessaggi.add(inviato.id._serialized);
+    return inviato;
+  });
+}
+
+// Le risposte del bot NON partono a raffica: passano dalle stesse pause
+// studiate per le campagne. Un numero che risponde a venti persone in venti
+// secondi somiglia a un centralino automatico, ed è così che si finisce
+// bloccati proprio mentre il locale ne ha bisogno.
+let ultimoInvioBot = 0;
+async function inviaConRitmo(telefono, testo) {
+  const minimo = pauseDisattivate() ? 0 : 1500;
+  const passati = Date.now() - ultimoInvioBot;
+  if (passati < minimo) await sleep(minimo - passati);
+  ultimoInvioBot = Date.now();
+  return inviaBot(telefono, testo);
+}
+
+// ---------- Registro del bot ----------
+// Le ultime cose successe, con il MOTIVO quando il bot ha deciso di tacere.
+// Serve a rispondere all'unica domanda che si fa davvero quando qualcosa non
+// va: «perché non ha risposto?». Senza questo si tira a indovinare fra dieci
+// cause possibili, tutte invisibili. Sta in memoria e basta: sono briciole
+// per capire l'ultima mezz'ora, non uno storico da conservare.
+const registroBot = [];
+function annota(evento, dettaglio) {
+  registroBot.unshift({
+    ora: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    evento, dettaglio: String(dettaglio || '').slice(0, 160),
+  });
+  if (registroBot.length > 60) registroBot.pop();
+  // Finisce anche nel registro tecnico (~/Library/Logs/istudio.log sul Mac):
+  // quello resta anche dopo un riavvio, e si può leggere a distanza mentre
+  // qualcun altro fa le prove col telefono.
+  console.log(`Bot [${evento}] ${dettaglio || ''}`);
+}
+
+function giaVisto(id) {
+  if (!id) return false;
+  const esiste = db.prepare('SELECT id FROM bot_visti WHERE id = ?').get(id);
+  if (esiste) return true;
+  db.prepare('INSERT OR IGNORE INTO bot_visti (id) VALUES (?)').run(id);
+  return false;
+}
+
+// Codici brevi per le richieste passate a una persona. Stesso alfabeto senza
+// caratteri ambigui dei codici di installazione: vanno letti di fretta, in
+// sala, su uno schermo piccolo.
+// ⚠️ Il codice non si riusa appena si libera. Prima si ripartiva sempre da R1
+// e si prendeva il primo numero non occupato: chiusa R2, il cliente successivo
+// diventava R2 anche lui. Su un telefono si risponde scorrendo indietro fino
+// all'avviso che si è visto — e quella risposta sarebbe partita **a un altro
+// cliente**, con il responsabile convinto di aver risposto al primo.
+//
+// Quindi si riparte dal numero più alto usato negli ultimi due giorni, più
+// uno: dentro un servizio un codice non torna mai. Si ricomincia da R1 solo
+// dopo due giorni di silenzio (o dopo R999), quando l'avviso vecchio è sepolto
+// sotto altri messaggi e nessuno ci risponderebbe più.
+function nuovoCodice() {
+  const aperti = new Set(db.prepare("SELECT codice FROM bot_richieste WHERE stato = 'in_attesa'")
+    .all().map((r) => r.codice));
+  const recenti = db.prepare(
+    "SELECT codice FROM bot_richieste WHERE creata_at >= datetime('now','localtime','-2 days')"
+  ).all().map((r) => parseInt(String(r.codice).replace(/\D/g, ''), 10)).filter(Number.isFinite);
+  const massimo = recenti.length ? Math.max(...recenti) : 0;
+
+  for (let n = 0; n < 999; n++) {
+    const numero = ((massimo + n) % 999) + 1;   // …997, 998, 999, poi di nuovo 1
+    const c = 'R' + numero;
+    if (!aperti.has(c)) return c;
+  }
+  // Mille conversazioni aperte insieme non succede, ma se succedesse meglio un
+  // codice strano che uno già in uso da qualcun altro.
+  return 'R' + Date.now().toString().slice(-4);
+}
+
+// Passa una conversazione a una persona: avvisa il cliente e il personale.
+async function passaAUnaPersona(chatId, telefono, nomeChat, testo, opzioni = {}) {
+  const cfg = bot.config(db);
+  const aperto = bot.eOrarioAvvisi(cfg, new Date());
+
+  // Se quella conversazione è già in mano a qualcuno si tiene lo STESSO
+  // codice: cambiarlo a ogni messaggio riempirebbe il telefono del
+  // responsabile di codici diversi per la stessa persona, e a quel punto non
+  // saprebbe più a chi sta rispondendo.
+  const aperta = db.prepare(
+    "SELECT * FROM bot_richieste WHERE chat_id = ? AND stato = 'in_attesa' ORDER BY id DESC LIMIT 1"
+  ).get(chatId);
+  const codice = aperta ? aperta.codice : nuovoCodice();
+  if (aperta) {
+    db.prepare('UPDATE bot_richieste SET testo = ? WHERE id = ?')
+      .run(String(testo || '').slice(0, 500), aperta.id);
+  } else {
+    db.prepare('INSERT INTO bot_richieste (codice, telefono, chat_id, nome, testo) VALUES (?, ?, ?, ?, ?)')
+      .run(codice, telefono || chatId, chatId, nomeChat || '', String(testo || '').slice(0, 500));
+  }
+
+  // Al cliente si dice «ti risponde una persona» UNA volta sola. Ripeterlo a
+  // ogni messaggio mentre aspetta è il modo migliore per farlo sentire preso
+  // in giro da una macchina.
+  if (!opzioni.silenzioso) {
+    try {
+      await rispondiConRitmo(chatId, cfg[aperto ? 'bot_t_nonho_aperto' : 'bot_t_nonho_chiuso']);
+    } catch (e) { console.error('Bot: non riesco a rispondere al cliente:', e.message); }
+  }
+
+  if (!aperto) return;   // fuori orario l'avviso resta in coda: nessuno lo guarderebbe
+  const avviso =
+    `${aperta ? '💬 Continua la conversazione' : '🔔 Cliente in attesa'} — codice ${codice}\n\n` +
+    `Da: ${nomeChat || telefono || 'sconosciuto'}${telefono ? ' (+' + telefono + ')' : ''}\n` +
+    `Ha scritto: «${String(testo || '').slice(0, 300)}»\n` +
+    `Ricevuto: ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}\n\n` +
+    // ⚠️ Due righe, non sei. Questo avviso si legge in mezzo al servizio, col
+    // telefono in una mano: l'esempio («R1 Certo, la aspettiamo!») insegna la
+    // prima volta e le altre venti è roba da scorrere. La forma del comando si
+    // vede lo stesso, ed è tutto quello che serve ricordare.
+    `👉 Per rispondere: ${codice} + la tua risposta\n` +
+    `⚠️ Per attivare il bot scrivi: LIBERA ${codice}`;
+  // Solo a chi ha il compito di rispondere ai clienti. Chi vuole soltanto
+  // sapere le prenotazioni non deve essere svegliato da ogni domanda: sono
+  // due mestieri diversi, e confonderli fa smettere di guardare gli avvisi.
+  const responsabili = personale().filter((p) => p.gestisce && p.canale !== 'email');
+  if (!responsabili.length) {
+    annota('avviso', 'nessun responsabile configurato: la richiesta resta in attesa e nessuno lo sa');
+  }
+  for (const p of responsabili) {
+    try {
+      await inviaConRitmo(p.chat_id || p.telefono, avviso);
+      db.prepare("UPDATE bot_richieste SET avvisata_at = datetime('now','localtime') WHERE codice = ? AND stato = 'in_attesa'").run(codice);
+    } catch (e) { console.error('Bot: avviso al personale non riuscito:', e.message); }
+  }
+}
+
+// I messaggi che arrivano DAL personale. Due casi: la risposta a un cliente
+// (col codice) e l'appello di fine serata.
+// I comandi del responsabile, scritti UNA volta sola. Questa lista è insieme
+// quello che il bot stampa e quello che le prove confrontano coi rami veri di
+// messaggioDelPersonale: una parola che finisce qui senza esistere davvero è
+// la bugia peggiore che possa fare un aiuto — chi la legge la prova, non
+// funziona, e da lì in poi non si fida più nemmeno del resto.
+//
+// ⚠️ Fuori di proposito: l'appello di fine serata («TUTTI OK» e i numeri di
+// chi non si è presentato). Il ramo che lo legge esiste, ma niente apre mai
+// l'appello: finché non lo apre qualcosa, scriverlo qui vorrebbe dire
+// insegnare un comando che non risponde.
+const COMANDI_SALA = [
+  {
+    titolo: '📖 Vedere le prenotazioni',
+    righe: [
+      { parola: 'PRENOTAZIONI', spiega: 'quelle di stasera' },
+      { parola: 'PRENOTAZIONI DOMANI', spiega: 'un altro giorno — va bene anche «PRENOTAZIONI sabato»' },
+      { parola: 'LISTA', spiega: 'tutte quante, da oggi in avanti' },
+    ],
+  },
+  {
+    titolo: '✍️ Prenderne una tu',
+    righe: [
+      { parola: 'NUOVA', spiega: 'te la chiedo passo per passo' },
+      { parola: 'CANCELLA PRENOTAZIONE Rossi', spiega: 'la disdice e avvisa il cliente' },
+    ],
+  },
+  {
+    titolo: '🚫 Quando è tutto pieno',
+    righe: [
+      { parola: 'SOLD OUT sabato', spiega: 'quel giorno il bot risponde «non c\'è più posto» — vanno bene anche «oggi», «3 settembre», «2 3 4 settembre»' },
+      { parola: 'SOLD OUT NO sabato', spiega: 'ci ripensi e il bot ricomincia a prendere prenotazioni' },
+      { parola: 'SOLD OUT', spiega: 'quali giorni sono segnati adesso' },
+    ],
+  },
+  {
+    titolo: '💬 Un cliente che aspetta te',
+    righe: [
+      { parola: 'R1 il tavolo è libero alle 21', spiega: 'la tua risposta arriva al cliente del codice R1' },
+      { parola: 'LIBERA R1', spiega: 'da lì in poi gli risponde di nuovo il bot' },
+    ],
+  },
+];
+
+// La stampa dei comandi. In fondo, quando ce ne sono, chi sta aspettando
+// davvero: un elenco di comandi che dice anche «adesso c'è R2 in attesa» si
+// legge una volta e si usa subito, invece di doverselo ricordare.
+function stampaComandi(db) {
+  const pezzi = COMANDI_SALA.map((g) =>
+    g.titolo + '\n' + g.righe.map((r) => `▸ ${r.parola}\n   ${r.spiega}`).join('\n'));
+  const attese = db.prepare(
+    "SELECT codice, nome FROM bot_richieste WHERE stato = 'in_attesa' ORDER BY id").all();
+  if (attese.length) {
+    pezzi.push('⏳ In attesa adesso\n'
+      + attese.map((r) => `▸ ${r.codice} — ${r.nome || 'cliente senza nome'}`).join('\n'));
+  }
+  return '📋 *I comandi che capisco*\n\n' + pezzi.join('\n\n')
+    + '\n\nScrivi COMANDI quando vuoi rivederli.';
+}
+
+// L'elenco di un giorno, chiesto in due modi diversi («PRENOTAZIONI sabato»
+// oppure «DOMANI» da solo) che finiscono nello stesso posto. Scritto una volta
+// sola perché i due rami stanno in punti diversi del dialogo: se si sdoppia,
+// si sdoppia anche il modo di sbagliare.
+async function mandaElenco(persona, parolaGiorno) {
+  const adesso = new Date();
+  const giorno = bot.interpretaData(parolaGiorno, adesso) || bot.comeData(adesso);
+  annota('elenco', `${persona.nome} chiede le prenotazioni del ${giorno}`);
+  await inviaConRitmo(persona.chat_id || persona.telefono,
+    bot.elencoPrenotazioni(db, bot.config(db), giorno, adesso));
+}
+
+async function messaggioDelPersonale(persona, testo) {
+  const t = String(testo || '').trim();
+
+  // «R7 la risposta» → inoltra al cliente dal numero del ristorante.
+  // Il codice è OBBLIGATORIO anche con una sola richiesta in attesa: senza,
+  // basta un pensiero scritto di getto nella stessa chat («questo rompe,
+  // digli di no») e parte dritto al cliente, senza modo di richiamarlo.
+  const conCodice = t.match(/^([Rr]\d{1,3})\s+([\s\S]+)$/);
+  if (conCodice) {
+    const codice = conCodice[1].toUpperCase();
+    const risposta = conCodice[2].trim();
+    const rich = db.prepare("SELECT * FROM bot_richieste WHERE codice = ? AND stato = 'in_attesa' ORDER BY id DESC LIMIT 1").get(codice);
+    if (!rich) {
+      await inviaConRitmo(persona.chat_id || persona.telefono, `Non ho nessuna richiesta in attesa col codice ${codice}.`);
+      return;
+    }
+    const cfg = bot.config(db);
+    const prefisso = bot.riempi(cfg.bot_t_prefisso_umano, { nome: persona.nome, locale: cfg.bot_locale });
+    // Si risponde all'INDIRIZZO della conversazione, non a un numero
+    // ricomposto: è l'unico modo che funziona con tutti i formati di WhatsApp.
+    await rispondiConRitmo(rich.chat_id || rich.telefono, prefisso ? `${prefisso}\n${risposta}` : risposta);
+    db.prepare("UPDATE bot_richieste SET stato = 'risposta', risposta = ?, risposta_at = datetime('now','localtime'), risposta_da = ? WHERE id = ?")
+      .run(risposta, persona.nome, rich.id);
+    // Chi ha risposto ha preso in carico la conversazione: il bot tace.
+    bot.zittisci(db, rich.chat_id || rich.telefono, bot.num(cfg.bot_silenzio_ore, 6), new Date());
+    await inviaConRitmo(persona.chat_id || persona.telefono, `✅ Inviato a ${rich.nome || rich.telefono}`);
+    return;
+  }
+
+  // «LIBERA R7» ridà la conversazione al bot. Senza, l'unico modo di far
+  // riprendere il bot sarebbe aspettare le ore di silenzio — e il responsabile
+  // resterebbe legato a quella chat anche quando ha finito.
+  const libera = t.match(/^libera\s*([Rr]\d{1,3})?$/i);
+  if (libera) {
+    const codice = libera[1] ? libera[1].toUpperCase() : null;
+    const rich = codice
+      ? db.prepare("SELECT * FROM bot_richieste WHERE codice = ? AND stato != 'chiusa' ORDER BY id DESC LIMIT 1").get(codice)
+      : db.prepare("SELECT * FROM bot_richieste WHERE stato = 'in_attesa' ORDER BY id DESC LIMIT 1").get();
+    if (!rich) {
+      await inviaConRitmo(persona.chat_id || persona.telefono, 'Non trovo nessuna conversazione da liberare.');
+      return;
+    }
+    const liberate = ridaiLaParola(rich.chat_id, rich.telefono);
+    db.prepare("UPDATE bot_richieste SET stato = 'chiusa' WHERE id = ?").run(rich.id);
+    // ⚠️ Se non c'era nessun silenzio da togliere va DETTO. Il ✅ secco faceva
+    // credere che fosse tutto a posto anche quando non era stato liberato
+    // niente, e chi lo leggeva aspettava un bot che non sarebbe tornato.
+    annota('liberata', `${rich.codice}: la conversazione torna al bot`
+      + (liberate ? '' : ' (non c\'era nessun silenzio attivo)'));
+    await inviaConRitmo(persona.chat_id || persona.telefono,
+      `✅ ${rich.codice} torna al bot: da ora risponde di nuovo lui a ${rich.nome || 'quel cliente'}.`
+      + (liberate ? '' : '\n\n(non c\'era nessun silenzio da togliere: il bot rispondeva già)'));
+    return;
+  }
+
+  // «NUOVA» — la prenotazione presa al telefono, chiesta passo per passo.
+  //
+  // Sta DOPO il codice R e LIBERA di proposito: un cliente che aspetta una
+  // risposta non deve restare in attesa perché il responsabile è a metà di una
+  // prenotazione. Quelle due parole passano sempre.
+  // ⚠️ I comandi che si LEGGONO soltanto passano sempre, anche se una
+  // prenotazione dettata è rimasta a metà: chiedere l'elenco non tocca niente,
+  // e rispondere «non ho capito il numero» a chi scrive LISTA è il modo per
+  // far credere che il bot sia morto. Quello che era in sospeso resta dov'era:
+  // dopo l'elenco si può riprendere da dove si era interrotti.
+  //
+  // «COMANDI» — l'elenco di quello che si può scrivere. Anche questo si legge
+  // soltanto, e deve arrivare SEMPRE: è la parola a cui si aggrappa chi non
+  // ricorda le altre, e se restasse impigliata in una prenotazione lasciata a
+  // metà non servirebbe proprio nel momento in cui serve.
+  //
+  // Da sola sulla riga: «aiuto non capisco» è una frase, non un comando.
+  if (/^(comandi|aiuto|help|\?)\s*$/i.test(t)) {
+    annota('comandi', `${persona.nome} chiede l'elenco dei comandi`);
+    await inviaConRitmo(persona.chat_id || persona.telefono, stampaComandi(db));
+    return;
+  }
+
+  // «SOLD OUT» — i giorni in cui il locale è pieno e il bot non deve prendere
+  // altro. Sta qui sopra insieme agli altri comandi che passano sempre: è
+  // proprio la sera in cui si riempie tutto che si scrive di fretta, ed è la
+  // sera in cui una prenotazione lasciata a metà è più probabile.
+  //
+  // Tre forme: da solo dice quali giorni sono segnati; con dei giorni li
+  // segna; con NO (o TOGLI) davanti li libera.
+  const soldOut = t.match(/^(?:sold\s*out|pieno|completo)\b\s*([\s\S]*)$/i);
+  if (soldOut) {
+    const resto = soldOut[1].trim();
+    const togliere = /^(?:no|togli|toglie|libera|annulla)\b/i.test(resto);
+    const giorniScritti = togliere ? resto.replace(/^\S+\s*/, '') : resto;
+    const oggi = bot.comeData(new Date());
+    // ⚠️ I giorni passati si scartano: segnare pieno ieri non serve a nessuno,
+    // e quasi sempre vuol dire che è stata letta male una data.
+    const giorni = bot.interpretaGiorni(giorniScritti, new Date()).filter((g) => g >= oggi);
+
+    if (!giorniScritti) {
+      const segnati = bot.giorniPieni(db, new Date());
+      annota('sold out', `${persona.nome} chiede i giorni pieni`);
+      await inviaConRitmo(persona.chat_id || persona.telefono, segnati.length
+        ? `🚫 Giorni segnati pieni:\n${segnati.map((g) => `▸ ${bot.dataItaliana(g)}`).join('\n')}`
+          + '\n\nPer liberarne uno: SOLD OUT NO ' + bot.dataItaliana(segnati[0]).split(' ').slice(1).join(' ')
+        : 'Nessun giorno segnato pieno.\n\nPer segnarne uno: SOLD OUT sabato 3 settembre');
+      return;
+    }
+    if (!giorni.length) {
+      // Dire QUALI parole si capiscono vale più che dire «non ho capito»: chi
+      // ha scritto una data nel passato non ha sbagliato a scriverla.
+      await inviaConRitmo(persona.chat_id || persona.telefono,
+        'Non ho riconosciuto nessun giorno futuro.\n\n'
+        + 'Puoi scrivere: SOLD OUT oggi · domani · sabato · 3 settembre · 2 3 4 settembre');
+      return;
+    }
+    const fatti = [];
+    for (const g of giorni) {
+      if (togliere) { if (bot.togliPieno(db, g)) fatti.push(g); }
+      else { bot.segnaPieno(db, g); fatti.push(g); }
+    }
+    const elenco = (togliere ? fatti : giorni).map((g) => `▸ ${bot.dataItaliana(g)}`).join('\n');
+    annota('sold out', `${persona.nome}: ${togliere ? 'liberati' : 'pieni'} ${giorni.join(', ')}`);
+    if (togliere && !fatti.length) {
+      // ⚠️ Un ✅ che non ha tolto niente è la bugia peggiore: chi lo legge
+      // crede che il bot da domani prenda prenotazioni, e non le prende.
+      await inviaConRitmo(persona.chat_id || persona.telefono,
+        'Quei giorni non erano segnati pieni: non ho cambiato niente.');
+      return;
+    }
+    await inviaConRitmo(persona.chat_id || persona.telefono, togliere
+      ? `✅ Torno a prendere prenotazioni per:\n${elenco}`
+      : `🚫 Segnati pieni:\n${elenco}\n\nDa ora il bot risponde «non c'è più posto» per questi giorni.`);
+    return;
+  }
+
+  // «LISTA» sta prima di «PRENOTAZIONI» perché è più specifico: chi scrive
+  // LISTA vuole la veduta d'insieme, non la serata.
+  if (/^(lista|elenco)\b/i.test(t)) {
+    annota('lista', `${persona.nome} chiede tutte le prenotazioni`);
+    await inviaConRitmo(persona.chat_id || persona.telefono,
+      bot.elencoTutte(db, bot.config(db), new Date()));
+    return;
+  }
+
+  // «PRENOTAZIONI» — la serata, e «PRENOTAZIONI sabato» un giorno preciso.
+  // Passa sempre anche questo: si legge soltanto. Sale sopra al cancello con
+  // la sola parola esplicita, che nessuna domanda della sala si aspetta come
+  // risposta.
+  const chiedeSerata = t.match(/^(prenotazioni|prenotazione)\b\s*([\s\S]*)$/i);
+  if (chiedeSerata) {
+    await mandaElenco(persona, chiedeSerata[2].trim() || chiedeSerata[1]);
+    return;
+  }
+
+  const chiaveSala = 'sala:' + (persona.chat_id || persona.telefono);
+  // ⚠️ «CANCELLA PRENOTAZIONE» dev'essere qui accanto ad «ANNULLA»: la parola
+  // nuova era stata aggiunta dentro al motore, ma questa riga — che è il
+  // cancello per entrarci — conosceva solo la vecchia. Il comando esisteva e
+  // non arrivava mai a destinazione: la prova stava sul motore, il guasto sul
+  // cancello.
+  if (/^(nuova|aggiungi|prenota)\b/i.test(t) || /^(annulla|cancella)\s+prenotazione\b/i.test(t)
+      || bot.salaInCorso(db, chiaveSala)) {
+    const esito = bot.elaboraMessaggioSala(db, chiaveSala, t, new Date());
+    for (const r of esito.risposte) await inviaConRitmo(persona.chat_id || persona.telefono, r);
+    if (esito.prenotazione) {
+      const p = esito.prenotazione;
+      annota('admin', `${persona.nome}: ${p.data} ${p.ora}, ${p.persone} pers., ${bot.nomeInSala(p)}`);
+      // Chi l'ha appena scritta non deve sentirselo ripetere: nella stessa
+      // chat ha già letto «✅ Segnata». Chi altro riceve gli avvisi, invece,
+      // qui non lo saprebbe mai — la prenotazione non è passata dal bot.
+      await avvisaPrenotazione(p, 'nuova', { esclude: persona.chat_id || persona.telefono });
+    }
+    if (esito.avvisa) {
+      const p = esito.avvisa;
+      const cfg = bot.config(db);
+      try {
+        await inviaConRitmo(p.telefono, bot.riempi(cfg.bot_t_manuale, {
+          locale: cfg.bot_locale, assistente: cfg.bot_assistente,
+          nome: [p.nome, p.cognome].filter(Boolean).join(' '),
+          data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
+        }));
+        await inviaConRitmo(persona.chat_id || persona.telefono, `✅ Conferma mandata a +${p.telefono}.`);
+      } catch (e) {
+        // Il motivo vero serve a chi è in sala: «non è su WhatsApp» si risolve
+        // con una telefonata, «non collegato» no.
+        annota('errore', `conferma a mano non partita: ${e.message}`);
+        await inviaConRitmo(persona.chat_id || persona.telefono,
+          `Non sono riuscito a mandare la conferma a +${p.telefono}: ${e.message}.\nLa prenotazione resta segnata.`);
+      }
+    }
+    // «ANNULLA PRENOTAZIONE Rossi» — qui, a differenza di AVVISA per NUOVA,
+    // il cliente va avvisato SEMPRE e non è una scelta: è la sua prenotazione
+    // che sparisce, non una a cui non aveva mai dato il numero.
+    if (esito.annullata) {
+      const p = esito.annullata;
+      annota('annullata admin', `${persona.nome}: ${p.data} ${p.ora}, ${bot.nomeInSala(p)}`);
+      await chiudiIlPagamento(p);
+      // L'indirizzo della chat, se c'è, funziona sempre; il solo numero
+      // digitato da una prenotazione presa a mano no sempre — ma è comunque
+      // quello che si prova.
+      const destinatario = p.chat_id || p.telefono;
+      if (!destinatario) {
+        await inviaConRitmo(persona.chat_id || persona.telefono,
+          'Non ho un numero per avvisare il cliente: annullata, ma dovrai dirglielo tu.');
+      } else {
+        const cfg = bot.config(db);
+        try {
+          await inviaConRitmo(destinatario, bot.riempi(cfg.bot_t_annullata_locale, {
+            locale: cfg.bot_locale, assistente: cfg.bot_assistente,
+            nome: [p.nome, p.cognome].filter(Boolean).join(' '),
+            data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
+          }));
+          await inviaConRitmo(persona.chat_id || persona.telefono, 'Il cliente è stato avvisato.');
+        } catch (e) {
+          annota('errore', `avviso di annullamento non partito: ${e.message}`);
+          await inviaConRitmo(persona.chat_id || persona.telefono,
+            `Annullata, ma non sono riuscito ad avvisare il cliente: ${e.message}.`);
+        }
+      }
+      // Chi altro riceve gli avvisi lo deve sapere comunque — è lo stesso
+      // meccanismo già usato quando è il cliente a disdire da sé.
+      await avvisaPrenotazione(p, 'annullata', { esclude: persona.chat_id || persona.telefono });
+    }
+    if (esito.gestito) return;
+  }
+
+  // «OGGI», «STASERA», «DOMANI» da soli — l'elenco della serata chiesto come
+  // viene naturale scriverlo. Va cercato PRIMA dell'appello: là un nome si
+  // riconosce per pezzi contenuti nel messaggio, e una prenotazione a nome
+  // «Zio» dentro «prenotazioni» farebbe segnare assente chi c'era.
+  //
+  // ⚠️ Queste tre parole restano QUI, sotto al cancello della sala, e non
+  // salgono insieme a «PRENOTAZIONI»: mentre si detta una prenotazione sono
+  // la risposta alla domanda «per che giorno?», e leggerle come una richiesta
+  // di elenco vorrebbe dire mandare una lista a chi stava scrivendo la data.
+  const chiedeElenco = t.match(/^(oggi|stasera|domani)\b\s*([\s\S]*)$/i);
+  if (chiedeElenco) {
+    await mandaElenco(persona, chiedeElenco[2].trim() || chiedeElenco[1]);
+    return;
+  }
+
+  // L'appello: «TUTTI OK» oppure i numeri di chi non si è presentato.
+  // Qui il codice NON serve, e non è un'incoerenza: il codice serve solo
+  // quando il messaggio esce dall'edificio. Una risposta sbagliata all'appello
+  // resta fra il bot e il responsabile.
+  const inAppello = db.prepare("SELECT value FROM settings WHERE key = 'bot_appello_aperto'").get();
+  if (inAppello && inAppello.value) {
+    const esito = rispondiAppello(inAppello.value, t);
+    if (esito) { await inviaConRitmo(persona.chat_id || persona.telefono, esito); return; }
+  }
+
+  const attese = db.prepare("SELECT COUNT(*) n FROM bot_richieste WHERE stato = 'in_attesa'").get().n;
+  if (attese) {
+    await inviaConRitmo(persona.chat_id || persona.telefono,
+      `Per inoltrare al cliente devi iniziare col codice (es. R1).\nRichieste in attesa: ${attese}.\n\nScrivi COMANDI per l'elenco completo.`);
+  } else {
+    await inviaConRitmo(persona.chat_id || persona.telefono,
+      'Non ho conversazioni in attesa in questo momento.\n\n'
+      + 'Scrivi PRENOTAZIONI per vedere quelle di stasera, o COMANDI per l\'elenco completo.');
+  }
+}
+
+// Interpreta la risposta all'appello. Restituisce il messaggio di conferma,
+// oppure null se non è una risposta all'appello.
+function rispondiAppello(giorno, testo) {
+  const righe = db.prepare(
+    "SELECT * FROM prenotazioni WHERE data = ? AND stato = 'confermata' ORDER BY ora, id"
+  ).all(giorno);
+  if (!righe.length) return null;
+  const t = bot.normalizza(testo);
+  let assenti = [];
+
+  if (/^(tutti ok|tutti|ok|tutto ok|tutti presenti)$/.test(t)) {
+    assenti = [];
+  } else if (/^[\d\s,.]+$/.test(t)) {
+    const numeri = t.split(/[\s,.]+/).filter(Boolean).map(Number);
+    if (numeri.some((n) => n < 1 || n > righe.length)) {
+      return `Quei numeri non sono nell'elenco: vanno da 1 a ${righe.length}.`;
+    }
+    assenti = numeri.map((n) => righe[n - 1]);
+  } else {
+    // Un nome. Se la corrispondenza non è UNA sola, si richiede invece di
+    // indovinare: segnare presente il cliente sbagliato significa poi mandare
+    // una richiesta di recensione a chi non è mai venuto.
+    const cercato = bot.normalizza(testo).replace(/non\s*(e|è)\s*venut[oa]|assente|mancava/g, '').trim();
+    const trovati = righe.filter((r) => bot.normalizza(r.nome) && cercato.includes(bot.normalizza(r.nome)));
+    if (trovati.length === 1) assenti = trovati;
+    else if (trovati.length > 1) return 'Ci sono due prenotazioni con quel nome: rispondi col numero della riga.';
+    else return null;   // non è una risposta all'appello
+  }
+
+  for (const r of righe) {
+    const assente = assenti.some((a) => a.id === r.id);
+    // ⚠️ Chi non si è presentato finisce fra le CANCELLATE. Gli stati sono
+    // tre, e il locale ha scelto così — ma è bene sapere cosa si perde: un
+    // tavolo disdetto per tempo e uno rimasto vuoto tutta la sera diventano la
+    // stessa cosa, e il secondo è quello che costa. Per contarli servirebbe di
+    // nuovo uno stato suo.
+    db.prepare('UPDATE prenotazioni SET stato = ? WHERE id = ?')
+      .run(assente ? 'annullata' : 'presentata', r.id);
+  }
+  db.prepare("DELETE FROM settings WHERE key = 'bot_appello_aperto'").run();
+  const nomi = assenti.map((a) => bot.nomeInSala(a) !== 'senza nome' ? bot.nomeInSala(a) : a.telefono).join(', ');
+  return assenti.length
+    ? `✅ Segnate: ${righe.length - assenti.length} concluse, ${assenti.length} cancellate (${nomi}).`
+    : `✅ Segnate tutte concluse (${righe.length}). Buon riposo!`;
+}
+
+// ---------- L'ascolto ----------
+if (botDisponibile()) {
+  // Avvisa CHI LAVORA NEL LOCALE che il bot è fermo per l'abbonamento. Ai
+  // clienti non si dice niente: non è affar loro, e una frase sul pagamento
+  // scritta a chi voleva un tavolo fa una figura pessima al ristorante.
+  const avvisatiScadenza = new Map();        // indirizzo -> quando
+  async function avvisaSalaAbbonamento(chiave, msg) {
+    try {
+      const telefono = await numeroDelMittente(msg, chiave);
+      const persona = personaCheScrive(telefono, chiave);
+      if (!persona) return;                  // è un cliente: silenzio
+      // Una volta all'ora, non a ogni messaggio: altrimenti diventa lui il
+      // disturbo, e chi lo riceve smette di leggerlo.
+      const ultima = avvisatiScadenza.get(chiave) || 0;
+      if (Date.now() - ultima < 60 * 60 * 1000) return;
+      avvisatiScadenza.set(chiave, Date.now());
+      const quando = abbonamento.scadenza ? ` il ${abbonamento.scadenza.split('-').reverse().join('/')}` : '';
+      await inviaConRitmo(chiave,
+        `⚠️ Il bot è fermo: l'abbonamento a iStudio è scaduto${quando}.\n`
+        + 'I clienti che scrivono non ricevono risposta e le prenotazioni non vengono prese. '
+        + 'Avvisa chi si occupa del rinnovo.');
+      annota('abbonamento', `avvisato ${persona.nome}: bot fermo per abbonamento scaduto`);
+    } catch { /* se non si riesce ad avvisare, pazienza: il bot resta fermo */ }
+  }
+
+  client.on('message', async (msg) => {
+    try {
+      const da = String(msg.from || '');
+      const anteprima = (typeof msg.body === 'string' ? msg.body : '').slice(0, 60);
+      // Ogni scarto viene ANNOTATO col suo motivo: è l'unica cosa che
+      // trasforma «il bot non risponde» in una risposta.
+      // Prima di ogni altra cosa, e ANCHE a bot spento: si impara il numero di
+      // chi scrive. Serve alla Chat per «Aggiungi in rubrica», ed è
+      // indipendente dal bot — non c'è motivo di perdere questa informazione
+      // solo perché il bot è spento.
+      if (tipoChat(da) === 'privata' && !msg.fromMe) await imparaNumero(msg, da);
+
+      if (!botAcceso()) {
+        // ⚠️ Il silenzio verso i clienti è voluto, quello verso il locale no:
+        // chi lavora in sala resterebbe a chiedersi perché tutto tace, e
+        // penserebbe a un guasto invece che a un abbonamento da rinnovare.
+        if (!abbonamentoAttivo()) await avvisaSalaAbbonamento(da, msg);
+        return annota('ignorato',
+          abbonamentoAttivo() ? `bot spento — «${anteprima}»` : `abbonamento scaduto — «${anteprima}»`);
+      }
+      if (state.status !== 'connesso') return annota('ignorato', 'WhatsApp non collegato');
+      // Solo conversazioni fra due persone. L'indirizzo viene stampato nel
+      // registro: quando WhatsApp cambierà di nuovo formato — e succederà —
+      // si vedrà subito quale, invece di indovinare perché il bot tace.
+      const tipo = tipoChat(da);
+      if (tipo !== 'privata') return annota('ignorato', `non è una chat singola (${tipo}: ${da})`);
+      if (msg.fromMe || msg.isStatus) return annota('ignorato', 'messaggio mio');
+      const testo = typeof msg.body === 'string' ? msg.body : '';
+      if (!testo.trim()) return annota('ignorato', 'niente testo (foto, vocale o adesivo)');
+      const idMsg = msg.id && msg.id._serialized;
+      if (giaVisto(idMsg)) return annota('ignorato', 'già risposto a questo messaggio');
+
+      // La conversazione si riconosce dall'INDIRIZZO, non dal numero: è l'unica
+      // cosa che c'è sempre e che funziona con tutti i formati.
+      const chatId = da;
+      const telefono = await numeroDelMittente(msg, da);
+      const mio = state.me ? normalizePhone(state.me) : null;
+      // Scrivere al proprio numero non è una prova valida: WhatsApp non
+      // permette una conversazione con se stessi. Serve un secondo telefono.
+      if (mio && telefono && telefono === mio) {
+        return annota('ignorato', 'arriva dal numero del locale: serve un altro telefono per provare');
+      }
+
+      annota('ricevuto', `${telefono ? '+' + telefono : da}: «${anteprima}»`);
+
+      // Qualcuno sta collegando il proprio telefono? Si guarda PRIMA di ogni
+      // altra cosa: chi scrive il codice non è un cliente che prenota.
+      const collegata = db.prepare(
+        "SELECT * FROM bot_personale WHERE codice_collegamento != '' AND UPPER(?) LIKE '%' || codice_collegamento || '%'"
+      ).get(testo.trim());
+      if (collegata) {
+        db.prepare("UPDATE bot_personale SET chat_id = ?, codice_collegamento = '', collegato_at = datetime('now','localtime') WHERE id = ?")
+          .run(chatId, collegata.id);
+        annota('collegato', `${collegata.nome} ha collegato il suo telefono`);
+        await rispondiConRitmo(chatId,
+          `✅ Collegato, ${collegata.nome}.\n\n`
+          + (collegata.gestisce
+            ? 'Da ora ricevi qui le richieste che non riesco a gestire, e puoi rispondere ai clienti col codice.'
+            : 'Da ora ricevi qui gli avvisi delle prenotazioni.')
+          + '\n\nQuando vuoi, scrivimi PRENOTAZIONI e ti mando l\'elenco di stasera.');
+        return;
+      }
+
+      const persona = personaCheScrive(telefono, chatId);
+      if (persona) {
+        annota('personale', `${persona.nome} — non è un cliente, non gli chiedo di prenotare`);
+        await messaggioDelPersonale(persona, testo);
+        return;
+      }
+
+      // Conversazione in mano a una persona. Il bot non risponde — giusto —
+      // ma i messaggi NON devono cadere nel vuoto: finora il cliente scriveva
+      // e non lo leggeva più nessuno. Ora ogni messaggio arriva al
+      // responsabile, con lo stesso codice di prima.
+      if (bot.eMuto(db, chatId, new Date())) {
+        annota('inoltrato', 'la conversazione è di una persona: passo il messaggio a lei');
+        await passaAUnaPersona(chatId, telefono, (msg._data && msg._data.notifyName) || '', testo,
+          { silenzioso: true });
+        return;
+      }
+
+      const nomeChat = (msg._data && msg._data.notifyName) || '';
+
+      // ⚠️ «STOP» prima di tutto il resto. Il bot manda anche messaggi che il
+      // cliente non ha chiesto — la richiesta di recensione — e lì gli scrive
+      // che può fermarli così. Se poi scrivesse STOP e il bot rispondesse «non
+      // ho capito», sarebbe una promessa tradita nel punto peggiore: quello in
+      // cui uno sta già chiedendo di essere lasciato in pace.
+      if (sembraCancellazione(testo)) {
+        await fermaTutto(chatId, telefono, nomeChat);
+        return;
+      }
+
+      // ⚠️ Si accende PRIMA di pensare, non prima di rispondere: fra i due c'è
+      // la coda degli invii, e con dieci clienti insieme il decimo aspetta una
+      // quindicina di secondi. È quella l'attesa che va mostrata.
+      await staScrivendo(chatId);
+      const esito = bot.elaboraMessaggio(db, chatId, testo, new Date(), { numero: telefono });
+      for (const r of esito.risposte) await rispondiConRitmo(chatId, r);
+      // Una prenotazione che aspetta il pagamento: il messaggio è già scritto,
+      // manca solo l'indirizzo dove pagare — e quello lo sa solo Stripe.
+      if (esito.daPagare) await mandaIlPagamento(chatId, esito);
+      // Senza pagamento la prenotazione nasce confermata: il riepilogo parte
+      // subito. Con il pagamento acceso l'ha già mandato `mandaIlPagamento`,
+      // col link dentro — qui si finirebbe per mandarne due.
+      else if (esito.prenotazione) await mandaEmailPrenotazione(esito.prenotazione);
+      await hoFinitoDiScrivere(chatId);
+      if (esito.risposte.length) annota('risposto', esito.risposte[0].split('\n')[0]);
+      if (esito.passaAUmano) {
+        // ⚠️ Se il bot ha GIÀ risposto qualcosa, al cliente non si dice una
+        // seconda volta «ti passo a una persona»: arrivavano due messaggi di
+        // fila che dicevano la stessa cosa con parole diverse, ed è il modo
+        // più rapido per far sembrare il bot rotto. Succede ogni volta che il
+        // bot parla E passa la mano insieme: OPERATORE, il tavolo troppo
+        // grande, il turno riempito mentre confermava, il tetto di risposte.
+        // L'avviso al responsabile parte lo stesso: quello che cambia è solo
+        // quante volte il CLIENTE se lo sente ripetere.
+        const giaDetto = esito.risposte.length > 0;
+        annota('a una persona', giaDetto
+          ? 'il bot ha risposto e ha avvisato il locale'
+          : 'il bot non ha capito e ha avvisato il locale');
+        await passaAUnaPersona(chatId, telefono, nomeChat, testo, { silenzioso: giaDetto });
+      }
+      if (esito.prenotazione) {
+        // La riga nasce con l'indirizzo della chat come «telefono»: qui viene
+        // rimessa a posto col numero vero, se si è riusciti a saperlo, e
+        // l'indirizzo va nella sua colonna per le risposte future.
+        db.prepare('UPDATE prenotazioni SET chat_id = ?, telefono = ? WHERE id = ?')
+          .run(chatId, telefono || chatId, esito.prenotazione.id);
+        esito.prenotazione = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(esito.prenotazione.id);
+        annota('prenotato', `${esito.prenotazione.data} ${esito.prenotazione.ora}, ${esito.prenotazione.persone} pers.`);
+        await avvisaPrenotazione(esito.prenotazione, 'nuova');
+      }
+      if (esito.annullata) {
+        annota('annullata', `${esito.annullata.data} ${esito.annullata.ora}`);
+        await avvisaPrenotazione(esito.annullata, 'annullata');
+        // Il collegamento per pagare, se c'era, non deve restare pagabile.
+        await chiudiIlPagamento(esito.annullata);
+      }
+      if (esito.attesa) {
+        annota('lista d\'attesa', `${bot.nomeInSala(esito.attesa)} in lista per ${esito.attesa.data}`
+          + `${esito.attesa.ora ? ' alle ' + esito.attesa.ora : ''}, ${esito.attesa.persone} pers.`);
+      }
+      if (esito.spostata) {
+        const { prima, dopo } = esito.spostata;
+        annota('spostata', `da ${prima.data} ${prima.ora} a ${dopo.data} ${dopo.ora}`);
+        await avvisaPrenotazione(dopo, 'spostata', { prima });
+      }
+    } catch (err) {
+      annota('errore', (err && err.message) || String(err));
+      console.error('Bot: errore su un messaggio in arrivo:', (err && err.message) || err);
+    }
+  });
+
+  // Presa in carico automatica: se dal numero del locale esce un messaggio che
+  // non ha mandato il bot, vuol dire che una persona sta rispondendo a mano.
+  // Il bot tace su quella conversazione, senza che nessuno debba ricordarsi un
+  // comando: durante il servizio non se lo ricorda nessuno.
+  client.on('message_create', (msg) => {
+    try {
+      if (!botAcceso() || !msg.fromMe) return;
+      const a = String(msg.to || '');
+      if (tipoChat(a) !== 'privata') return;
+      const id = msg.id && msg.id._serialized;
+      if (loHoMandatoIo(a, msg.body, id)) return;
+      const telefono = numeroLeggibile(msg, a);
+      if (telefono && eDelPersonale(telefono)) return;
+      const ore = bot.num(bot.leggi(db, 'bot_silenzio_ore'), 6);
+      // Su tutti gli indirizzi di quella persona, non solo su quello che ha in
+      // mano il telefono del locale: altrimenti si zittisce un indirizzo e il
+      // cliente continua a parlare col bot dall'altro — e chi ha risposto a
+      // mano si ritrova il bot che gli parla sopra.
+      for (const chiave of chiaviStessaConversazione(a, telefono)) {
+        bot.zittisci(db, chiave, ore, new Date());
+      }
+      annota('presa in carico', `hai risposto a mano: il bot tace per ${ore} ore su ${telefono ? '+' + telefono : a}`);
+    } catch { /* la presa in carico non deve mai far cadere niente */ }
+  });
+}
+
+// Avvisa il personale di una prenotazione nuova o annullata — arrivi dal
+// cliente via bot, dal pannello della pagina o dettata a voce con NUOVA: chi
+// ha scelto di ricevere gli avvisi li vuole SEMPRE, non solo quando a scrivere
+// al bot è stato il cliente.
+// Un annullamento per stasera è più urgente di una prenotazione nuova: è un
+// tavolo da rivendere entro poche ore.
+//
+// `opzioni.esclude` è l'indirizzo di chi ha appena creato la prenotazione: se
+// è lui stesso un responsabile (caso tipico di NUOVA), non deve sentirselo
+// ripetere due volte nella stessa chat dove l'ha appena scritta lui.
+async function avvisaPrenotazione(p, tipo, opzioni = {}) {
+  if (!botDisponibile() || !p) return;
+  const oggi = bot.comeData(new Date());
+  // Uno spostamento che tocca oggi è urgente quanto un annullamento: cambia il
+  // servizio di stasera, e va saputo anche da chi non vuole gli avvisi di tutto.
+  const urgente = (tipo === 'annullata' && p.data === oggi)
+    || (tipo === 'spostata' && (p.data === oggi || (opzioni.prima && opzioni.prima.data === oggi)));
+  // «(admin)» e non «(a mano)»: chi lavora in sala deve capire che quella
+  // riga l'ha scritta chi tiene la piattaforma, non il cliente da WhatsApp.
+  const aMano = p.origine === 'manuale' ? ' (admin)' : '';
+  // ⚠️ Il cognome PRIMA del nome, e prima di tutto il cognome ci sia: qui
+  // veniva scritto solo `p.nome`, quindi di «Daniele Angellotti» arrivava
+  // «Daniele» — il pezzo che in sala non serve a niente, perché una
+  // prenotazione è «il tavolo Angellotti».
+  const nome = bot.nomeInSala(p);
+  // ⚠️ Prima CHI, poi quanti, poi quando. La riga cominciava dalla data, ma su
+  // un foglio del servizio non si cerca per data — quella la sai già, è
+  // stasera: si cerca «il tavolo Angellotti». Col nome in fondo bisognava
+  // leggere tutta la riga per sapere se riguardava te, venti volte a sera.
+  const chi = `${nome !== 'senza nome' ? nome : (p.telefono || 'senza nome')} (${p.persone})`;
+  // ⚠️ Niente «OGGI» davanti alla data: «da OGGI mercoledì 26 agosto» in
+  // italiano si legge «a partire da oggi», che è un'altra cosa — la data c'è
+  // scritta per esteso e chi legge sa benissimo che giorno è.
+  //
+  // Quello che «OGGI» serviva a fare resta, ma dove conta davvero: `urgente`
+  // qui sotto decide CHI riceve l'avviso, e una disdetta di stasera arriva a
+  // tutti comunque siano impostati gli avvisi. Quella parte non si tocca.
+  const quando = (r) => `${bot.dataItaliana(r.data)} ${r.ora}`;
+  let testo;
+  if (tipo === 'annullata') {
+    // «Cancellata», come nella piattaforma e nella pagina della sala: gli stati
+    // sono Confermata, Conclusa, Cancellata. Un avviso che dice «Annullata» per
+    // una riga che a video si chiama «Cancellata» sono due parole per la stessa
+    // cosa, e chi legge si chiede se siano due cose diverse.
+    testo = `❌ Cancellata: ${chi}, ${quando(p)}`;
+  } else if (tipo === 'spostata') {
+    // Il DA DOVE non è un dettaglio: chi ha il foglio del servizio in mano deve
+    // sapere quale riga cancellare, non solo dove aggiungerla.
+    const prima = opzioni.prima ? quando(opzioni.prima) : '?';
+    // Il tavolo che aveva non vale più sulla nuova data (il bot lo azzera
+    // quando è il cliente a spostare): chi legge deve sapere che ce n'è uno
+    // da riassegnare, non scoprirlo la sera con due gruppi allo stesso tavolo.
+    const daRiassegnare = opzioni.prima && opzioni.prima.tavolo && !p.tavolo
+      ? ` · tavolo ${opzioni.prima.tavolo} da riassegnare` : '';
+    testo = `🔄 Spostata: ${chi}, da ${prima} a ${quando(p)}${daRiassegnare}`;
+  } else {
+    testo = `🆕 Prenotazione${aMano}: ${chi}, ${quando(p)}`;
+  }
+  for (const persona of personale()) {
+    const indirizzo = persona.chat_id || persona.telefono;
+    if (opzioni.esclude && indirizzo === opzioni.esclude) continue;
+    const vuole = persona.riceve === 'immediato'
+      // Chi ha scelto «solo gli annullamenti» vuole sapere quando un tavolo si
+      // libera: uno spostamento libera il posto di prima, quindi lo riguarda.
+      || (persona.riceve === 'annullamenti' && (tipo === 'annullata' || tipo === 'spostata'))
+      || urgente;   // l'annullamento di oggi lo sanno tutti, comunque sia impostato
+    if (!vuole || persona.canale === 'email') continue;
+    try { await inviaConRitmo(indirizzo, testo); } catch (e) { console.error('Bot:', e.message); }
+  }
+}
+
+// ---------- Le richieste rimaste in coda fuori orario ----------
+// Di notte non si avvisa nessuno: una notifica alle 3 non la guarda nessuno e
+// insegna a silenziare il telefono. Ma la richiesta non deve restare lì per
+// sempre — al cliente abbiamo promesso che qualcuno risponde all'apertura, e
+// quella promessa va mantenuta da sola, senza che nessuno si ricordi di
+// andare a guardare.
+async function consegnaArretrate() {
+  if (!botDisponibile() || !botAcceso() || state.status !== 'connesso') return;
+  const cfg = bot.config(db);
+  if (!bot.eOrarioAvvisi(cfg, new Date())) return;
+  const arretrate = db.prepare(
+    "SELECT * FROM bot_richieste WHERE stato = 'in_attesa' AND avvisata_at IS NULL ORDER BY id"
+  ).all();
+  if (!arretrate.length) return;
+
+  const responsabili = personale().filter((p) => p.gestisce && p.canale !== 'email');
+  if (!responsabili.length) return;
+
+  const righe = arretrate.map((r) =>
+    `• ${r.codice} — ${r.nome || r.telefono}: «${String(r.testo).slice(0, 90)}»`).join('\n');
+  const avviso = arretrate.length === 1
+    ? `🌅 Buongiorno! È rimasta una richiesta di stanotte:\n\n${righe}\n\n`
+      + `Rispondi con «${arretrate[0].codice} la tua risposta».`
+    : `🌅 Buongiorno! Sono rimaste ${arretrate.length} richieste da stanotte:\n\n${righe}\n\n`
+      + 'Rispondi con «codice la tua risposta», per esempio «R1 Certo, la aspettiamo».';
+
+  for (const p of responsabili) {
+    try { await inviaConRitmo(p.chat_id || p.telefono, avviso); } catch (e) { console.error('Bot:', e.message); }
+  }
+  const segna = db.prepare("UPDATE bot_richieste SET avvisata_at = datetime('now','localtime') WHERE id = ?");
+  for (const r of arretrate) segna.run(r.id);
+  annota('arretrate', `consegnate ${arretrate.length} richieste rimaste dalla notte`);
+}
+
+// Un giro al minuto, come già fa `controllaRiprese()` per gli invii: costa
+// niente e non richiede di indovinare in anticipo quando serve guardare.
+if (botDisponibile()) {
+  setInterval(() => { consegnaArretrate().catch(() => {}); }, 60 * 1000);
+}
+
+// Chi chiede di non ricevere più messaggi va escluso SUBITO, non «appena
+// qualcuno se ne accorge»: la scansione delle chat gira ogni dieci minuti e
+// chiede conferma, che va bene per un messaggio scritto chissà quando in una
+// chat qualunque — ma non per una risposta diretta a noi.
+async function fermaTutto(chiave, telefono, nomeChat) {
+  const numero = normalizePhone(telefono || chiave);
+  const contatto = numero
+    ? db.prepare('SELECT * FROM contacts').all().find((c) => normalizePhone(c.telefono) === numero)
+    : null;
+
+  if (contatto && !contatto.opt_out) {
+    db.prepare("UPDATE contacts SET opt_out = 1, opt_out_at = ?, opt_out_motivo = 'Ha scritto STOP in chat' WHERE id = ?")
+      .run(new Date().toISOString(), contatto.id);
+  }
+  // ⚠️ E soprattutto: si segna il «basta» in un posto che NON dipende dalla
+  // rubrica. La maggior parte di chi prenota su WhatsApp in rubrica non c'è —
+  // ci finisce solo se il locale ce lo mette a mano — e fidandosi del solo
+  // segno in rubrica gli si continuava a scrivere DOPO avergli risposto «non
+  // ti scriveremo più». È la promessa peggiore da tradire, perché è quella
+  // fatta a chi stava già chiedendo di essere lasciato in pace.
+  bot.segnaBasta(db, chiave, numero);
+
+  // Resta traccia anche se in rubrica non c'è nessuno: così il locale lo vede
+  // e sa perché quel numero non riceve più niente.
+  db.prepare("INSERT INTO optout_requests (chat_nome, testo, contact_id, stato) VALUES (?, ?, ?, 'confermata')")
+    .run(nomeChat || String(chiave), 'STOP ricevuto in chat', contatto ? contatto.id : null);
+
+  annota('stop', `${nomeChat || chiave} ha chiesto di non ricevere più messaggi`);
+  await rispondiConRitmo(chiave,
+    'Va bene: non ti scriveremo più.\n'
+    + 'Se un giorno vuoi prenotare, puoi comunque scriverci tu quando ti fa comodo.');
+}
+
+// ---------- Il promemoria del giorno prima ----------
+// È il messaggio che taglia i no-show, ed è per questo che va fatto bene: un
+// tavolo che non si presenta è una serata persa per due, e il cliente quasi
+// mai lo fa apposta — se ne dimentica.
+//
+// ⚠️ Fino a oggi qui non c'era NIENTE. C'erano la frase, la colonna in
+// archivio e due impostazioni con scritto «attivo: true», e nessuno che
+// mandasse un messaggio. Un'impostazione accesa che non fa niente è la bugia
+// più difficile da scoprire: non dà errore, non lascia traccia, e chi la legge
+// smette di controllare.
+//
+// ⚠️ Differenza importante dalla recensione: quella è una comunicazione
+// COMMERCIALE, questa no. Il promemoria riguarda un tavolo che il cliente ha
+// prenotato lui, ed è la stessa cosa che farebbe una telefonata del locale.
+// Quindi chi si è tolto dagli INVII (l'opt-out della rubrica, che riguarda le
+// newsletter) il promemoria lo riceve lo stesso: sono due consensi diversi, e
+// confonderli vorrebbe dire far perdere il tavolo a chi non voleva la
+// pubblicità. Chi ha scritto STOP a QUESTO bot, invece, no: a lui è stato
+// promesso che non gli si scrive più.
+function promemoriaDaMandare(cfg, adesso) {
+  if (!bot.boolDi(cfg.bot_promemoria_attivo)) return [];
+
+  // Non prima dell'ora scelta. Un promemoria alle 7 del mattino non lo legge
+  // nessuno, e alle 23 arriva quando la giornata è già finita.
+  const ora = adesso.getHours() * 60 + adesso.getMinutes();
+  if (ora < bot.inMinuti(cfg.bot_promemoria_ora || '12:00')) return [];
+
+  // Quanto prima. Uno è il giorno prima; zero è lo stesso giorno, che per un
+  // locale a pranzo ha senso quanto il giorno prima per uno che fa solo cena.
+  const giorni = Math.min(Math.max(bot.num(cfg.bot_promemoria_giorni, 1), 0), 7);
+  const quando = bot.comeData(new Date(adesso.getTime() + giorni * 86400000));
+  // ⚠️ Non a chi ha appena prenotato. Chi scrive alle 18 per domani sera si
+  // vedeva arrivare «ti ricordiamo la tua prenotazione» un minuto dopo averla
+  // fatta: non è un promemoria, è un bot che non si accorge di aver appena
+  // parlato con quella persona. Tre ore bastano a togliere l'assurdo senza
+  // togliere il promemoria a chi ha prenotato stamattina.
+  const nonAppena = new Date(adesso.getTime() - 3 * 3600000)
+    .toLocaleString('sv-SE').replace('T', ' ');
+  const righe = db.prepare(
+    "SELECT * FROM prenotazioni WHERE data = ? AND stato = 'confermata' AND promemoria_at IS NULL "
+    + 'AND creata_at <= ? ORDER BY ora, id'
+  ).all(quando, nonAppena);
+  if (!righe.length) return [];
+
+  // ⚠️ Con «lo stesso giorno» il promemoria rischia di arrivare quando il
+  // tavolo è già cominciato — o dieci minuti prima, che è peggio di niente:
+  // il cliente è già in macchina. Sotto l'ora di anticipo non si manda.
+  const ANTICIPO_MINIMO = 60;
+  const adessoMin = adesso.getHours() * 60 + adesso.getMinutes();
+
+  const scelte = [];
+  const gia = new Set();
+  for (const r of righe) {
+    if (giorni === 0 && bot.inMinuti(r.ora) - adessoMin < ANTICIPO_MINIMO) continue;
+    // Senza un indirizzo non si manda niente: è una prenotazione presa al
+    // banco senza numero. Non è un guasto, ma va detto — vedi mandaPromemoria.
+    if (!r.chat_id && !r.telefono && !r.telefono_contatto) continue;
+    if (bot.haDettoBasta(db, r.chat_id || r.telefono, r.telefono_contatto || r.telefono)) continue;
+    // Lo stesso numero alla stessa ora è una prenotazione doppia, non due
+    // tavoli: un messaggio solo. Due tavoli a ore diverse invece sono due cose
+    // diverse, e ognuna ha il suo orario da ricordare.
+    const chiave = `${normalizePhone(r.telefono_contatto || r.telefono || r.chat_id)}@${r.ora}`;
+    if (gia.has(chiave)) continue;
+    gia.add(chiave);
+    scelte.push(r);
+  }
+  return scelte;
+}
+
+async function mandaPromemoria(adesso = new Date()) {
+  if (!botDisponibile() || !botAcceso() || state.status !== 'connesso') return 0;
+  const cfg = bot.config(db);
+  const scelte = promemoriaDaMandare(cfg, adesso);
+  if (!scelte.length) return 0;
+
+  // ⚠️ Niente tetto giornaliero, al contrario della recensione. Là il tetto
+  // protegge da un'impronta di spam; qui ogni messaggio è atteso da chi lo
+  // riceve, e saltarne uno vuol dire un tavolo vuoto. Il ritmo lo mette
+  // inviaConRitmo, che è dove deve stare.
+  const segna = db.prepare("UPDATE prenotazioni SET promemoria_at = datetime('now','localtime') WHERE id = ?");
+  let mandati = 0;
+  let falliti = 0;
+  for (const r of scelte) {
+    const testo = bot.riempi(cfg.bot_t_promemoria, {
+      nome: r.nome || '', cognome: r.cognome || '',
+      locale: cfg.bot_locale || 'noi', assistente: cfg.bot_assistente || '',
+      data: bot.dataItaliana(r.data), ora: r.ora, persone: r.persone,
+    });
+    try {
+      await inviaConRitmo(r.chat_id || r.telefono, testo);
+      // Si segna solo DOPO l'invio riuscito: segnarlo prima vorrebbe dire
+      // perdere per sempre il promemoria di chi non l'ha mai ricevuto.
+      segna.run(r.id);
+      mandati++;
+    } catch (e) { falliti++; console.error('Bot:', e.message); }
+  }
+  // ⚠️ Quelli che non sono partiti vanno DETTI. Un promemoria che non arriva è
+  // esattamente il tavolo che poi non si presenta, e il locale deve poter
+  // decidere se fare una telefonata.
+  if (mandati) {
+    const giorni = Math.min(Math.max(bot.num(bot.config(db).bot_promemoria_giorni, 1), 0), 7);
+    const per = giorni === 0 ? 'oggi' : giorni === 1 ? 'domani' : `fra ${giorni} giorni`;
+    annota('promemoria', `ricordato il tavolo a ${mandati} client${mandati === 1 ? 'e' : 'i'} per ${per}`);
+  }
+  if (falliti) annota('errore', `${falliti} promemoria non partiti: quei tavoli non sono stati avvisati`);
+  return mandati;
+}
+
+if (botDisponibile()) {
+  setInterval(() => { mandaPromemoria().catch(() => {}); }, 60 * 1000);
+}
+
+// ---------------------------------------------------------------------------
+//  Stripe
+// ---------------------------------------------------------------------------
+//
+//  ⚠️ Nessuna libreria in più. L'API di Stripe è HTTPS normale con il corpo
+//  scritto come un modulo: quaranta righe qui valgono una dipendenza in meno da
+//  installare e aggiornare sul mini-PC di ogni ristorante.
+//
+//  ⚠️ E soprattutto: si CHIEDE a Stripe, non si aspetta che chiami lui. Il
+//  mini-PC sta dietro il router del ristorante, senza porte aperte: un webhook
+//  non arriverebbe mai. Chiedere ha anche un vantaggio che il webhook non ha —
+//  se la macchina è spenta mentre il cliente paga, il webhook si perde, mentre
+//  la domanda alla riaccensione trova comunque «pagato».
+
+const STRIPE_BASE = process.env.ISTUDIO_STRIPE_BASE || 'https://api.stripe.com';
+
+// Il corpo come lo vuole Stripe: chiavi annidate scritte con le parentesi
+// quadre, «line_items[0][price_data][unit_amount]=12000».
+function comeModulo(oggetto, prefisso = '') {
+  const pezzi = [];
+  for (const [k, v] of Object.entries(oggetto)) {
+    if (v === undefined || v === null) continue;
+    const nome = prefisso ? `${prefisso}[${k}]` : k;
+    if (typeof v === 'object') pezzi.push(comeModulo(v, nome));
+    else pezzi.push(`${encodeURIComponent(nome)}=${encodeURIComponent(String(v))}`);
+  }
+  return pezzi.filter(Boolean).join('&');
+}
+
+// ⚠️ Il tempo massimo è tassativo. Senza, una linea che non risponde lascia la
+// richiesta appesa e con lei il cliente, che ha appena finito di prenotare e
+// resta a guardare la chat.
+const STRIPE_ATTESA = 15000;
+
+// Quanto ci mette Stripe a rispondere SU QUESTA LINEA.
+//
+// ⚠️ Non è curiosità: da questo numero dipende se il cliente aspetta mezzo
+// secondo o cinque dopo aver scritto la sua email. Sulla fibra di un ufficio è
+// una cosa, sulla linea di un ristorante può esserne un'altra — e finora era
+// una stima, non un dato. Qui si misura, e si scrive nella Diagnostica.
+//
+// Si tengono gli ultimi venti e basta: serve a rispondere a «com'è andata
+// stasera», non a fare uno storico.
+const tempiStripe = [];
+function segnaTempoStripe(millesimi, riuscito) {
+  tempiStripe.push({ ms: millesimi, ok: riuscito, quando: Date.now() });
+  if (tempiStripe.length > 20) tempiStripe.shift();
+}
+function comeVaStripe() {
+  if (!tempiStripe.length) return null;
+  const ok = tempiStripe.filter((t) => t.ok);
+  const media = ok.length ? Math.round(ok.reduce((a, t) => a + t.ms, 0) / ok.length) : null;
+  return {
+    misure: tempiStripe.length,
+    media,
+    peggiore: ok.length ? Math.max(...ok.map((t) => t.ms)) : null,
+    falliti: tempiStripe.length - ok.length,
+    ultima: tempiStripe[tempiStripe.length - 1],
+  };
+}
+
+// `idempotenza` è la chiave con cui Stripe riconosce una richiesta già
+// ricevuta: se la nostra linea cade DOPO che Stripe ha creato il pagamento ma
+// prima di risponderci, il tentativo successivo con la stessa chiave riavrà
+// quel pagamento invece di crearne un secondo. Senza, un cliente poteva
+// ritrovarsi due collegamenti — e due addebiti possibili — per un tavolo.
+function stripeChiedi(cfg, metodo, percorso, corpo, idempotenza) {
+  const chiave = String(cfg.bot_pagamento_chiave || '').trim();
+  if (!chiave) return Promise.resolve({ ok: false, errore: 'Manca la chiave di Stripe' });
+  const dati = corpo ? comeModulo(corpo) : '';
+  const u = new URL(STRIPE_BASE + percorso);
+  const modulo = u.protocol === 'http:' ? require('http') : require('https');
+  const partito = Date.now();
+  return new Promise((risolviGrezzo) => {
+    // Il cronometro si ferma comunque vada: un errore che ci mette dieci
+    // secondi è un'informazione quanto una risposta riuscita.
+    const risolvi = (esito) => { segnaTempoStripe(Date.now() - partito, !!esito.ok); risolviGrezzo(esito); };
+    const req = modulo.request({
+      hostname: u.hostname, port: u.port || (u.protocol === 'http:' ? 80 : 443),
+      path: u.pathname + u.search, method: metodo,
+      headers: {
+        Authorization: 'Bearer ' + chiave,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(dati),
+        ...(idempotenza ? { 'Idempotency-Key': String(idempotenza) } : {}),
+      },
+    }, (res) => {
+      let testo = '';
+      res.on('data', (c) => { testo += c; });
+      res.on('end', () => {
+        let d = null;
+        try { d = JSON.parse(testo); } catch { d = null; }
+        if (res.statusCode >= 200 && res.statusCode < 300) return risolvi({ ok: true, dati: d });
+        // ⚠️ Il messaggio di Stripe si riporta così com'è: dice cose precise
+        // («No such price», «Invalid API Key»), e riscriverlo con parole nostre
+        // vorrebbe dire far indovinare chi legge.
+        risolvi({ ok: false, stato: res.statusCode, errore: (d && d.error && d.error.message) || `Stripe ha risposto ${res.statusCode}` });
+      });
+    });
+    req.on('error', (e) => risolvi({ ok: false, errore: e.message }));
+    req.setTimeout(STRIPE_ATTESA, () => { req.destroy(new Error('Stripe non risponde')); });
+    if (dati) req.write(dati);
+    req.end();
+  });
+}
+
+// «Chi sono?»: serve a provare la chiave nel momento in cui la si salva,
+// invece di scoprirla sbagliata col primo cliente vero.
+async function stripeChiSono(cfg) {
+  const r = await stripeChiedi(cfg, 'GET', '/v1/account');
+  if (!r.ok) return r;
+  const a = r.dati || {};
+  return { ok: true, nome: a.business_profile && a.business_profile.name ? a.business_profile.name : (a.email || a.id || 'conto Stripe') };
+}
+
+// Da «2026-09-05 12:30:00» ai secondi che vuole Stripe. Torna `null` — non
+// NaN — quando la data non c'è o non si legge: `comeModulo` i valori nulli li
+// lascia fuori dal corpo, mentre un NaN lo scriverebbe così com'è e la
+// richiesta verrebbe rifiutata tutta.
+function orarioUnix(quando) {
+  if (!quando) return null;
+  const t = new Date(String(quando).replace(' ', 'T')).getTime();
+  return Number.isFinite(t) ? Math.floor(t / 1000) : null;
+}
+
+// Il pagamento di UNA prenotazione: un indirizzo suo, con dentro l'importo
+// giusto e un riferimento che punta a quella riga. Non è un link generico —
+// è così che si sa CHI ha pagato.
+async function stripeCreaPagamento(cfg, p) {
+  // ⚠️ La scadenza può NON esserci: col pagamento facoltativo la prenotazione
+  // nasce confermata e `pagamento_scade_at` resta vuoto. Scritto com'era —
+  // `new Date(String(null))` — quel vuoto diventava NaN, e a Stripe partiva
+  // «expires_at=NaN»: risposta 400, collegamento mai creato, cioè il pagamento
+  // facoltativo che non funzionava affatto. Un finto Stripe che diceva sempre
+  // sì l'aveva nascosto; adesso il finto rifiuta come quello vero.
+  //
+  // Senza scadenza il campo non si manda proprio, e Stripe usa la sua
+  // (ventiquattro ore): un collegamento che dura un giorno è esattamente quello
+  // che serve a un acconto che non blocca niente.
+  const scade = orarioUnix(p.pagamento_scade_at);
+  const ritorno = String(cfg.bot_pagamento_ritorno || '').trim();
+  // La chiave cambia con la scadenza: Stripe rifiuta la stessa chiave con un
+  // corpo diverso, e la scadenza è l'unica cosa che può cambiare fra un
+  // tentativo e l'altro (vedi riprovaICollegamenti).
+  const idempotenza = `pren-${p.id}-${scade || 'senza'}-${p.importo_dovuto}`;
+  const r = await stripeChiedi(cfg, 'POST', '/v1/checkout/sessions', {
+    mode: 'payment',
+    // Il riferimento alla prenotazione, che è quello che si guarda quando si
+    // chiede l'elenco dei pagamenti.
+    client_reference_id: `pren-${p.id}`,
+    metadata: { prenotazione: String(p.id) },
+    expires_at: scade,
+    success_url: ritorno,
+    cancel_url: ritorno,
+    line_items: {
+      0: {
+        quantity: 1,
+        price_data: {
+          currency: 'eur',
+          unit_amount: p.importo_dovuto,
+          product_data: {
+            name: `Prenotazione da ${cfg.bot_locale || 'noi'} — ${bot.dataItaliana(p.data)} ${p.ora}`,
+            description: `${p.persone} ${p.persone === 1 ? 'persona' : 'persone'}`,
+          },
+        },
+      },
+    },
+  }, idempotenza);
+  if (!r.ok) return r;
+  return { ok: true, id: r.dati.id, link: r.dati.url };
+}
+
+// I pagamenti recenti, in UNA domanda sola.
+//
+// ⚠️ Non una per prenotazione: con dieci in attesa sarebbero dieci domande ogni
+// quindici secondi, e il traffico crescerebbe col numero di clienti proprio la
+// sera in cui ce ne sono di più. Così invece resta una, sempre.
+// ⚠️ Stripe risponde cento alla volta, e dice «has_more» se ce ne sono altre.
+// Prima si leggeva solo la prima pagina: su un conto Stripe che il ristorante
+// usa anche per altro — il negozio online, i buoni regalo — il pagamento di
+// una prenotazione poteva essere il centunesimo, e non veniva visto MAI. La
+// prenotazione scadeva, il posto tornava libero, e al cliente arrivava «non ti
+// è stato addebitato niente» con l'addebito fatto.
+//
+// Dieci pagine al massimo — mille pagamenti in un giorno — non per risparmio
+// ma per non restare in un giro senza fine se Stripe rispondesse sempre
+// «has_more»: a quel punto è meglio un elenco parziale e un giro dopo.
+async function stripePagamentiRecenti(cfg, daQuando) {
+  const dopo = Math.floor(daQuando.getTime() / 1000);
+  const sessioni = [];
+  let ultimo = '';
+  for (let pagina = 0; pagina < 10; pagina++) {
+    const r = await stripeChiedi(cfg, 'GET',
+      `/v1/checkout/sessions?limit=100&created%5Bgte%5D=${dopo}`
+      + (ultimo ? `&starting_after=${encodeURIComponent(ultimo)}` : ''));
+    if (!r.ok) return r;
+    const pezzo = (r.dati && r.dati.data) || [];
+    sessioni.push(...pezzo);
+    if (!(r.dati && r.dati.has_more) || !pezzo.length) break;
+    ultimo = pezzo[pezzo.length - 1].id;
+  }
+  return { ok: true, sessioni };
+}
+
+// ---------- I posti tenuti da chi non ha pagato ----------
+//
+// Ogni minuto si guarda chi ha finito il tempo. Il posto torna libero, e
+// soprattutto la persona VIENE AVVISATA: liberare un tavolo senza dirlo a chi
+// credeva di averlo è il modo più rapido di ritrovarselo alla porta.
+//
+// ⚠️ Il posto si libera comunque, anche se il messaggio non parte (WhatsApp
+// scollegato, numero irraggiungibile). Il contrario — tenere il tavolo fermo
+// perché non siamo riusciti ad avvisare — lascerebbe il locale mezzo vuoto per
+// un guasto nostro.
+// ⚠️ Un minuto di grazia prima di liberare un posto scaduto, e non è un
+// dettaglio: chi paga all'ultimo istante viene visto dal giro seguente — che
+// passa ogni quindici secondi — e senza questa attesa il tavolo gli veniva
+// tolto NEL FRATTEMPO, con un messaggio che diceva «non ti è stato addebitato
+// niente» mentre l'addebito c'era stato. Poi il pagamento arrivava, la
+// prenotazione tornava confermata, e il cliente si ritrovava due messaggi che
+// si contraddicono — il primo dei quali era una bugia sui soldi.
+//
+// Dopo la scadenza Stripe rifiuta il pagamento, quindi nessun incasso può
+// arrivare più tardi: aspettare un minuto basta e non lascia niente in sospeso.
+const GRAZIA_SCADENZA = 60 * 1000;
+
+async function chiudiPagamentiScaduti(adesso = new Date()) {
+  if (!botConcesso()) return 0;
+  // Prima si guarda chi ha pagato, poi si libera: nell'ordine inverso si
+  // toglie il tavolo a qualcuno che ha appena pagato.
+  try { await guardaChiHaPagato(); } catch {}
+  const scadute = bot.liberaScadute(db, new Date(adesso.getTime() - GRAZIA_SCADENZA));
+  if (!scadute.length) return 0;
+  const cfg = bot.config(db);
+  annota('pagamento', `${scadute.length} ${scadute.length === 1 ? 'prenotazione scaduta' : 'prenotazioni scadute'}: posti liberati`);
+  for (const p of scadute) {
+    try {
+      await inviaAlCliente(p, bot.riempi(cfg.bot_t_pagamento_scaduto, {
+        nome: p.nome || '', cognome: p.cognome || '',
+        data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
+        locale: cfg.bot_locale || 'noi',
+      }));
+    } catch (e) {
+      // Non è un guasto da fermare tutto: il posto è già libero, ed è quello
+      // che conta per il locale. Ma va scritto, perché quella persona non sa
+      // di aver perso il tavolo.
+      annota('errore', `scaduta la ${p.id} ma non sono riuscito ad avvisare il cliente: ${e.message}`);
+    }
+  }
+  return scadute.length;
+}
+
+// Il collegamento di una prenotazione che NON ESISTE PIÙ non deve restare
+// pagabile. Prima restava: il cliente scriveva CANCELLA, il tavolo tornava
+// libero, e il link nella chat — o nell'email — continuava a incassare. Un
+// cliente distratto pagava un tavolo che non c'era, e il locale si ritrovava
+// un rimborso da fare senza sapere nemmeno di cosa.
+//
+// Se Stripe risponde che la sessione non è più «aperta», vuol dire che è già
+// stata pagata o è già scaduta da sé: in tutti e due i casi non c'è niente da
+// chiudere, e il pagamento eventualmente arrivato lo vede `guardaChiHaPagato`.
+async function chiudiIlPagamento(p) {
+  if (!p || !p.pagamento_id || p.pagato_at) return { ok: true, niente: true };
+  const cfg = bot.config(db);
+  const r = await stripeChiedi(cfg, 'POST',
+    `/v1/checkout/sessions/${encodeURIComponent(p.pagamento_id)}/expire`);
+  if (!r.ok) annota('errore', `annullata la ${p.id} ma non sono riuscito a chiudere il collegamento per pagare: ${r.errore}`);
+  return r;
+}
+
+// Il messaggio col collegamento, ricostruito dalla riga in archivio. Serve
+// quando il collegamento arriva in ritardo: il testo che il motore aveva
+// preparato al momento della prenotazione non c'è più.
+function testoDelCollegamento(cfg, p, link) {
+  const resto = p.importo_totale - p.importo_dovuto;
+  return bot.riempi(cfg.bot_t_pagamento, {
+    data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
+    nome: p.nome || '', cognome: p.cognome || '',
+    importo: bot.euro(p.importo_dovuto),
+    resto: resto > 0 ? `Il resto — ${bot.euro(resto)} — si salda al ristorante.\n` : '',
+    scadenza: bot.oreEMinuti(p.pagamento_scade_at),
+  }).split('{link}').join(link);
+}
+
+// ⚠️ Quando Stripe non risponde, il bot scrive «te lo mando appena è pronto»
+// — e fino a qui nessuno lo mandava mai. La prenotazione restava in attesa
+// senza un collegamento, per mezz'ora, e poi scadeva: al cliente arrivava
+// «il tempo per pagare è scaduto» per un pagamento che non ha mai potuto
+// fare. Una promessa scritta dal bot e mantenuta da nessuno.
+//
+// Ogni minuto si riprova con chi è rimasto senza. Solo le prenotazioni nate da
+// più di un minuto e mezzo: una appena nata potrebbe avere il primo tentativo
+// ancora in corso, e due tentativi insieme sono due messaggi al cliente.
+//
+// Stripe vuole almeno mezz'ora di vita per un pagamento: se alla prenotazione
+// ne resta meno — o la scadenza è già passata — la scadenza si sposta a
+// mezz'ora da adesso. Il ritardo è nostro, non del cliente, e il messaggio
+// dice l'ora nuova.
+const ATTESA_PRIMA_DI_RIPROVARE = 90 * 1000;
+async function riprovaICollegamenti(adesso = new Date()) {
+  if (!botConcesso()) return 0;
+  const cfg = bot.config(db);
+  if (!bot.boolDi(cfg.bot_pagamento_attivo)) return 0;
+  const senza = db.prepare(
+    "SELECT * FROM prenotazioni WHERE stato = 'attesa_pagamento' AND pagamento_id = '' "
+    + "AND (pagato_at IS NULL OR pagato_at = '') AND creata_at <= ?"
+  ).all(bot.comeOrario(new Date(adesso.getTime() - ATTESA_PRIMA_DI_RIPROVARE)));
+  let mandati = 0;
+  for (const p of senza) {
+    const minimo = new Date(adesso.getTime() + bot.MINUTI_MINIMI * 60000);
+    const scadeA = p.pagamento_scade_at ? new Date(String(p.pagamento_scade_at).replace(' ', 'T')) : null;
+    if (!scadeA || Number.isNaN(scadeA.getTime()) || scadeA < minimo) {
+      p.pagamento_scade_at = bot.comeOrario(minimo);
+      db.prepare('UPDATE prenotazioni SET pagamento_scade_at = ? WHERE id = ?').run(p.pagamento_scade_at, p.id);
+    }
+    const r = await stripeCreaPagamento(cfg, p);
+    if (!r.ok) {
+      // Un errore per giro e basta: se Stripe è giù, dirlo ogni minuto per
+      // ogni prenotazione coprirebbe tutto il resto del registro.
+      if (!riprovaICollegamenti.zitto) {
+        annota('errore', `ancora niente collegamento per la ${p.id}: ${r.errore}`);
+        riprovaICollegamenti.zitto = true;
+      }
+      continue;
+    }
+    riprovaICollegamenti.zitto = false;
+    db.prepare('UPDATE prenotazioni SET pagamento_id = ? WHERE id = ?').run(r.id, p.id);
+    try {
+      await inviaAlCliente(p, testoDelCollegamento(cfg, p, r.link));
+      mandati++;
+      annota('pagamento', `collegamento per pagare mandato in ritardo per la ${p.id}`);
+    } catch (e) {
+      annota('errore', `collegamento creato per la ${p.id} ma il messaggio non è partito: ${e.message}`);
+    }
+    await mandaEmailPrenotazione(p, r.link);
+  }
+  return mandati;
+}
+
+// I due lavori del minuto, nell'ordine che conta: PRIMA si riprova a dare il
+// collegamento a chi non l'ha mai avuto, POI si liberano i posti scaduti.
+// Nell'ordine inverso, la scadenza porterebbe via un tavolo a chi stava per
+// ricevere — adesso — il modo di pagarlo.
+// ---------- La lista d'attesa ----------
+//
+// Chi trova pieno lascia il nome; qui, ogni minuto, si guarda se per qualcuno
+// si è liberato un posto e glielo si scrive. Decide il bot (una persona alla
+// volta per giornata, in ordine di arrivo, con un tempo per rispondere): qui si
+// manda soltanto, perché solo qui si sa se WhatsApp è collegato. Un invio che
+// non parte rimette la persona in coda: non deve perdere il posto per un
+// guasto nostro.
+async function avvisaLaListaDAttesa(adesso = new Date()) {
+  if (!botDisponibile() || !botAcceso() || state.status !== 'connesso') return 0;
+  const cfg = bot.config(db);
+  const proposte = bot.chiDaAvvisareInAttesa(db, cfg, adesso);
+  let mandate = 0;
+  for (const r of proposte) {
+    const quando = `per ${bot.dataItaliana(r.data)} alle ${r.ora}`;
+    const testo = bot.riempi(cfg.bot_t_attesa_libero, {
+      locale: cfg.bot_locale || 'noi', assistente: cfg.bot_assistente || '',
+      nome: r.nome || '', cognome: r.cognome || '',
+      quando, data: bot.dataItaliana(r.data), ora: r.ora, persone: r.persone, minuti: r.minuti,
+    });
+    try {
+      await rispondiConRitmo(r.telefono, testo);
+      mandate++;
+      annota('lista d\'attesa', `proposto un posto ${quando} a ${bot.nomeInSala(r)} (${r.persone} pers.)`);
+    } catch (e) {
+      bot.rimettiInAttesa(db, r.id, adesso);
+      annota('errore', `lista d'attesa: non riesco a scrivere a ${bot.nomeInSala(r)}: ${e.message}`);
+    }
+  }
+  return mandate;
+}
+
+async function giroDelMinuto() {
+  try { await riprovaICollegamenti(); } catch {}
+  await chiudiPagamentiScaduti();
+  // Per ultima, di proposito: un pagamento scaduto ha appena liberato dei
+  // posti, e chi è in lista li deve vedere in questo stesso giro, non fra
+  // un minuto.
+  try { await avvisaLaListaDAttesa(); } catch (e) { annota('errore', `lista d'attesa: ${e.message}`); }
+}
+
+if (botDisponibile()) {
+  setInterval(() => { giroDelMinuto().catch(() => {}); }, 60 * 1000);
+}
+
+// ---------- L'email di riepilogo ----------
+//
+// Parte due volte per la stessa prenotazione: quando nasce e quando viene
+// pagata. Il testo è UNO SOLO — il riepilogo non cambia — e l'unica cosa che
+// cambia è il pezzo dei soldi, che se lo scrive `bot.bloccoPagamento`. Con due
+// testi separati, chi ne corregge uno lascia l'altro indietro e il cliente
+// riceve due email che si somigliano ma non dicono le stesse cose.
+//
+// ⚠️ Non lancia MAI. L'email è un di più: la prenotazione è già scritta in
+// archivio e il cliente ha già avuto il messaggio su WhatsApp. Se la posta non
+// parte si annota — così il locale lo vede nel registro — ma non si rimette in
+// discussione niente. Il valore di ritorno dice com'è andata a chi lo vuole
+// sapere (il simulatore), e nessun altro è obbligato a guardarlo.
+// Un testo qualunque, reso innocuo dentro l'HTML.
+function htmlSicuro(t) {
+  return String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Da testo a HTML: scappato, a capo con <br>, e i collegamenti cliccabili.
+// ⚠️ Il collegamento si fa DOPO aver scappato: nell'indirizzo un «&» deve
+// diventare «&amp;» anche dentro href, ed è così che vuole l'HTML.
+function testoInHtml(t) {
+  return htmlSicuro(t)
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#128c7e">$1</a>')
+    .replace(/\n/g, '<br>');
+}
+
+// L'email di riepilogo in HTML: il modello del locale se c'è, sennò quello
+// incorporato — logo in testa, nome del locale, il testo, una riga in fondo.
+//
+// ⚠️ I valori del cliente entrano SEMPRE scappati, in tutti e due i casi. Un
+// cliente che si chiama «<b>Mario</b>» non deve poter cambiare la grafica
+// dell'email, e una nota con un «<» non deve mangiarsi il resto. Nel modello
+// del locale i segnaposto sono gli stessi del testo, più «{logo}» (l'immagine,
+// o niente) e «{testo}» (tutto il testo dell'email già riempito, così un
+// modello può limitarsi a metterci una cornice intorno).
+function corpoEmailRiepilogo(cfg, valori, testo, conLogo) {
+  const logoHtml = conLogo
+    ? '<img src="cid:logo-istudio" alt="' + htmlSicuro(cfg.bot_locale || '') + '" style="max-width:220px;max-height:120px;height:auto;display:block;margin:0 auto 18px">'
+    : '';
+  const modello = String(cfg.bot_email_html || '').trim();
+  if (modello) {
+    return modello.replace(/\{(\w+)\}/g, (intero, chiave) => {
+      if (chiave === 'logo') return logoHtml;
+      if (chiave === 'testo') return testoInHtml(testo);
+      if (chiave === 'pagamento') return testoInHtml(valori.pagamento || '');
+      if (valori[chiave] === undefined || valori[chiave] === null) return intero;
+      return testoInHtml(String(valori[chiave]));
+    });
+  }
+  return '<div style="background:#f0f2f5;padding:24px 12px;font-family:Arial,Helvetica,sans-serif">'
+    + '<div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #e0e4e8;border-radius:12px;padding:28px 26px;color:#222;font-size:15px;line-height:1.6">'
+    + logoHtml
+    + (cfg.bot_locale ? '<div style="text-align:center;font-size:18px;font-weight:700;color:#128c7e;margin-bottom:18px">' + htmlSicuro(cfg.bot_locale) + '</div>' : '')
+    + testoInHtml(testo)
+    + '</div>'
+    + '<div style="max-width:600px;margin:12px auto 0;text-align:center;font-size:12px;color:#667781">'
+    + 'Questa email riguarda la tua prenotazione' + (cfg.bot_locale ? ' da ' + htmlSicuro(cfg.bot_locale) : '') + '.</div>'
+    + '</div>';
+}
+
+// Tutto quello che serve per spedire l'email di una prenotazione, in un posto
+// solo: la usa chi spedisce davvero e la usano l'anteprima e la prova — così
+// quello che vedi prima è esattamente quello che parte dopo.
+function composizioneEmail(cfg, p, link) {
+  const valori = {
+    nome: p.nome || '',
+    cognome: p.cognome || '',
+    data: bot.dataItaliana(p.data),
+    ora: p.ora || '',
+    persone: p.persone,
+    telefono: p.telefono_contatto || '',
+    note: p.note ? `📝 ${p.note}\n` : '',
+    pagamento: bot.bloccoPagamento(p, link),
+    locale: cfg.bot_locale || '',
+  };
+  const oggetto = bot.riempi(cfg.bot_email_oggetto, valori).replace(/\n/g, ' ').trim()
+    || 'La tua prenotazione';
+  const testo = bot.riempi(cfg.bot_email_testo, valori);
+  const logo = leggiImmagine(cfg.bot_email_logo);
+  return {
+    oggetto, testo,
+    html: corpoEmailRiepilogo(cfg, valori, testo, !!logo),
+    allegati: logo ? [{ filename: 'logo.png', content: Buffer.from(logo.base64, 'base64'), cid: 'logo-istudio' }] : undefined,
+  };
+}
+
+async function mandaEmailPrenotazione(p, link) {
+  const cfg = bot.config(db);
+  if (!bot.boolDi(cfg.bot_email_attiva)) return { ok: false, motivo: 'spenta' };
+  const dove = String((p && p.email) || '').trim();
+  if (!dove) return { ok: false, motivo: 'niente indirizzo' };
+  if (!EMAIL_RE.test(dove)) {
+    annota('errore', `email di ${bot.nomeInSala(p)} scritta male: ${dove}`);
+    return { ok: false, motivo: 'indirizzo scritto male' };
+  }
+  // ⚠️ Un'email che chiede soldi e non dice DOVE pagarli è peggio di nessuna
+  // email: il cliente legge «il tavolo non è ancora tuo, paga adesso» e non ha
+  // niente su cui premere. Succede quando Stripe non risponde, e il posto di
+  // questo controllo è QUI e non nei quattro punti che la chiamano: uno dei
+  // quattro se ne dimenticherebbe. (È già successo: nel simulatore.)
+  // ⚠️ La domanda è «c'è un importo NON ancora versato?», non «in che stato è».
+  // Col pagamento facoltativo la prenotazione è confermata e l'acconto è
+  // ancora da versare: guardando lo stato, questa email sarebbe partita con
+  // l'invito a lasciare un acconto e nessun posto dove lasciarlo.
+  if (p.importo_dovuto && !p.pagato_at && !link) {
+    return { ok: false, motivo: 'manca il collegamento per pagare' };
+  }
+  const transporter = buildTransporter();
+  if (!transporter) {
+    // ⚠️ Questo NON è un caso raro da ignorare: è il ristorante che ha acceso
+    // l'email senza aver mai configurato la posta. Va detto, altrimenti resta
+    // un interruttore acceso che non fa niente.
+    annota('errore', 'email di riepilogo accesa, ma la posta non è configurata (Impostazioni → Email)');
+    return { ok: false, motivo: 'posta non configurata' };
+  }
+  const { oggetto, testo, html, allegati } = composizioneEmail(cfg, p, link);
+  const nomeMittente = getSetting('smtp_from_name') || cfg.bot_locale || '';
+  const indirizzoMittente = getSetting('smtp_user');
+  try {
+    await transporter.sendMail({
+      from: nomeMittente ? `"${nomeMittente}" <${indirizzoMittente}>` : indirizzoMittente,
+      to: dove,
+      subject: oggetto,
+      text: testo,
+      html,
+      attachments: allegati,
+    });
+    annota('email', `riepilogo mandato a ${dove}`);
+    return { ok: true, a: dove };
+  } catch (e) {
+    annota('errore', `l'email di riepilogo a ${dove} non è partita: ${e.message}`);
+    return { ok: false, motivo: e.message };
+  }
+}
+
+// Il messaggio con dentro il link, e il link viene creato adesso.
+//
+// ⚠️ «Sta scrivendo…» si accende PRIMA di chiamare Stripe: è uno stato della
+// chat, non un messaggio, quindi non entra in nessuna coda e non costa niente a
+// nessuno. Un messaggio «attendi» invece finirebbe nella stessa fila del link e
+// arriverebbe quando il link sarebbe già arrivato.
+async function mandaIlPagamento(chatId, esito) {
+  const cfg = bot.config(db);
+  const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(esito.daPagare.id);
+  if (!p) return;
+  await staScrivendo(chatId);
+  const r = await stripeCreaPagamento(cfg, p);
+  if (!r.ok) {
+    // ⚠️ Il posto NON si libera: la richiesta è valida, è il collegamento che
+    // manca. Si dice al cliente che sta arrivando, e si avvisa il locale —
+    // perché quella prenotazione, da sola, non si sbloccherà.
+    annota('errore', `non riesco a creare il pagamento per la ${p.id}: ${r.errore}`);
+    try {
+      // ⚠️ Col pagamento FACOLTATIVO il tavolo è già prenotato, e il cliente
+      // deve saperlo: «sto preparando il collegamento» gli farebbe credere di
+      // essere ancora in sospeso per una caparra che poteva non versare. Un
+      // guasto nostro non deve peggiorare la sua prenotazione.
+      await rispondiConRitmo(chatId, esito.daPagare.ripiego
+        || bot.riempi(cfg.bot_t_pagamento_lento, {
+          nome: p.nome || '', data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
+        }));
+    } catch {}
+    return;
+  }
+  db.prepare('UPDATE prenotazioni SET pagamento_id = ? WHERE id = ?').run(r.id, p.id);
+  await rispondiConRitmo(chatId, String(esito.daPagare.testo).split('{link}').join(r.link));
+  // ⚠️ L'email parte DOPO il messaggio, e col link dentro. Prima non si poteva:
+  // il link non esisteva ancora, e un'email che dice «paga qui» senza il dove
+  // è peggio di nessuna email.
+  await mandaEmailPrenotazione(p, r.link);
+}
+
+// Cosa si scrive al cliente quando il pagamento risulta arrivato.
+//
+// ⚠️ Sono due notizie diverse. Col pagamento obbligatorio è «adesso il tavolo è
+// tuo», ed è la notizia. Col facoltativo il tavolo era già suo da mezz'ora, e
+// riannunciarglielo gli fa credere che prima non lo fosse — cioè che la caparra
+// servisse davvero. Lì la notizia è solo «grazie, ricevuto».
+//
+// Sta in UNA funzione perché le strade che ci arrivano sono due — Stripe e la
+// spunta a mano — e con la scelta scritta in tutte e due, una delle due prima o
+// poi resta indietro.
+function testoDelPagamento(cfg, p, eraGiaConfermata) {
+  const valori = {
+    nome: p.nome || '', cognome: p.cognome || '',
+    data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
+    importo: bot.euro(p.importo_dovuto), locale: cfg.bot_locale || 'noi',
+    resto: p.importo_totale > p.importo_dovuto
+      ? `Il resto — ${bot.euro(p.importo_totale - p.importo_dovuto)} — si salda al ristorante.\n` : '',
+  };
+  return bot.riempi(eraGiaConfermata ? cfg.bot_t_caparra_ricevuta : cfg.bot_t_pagata, valori);
+}
+
+// ---------- Chi ha pagato? ----------
+//
+// Ogni quindici secondi, e SOLO se c'è qualcosa in attesa: a locale tranquillo
+// non si chiede niente a nessuno.
+let controlloInCorso = false;
+async function guardaChiHaPagato() {
+  if (!botConcesso() || controlloInCorso) return 0;
+  const cfg = bot.config(db);
+  if (!bot.boolDi(cfg.bot_pagamento_attivo)) return 0;
+  // ⚠️ Non solo le «in attesa». Col pagamento FACOLTATIVO la prenotazione nasce
+  // confermata e la caparra arriva dopo: cercando per stato, quel versamento
+  // non lo si sarebbe visto mai — incassato su Stripe e invisibile in sala.
+  // La domanda giusta non è «in che stato è» ma «ha un pagamento aperto che
+  // non risulta ancora versato».
+  const daControllare = db.prepare(
+    'SELECT * FROM prenotazioni WHERE pagamento_id <> \'\' '
+    + "AND (pagato_at IS NULL OR pagato_at = '') AND stato IN " + bot.dentro(bot.STATI_VIVI)
+  ).all();
+  if (!daControllare.length) return 0;
+
+  controlloInCorso = true;
+  try {
+    // Si guarda indietro di un giorno: più della finestra massima che Stripe
+    // consente (24 ore), così nessun pagamento può restare fuori dall'elenco.
+    const r = await stripePagamentiRecenti(cfg, new Date(Date.now() - 25 * 3600 * 1000));
+    if (!r.ok) {
+      // ⚠️ Non è un guasto da gridare a ogni giro: se la linea è giù, questo
+      // messaggio comparirebbe quattro volte al minuto e coprirebbe tutto il
+      // resto. Si annota il primo e basta.
+      if (!guardaChiHaPagato.zitto) {
+        annota('errore', `non riesco a chiedere a Stripe: ${r.errore}`);
+        guardaChiHaPagato.zitto = true;
+      }
+      return 0;
+    }
+    guardaChiHaPagato.zitto = false;
+    const pagate = new Map();
+    for (const sess of r.sessioni) {
+      if (sess.payment_status !== 'paid') continue;
+      pagate.set(String(sess.id), sess);
+    }
+    // ⚠️ DUE passate, non una. Prima si segnano pagate tutte — è sincrono,
+    // costa millisecondi — e solo dopo si scrivono i messaggi, che fra uno e
+    // l'altro aspettano il ritmo degli invii. Con una passata sola, dieci
+    // clienti che pagavano insieme venivano segnati uno ogni secondo e mezzo:
+    // il decimo risultava pagato tredici secondi dopo il primo, e con trenta
+    // sarebbero stati quarantacinque. La registrazione di un incasso non deve
+    // stare in coda dietro al messaggio di chi ha pagato prima — e se il
+    // programma cade a metà, gli incassi sono già scritti tutti.
+    const confermate = [];
+    for (const p of daControllare) {
+      const sess = pagate.get(String(p.pagamento_id));
+      if (!sess) continue;
+      // ⚠️ L'importo che scriviamo è quello che Stripe dice di aver incassato,
+      // non quello che avevamo chiesto: fra la creazione del collegamento e il
+      // pagamento può essere cambiato il prezzo nelle impostazioni, o le
+      // persone della prenotazione. La riga in sala deve dire quello che è
+      // entrato davvero.
+      const esito = bot.segnaPagata(db, cfg, p.id, 'stripe', new Date(), sess.amount_total);
+      if (!esito.ok) {
+        // ⚠️ Il caso che fa arrabbiare: ha pagato, ma nel frattempo il posto è
+        // stato dato a un altro. Non si conferma di nascosto e non si decide da
+        // soli cosa fare dei soldi: lo si scrive, e lo vede il locale.
+        annota('errore', `${bot.nomeInSala(p)} ha PAGATO ${bot.euro(p.importo_dovuto)} ma su quel turno non c'è più posto: da decidere`);
+        continue;
+      }
+      confermate.push(esito);
+    }
+    for (const esito of confermate) {
+      const q = esito.prenotazione;
+      try {
+        await inviaAlCliente(q, testoDelPagamento(cfg, q, esito.eraGiaConfermata));
+      } catch (e) {
+        annota('errore', `pagata la ${q.id} ma il messaggio al cliente non è partito: ${e.message}`);
+      }
+      // Il secondo riepilogo: stesso testo, ma adesso dice «pagamento
+      // ricevuto» invece di «il tavolo NON è ancora prenotato». È l'email che
+      // il cliente terrà — quella di prima parlava di una cosa da fare.
+      await mandaEmailPrenotazione(q);
+    }
+    if (confermate.length) annota('pagamento', `${confermate.length} ${confermate.length === 1 ? 'pagamento ricevuto' : 'pagamenti ricevuti'}`);
+    return confermate.length;
+  } finally { controlloInCorso = false; }
+}
+
+if (botDisponibile()) {
+  setInterval(() => { guardaChiHaPagato().catch(() => {}); }, 15 * 1000);
+}
+
+// ---------- La richiesta di recensione ----------
+// Parte qualche giorno dopo la visita, e SOLO verso chi risulta venuto davvero.
+// Chiederla a chi ha annullato o non si è presentato è il modo più rapido di
+// trasformare un cliente tiepido in un cliente arrabbiato.
+//
+// ⚠️ Il collegamento va a TUTTI, senza filtri. Mandarlo solo a chi si è detto
+// contento è «review gating»: le regole di Google lo vietano espressamente, e
+// la sanzione ricade sulla scheda del ristorante, non su di noi. Chi ha avuto
+// un problema ha comunque una via privata, scritta nello stesso messaggio.
+function recensioniDaMandare(cfg, adesso) {
+  if (!bot.boolDi(cfg.bot_recensione_attiva)) return [];
+  const link = String(cfg.bot_recensione_link || '').trim();
+  if (!link) return [];                       // senza collegamento non c'è niente da mandare
+
+  // Non prima dell'ora scelta: un messaggio del genere alle 7 del mattino, o
+  // alle 22, si legge come un disturbo qualunque cosa dica.
+  const ora = adesso.getHours() * 60 + adesso.getMinutes();
+  if (ora < bot.inMinuti(cfg.bot_recensione_ora || '11:00')) return [];
+
+  const giorni = Math.max(bot.num(cfg.bot_recensione_giorni, 2), 1);
+  const quando = bot.comeData(new Date(adesso.getTime() - giorni * 86400000));
+
+  // ⚠️ «Massimo AL GIORNO», non «per giro». Questa funzione viene richiamata
+  // ogni minuto: contando solo quelle di adesso, con il tetto a 20 ne partivano
+  // 20 al minuto finché non finivano — 50 messaggi in tre minuti al posto di
+  // 20 in un giorno. Cioè esattamente l'impronta di spam che il tetto doveva
+  // evitare, con dentro tutte lo stesso collegamento.
+  const oggi = bot.comeData(adesso);
+  const giaOggi = db.prepare(
+    'SELECT COUNT(*) n FROM prenotazioni WHERE recensione_at IS NOT NULL AND substr(recensione_at, 1, 10) = ?'
+  ).get(oggi).n;
+  const massimo = Math.max(bot.num(cfg.bot_recensione_max, 20), 1) - giaOggi;
+  if (massimo <= 0) return [];
+
+  // Solo «presentata»: chi non è venuto non ha niente da recensire.
+  const righe = db.prepare(
+    "SELECT * FROM prenotazioni WHERE data = ? AND stato = 'presentata' AND recensione_at IS NULL "
+    + 'ORDER BY ora, id'
+  ).all(quando);
+  if (!righe.length) return [];
+
+  // ⚠️ UNA SOLA, per persona, per sempre. Una recensione la si lascia una volta:
+  // richiederla di nuovo — anche a distanza di mesi — non porta una seconda
+  // recensione, porta un cliente infastidito. Chi viene ogni venerdì deve
+  // riceverla la prima volta e mai più.
+  const giaChiesta = new Set();
+  for (const r of db.prepare('SELECT telefono, telefono_contatto FROM prenotazioni '
+    + 'WHERE recensione_at IS NOT NULL').all()) {
+    // Si guarda per NUMERO, non per riga: la stessa persona può aver prenotato
+    // una volta da WhatsApp e una volta a mano, con due chiavi diverse.
+    for (const x of [r.telefono_contatto, r.telefono]) {
+      const n = normalizePhone(x || '');
+      if (n) giaChiesta.add(n);
+    }
+  }
+
+  // Un messaggio di questo tipo è una comunicazione commerciale: chi ha chiesto
+  // di non ricevere più niente non lo riceve, punto.
+  const bloccati = new Set(db.prepare('SELECT telefono FROM contacts WHERE opt_out = 1').all()
+    .map((c) => normalizePhone(c.telefono)).filter(Boolean));
+
+  const scelte = [];
+  for (const r of righe) {
+    if (scelte.length >= massimo) break;
+    const suo = normalizePhone(r.telefono_contatto || r.telefono);
+    const chat = normalizePhone(r.telefono || '');
+    if (suo && bloccati.has(suo)) continue;
+    // ⚠️ E chi ha scritto STOP, che quasi mai è in rubrica: senza questa riga
+    // gli si scriveva lo stesso, dopo avergli promesso il contrario.
+    if (bot.haDettoBasta(db, r.chat_id || r.telefono, r.telefono_contatto || r.telefono)) continue;
+    // Due prenotazioni della stessa persona nella stessa serata (capita: due
+    // tavoli, due gruppi) non devono diventare due messaggi.
+    if ((suo && giaChiesta.has(suo)) || (chat && giaChiesta.has(chat))) continue;
+    if (suo) giaChiesta.add(suo);
+    if (chat) giaChiesta.add(chat);
+    scelte.push(r);
+  }
+  return scelte;
+}
+
+async function mandaRecensioni(adesso = new Date()) {
+  if (!botDisponibile() || !botAcceso() || state.status !== 'connesso') return 0;
+  const cfg = bot.config(db);
+  const scelte = recensioniDaMandare(cfg, adesso);
+  if (!scelte.length) return 0;
+
+  const segna = db.prepare("UPDATE prenotazioni SET recensione_at = datetime('now','localtime') WHERE id = ?");
+  let mandate = 0;
+  for (const r of scelte) {
+    const testo = bot.riempi(cfg.bot_t_recensione, {
+      nome: r.nome || '', cognome: r.cognome || '',
+      locale: cfg.bot_locale || 'noi',
+      link: String(cfg.bot_recensione_link || '').trim(),
+    });
+    try {
+      // Passa dalla stessa coda col ritmo degli altri invii: venti messaggi
+      // identici sparati di fila sono l'impronta classica dello spam, e il
+      // numero del ristorante rischia il blocco.
+      await inviaConRitmo(r.chat_id || r.telefono, testo);
+      // Si segna solo DOPO l'invio riuscito: segnarla prima vorrebbe dire
+      // perdere per sempre la richiesta di chi non l'ha mai ricevuta.
+      segna.run(r.id);
+      mandate++;
+    } catch (e) { console.error('Bot:', e.message); }
+  }
+  if (mandate) annota('recensione', `chieste ${mandate} recensioni a chi è venuto`);
+  return mandate;
+}
+
+if (botDisponibile()) {
+  setInterval(() => { mandaRecensioni().catch(() => {}); }, 60 * 1000);
+}
+
+// ---------- API della pagina ----------
+app.get('/api/bot/stato', (req, res) => {
+  if (!botDisponibile()) return res.json({ disponibile: false });
+  if (!botPermesso()) {
+    return res.json({
+      disponibile: true, permesso: false,
+      assistenza: numeroAssistenza(), assistenzaEmail: emailAssistenza(),
+      codice: codiceInstallazione(),
+    });
+  }
+  const oggi = bot.comeData(new Date());
+  const righe = db.prepare("SELECT * FROM prenotazioni WHERE data = ? AND stato != 'annullata' ORDER BY ora, id").all(oggi);
+  res.json({
+    disponibile: true,
+    attivo: botAcceso(),
+    collegato: state.status === 'connesso',
+    oggi,
+    coperti: righe.reduce((s, r) => s + r.persone, 0),
+    prenotazioni: righe.length,
+    inAttesa: db.prepare("SELECT COUNT(*) n FROM bot_richieste WHERE stato = 'in_attesa'").get().n,
+    nonCapite: db.prepare('SELECT COUNT(*) n FROM bot_non_capite WHERE risolta = 0').get().n,
+    // Serve alla pagina per dire, accanto all'interruttore dell'email, se la
+    // posta è davvero pronta: l'interruttore da solo non lo sa.
+    posta: Boolean(getSetting('smtp_user') && getSetting('smtp_pass')),
+  });
+});
+
+// Perché il bot non risponde. Ogni riga è una condizione che DEVE essere
+// verde: elencarle tutte è molto meglio che lasciare indovinare quale delle
+// dieci cause possibili sia quella vera.
+app.get('/api/bot/registro', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const cfg = bot.config(db);
+  const turni = String(cfg.bot_turni_cena).split(',').filter(Boolean).length
+    + String(cfg.bot_turni_pranzo).split(',').filter(Boolean).length;
+  const controlli = [
+    { voce: 'Motore del bot caricato', ok: true },
+    { voce: 'Bot acceso', ok: botAcceso(), aiuto: 'Accendi l\'interruttore qui sopra.' },
+    { voce: 'WhatsApp collegato', ok: state.status === 'connesso', aiuto: 'Vai in Dashboard e scansiona il QR code.' },
+    { voce: 'Nome del locale impostato', ok: !!cfg.bot_locale, aiuto: 'Serve per i messaggi: lo scrivi nelle impostazioni qui sotto.' },
+    { voce: 'Almeno un turno impostato', ok: turni > 0, aiuto: 'Senza turni il bot non ha niente da proporre.' },
+    { voce: 'Coperti per turno impostati', ok: bot.num(cfg.bot_coperti_turno, 0) > 0, aiuto: 'Con zero coperti risulta sempre pieno.' },
+    { voce: 'Almeno un giorno di apertura', ok: String(cfg.bot_giorni).split(',').filter(Boolean).length > 0, aiuto: 'Spunta i giorni in cui siete aperti.' },
+    { voce: 'Qualcuno riceve gli avvisi', ok: personale().length > 0, aiuto: 'Senza, quando il bot non capisce nessuno viene avvisato.' },
+  ];
+  // Le voci del pagamento compaiono SOLO se il pagamento è acceso: un elenco di
+  // controlli pieno di righe che non riguardano questo locale si smette di
+  // leggere, ed è proprio quando smetti di leggerlo che ti serve.
+  if (bot.boolDi(cfg.bot_pagamento_attivo)) {
+    const k = bot.chiaveStripe(cfg);
+    controlli.push(
+      { voce: 'Chiave di Stripe presente', ok: k.presente && k.forma,
+        aiuto: 'Senza, il cliente resta in attesa di pagamento senza modo di pagare.' },
+      // ⚠️ Questa è verde quando NON è di prova: un locale lasciato in modo
+      // prova incasserebbe pagamenti che non esistono, e se ne accorgerebbe
+      // dall'estratto conto.
+      { voce: 'Chiave vera, non di prova', ok: k.presente && !k.prova,
+        aiuto: 'Con la chiave di prova i pagamenti NON sono veri: il ristorante non incassa niente.' },
+      { voce: 'Indirizzo di ritorno impostato', ok: /^https?:\/\/.+/i.test(String(cfg.bot_pagamento_ritorno || '')),
+        aiuto: 'Stripe lo richiede: è la pagina dove torna il cliente dopo aver pagato.' },
+    );
+  }
+  // ⚠️ L'email accesa senza la posta configurata è il guasto più silenzioso di
+  // tutti: l'interruttore è verde, la prenotazione si scrive, il cliente non
+  // riceve niente e nessuno se ne accorge. Qui si vede.
+  if (bot.boolDi(cfg.bot_email_attiva)) {
+    controlli.push(
+      { voce: 'Posta configurata (per l\'email di riepilogo)',
+        ok: Boolean(getSetting('smtp_user') && getSetting('smtp_pass')),
+        aiuto: 'L\'email di riepilogo è accesa ma la posta non è impostata: vai in Impostazioni → Email.' },
+      { voce: 'Testo dell\'email scritto', ok: String(cfg.bot_email_testo || '').trim().length > 0,
+        aiuto: 'Senza testo partirebbe un\'email vuota.' },
+    );
+  }
+  res.json({
+    controlli,
+    tuttoOk: controlli.every((c) => c.ok),
+    // Misurato, non stimato: vedi `comeVaStripe`.
+    stripe: comeVaStripe(),
+    registro: registroBot,
+    mio: state.me ? normalizePhone(state.me) : null,
+    // I numeri del personale non possono prenotare: e' voluto, ma e' anche
+    // la trappola in cui si cade provando — ci si mette come responsabile per
+    // ricevere gli avvisi e poi si prova a prenotare dallo stesso telefono.
+    personale: personale().map((p) => ({ nome: p.nome, telefono: p.telefono })),
+    // Le conversazioni su cui il bot tace perché una persona ha risposto a
+    // mano — o dopo LIBERA senza codice, o per la parola OPERATORE. È giusto
+    // che sia così, ma va potuto vedere e disfare una per una: prima l'unico
+    // modo era «Azzera le prove», che però azzera TUTTO, comprese le
+    // conversazioni a metà di chi sta prenotando davvero in quel momento.
+    zittite: db.prepare(
+      "SELECT COUNT(*) n FROM bot_conversazioni WHERE muto_fino IS NOT NULL AND muto_fino > ?"
+    ).get(new Date().toLocaleString('sv-SE')).n,
+    silenziate: db.prepare(
+      "SELECT telefono AS chiave, muto_fino AS finoA FROM bot_conversazioni "
+      + "WHERE muto_fino IS NOT NULL AND muto_fino > ? ORDER BY muto_fino"
+    ).all(new Date().toLocaleString('sv-SE')).map((r) => ({ ...r, ...identitaPerChiave(r.chiave) })),
+  });
+});
+
+// ---------------------------------------------------------------------------
+//  Sbloccare una conversazione ferma
+// ---------------------------------------------------------------------------
+//  Il tasto «Riattiva il bot» qui sotto toglie UNA cosa sola: il silenzio da
+//  presa in carico. Ma una conversazione può restare ferma per almeno quattro
+//  motivi diversi, e gli altri tre non si vedevano da nessuna parte e non si
+//  potevano togliere in nessun modo — l'unica via era «Azzera le prove», che
+//  azzera anche le conversazioni di chi sta prenotando in quel momento.
+//
+//  Chi prova il bot ci finisce dentro di continuo, e da fuori sono tutti
+//  uguali: si scrive al bot e non risponde nessuno. Senza sapere PERCHÉ, si
+//  resta a fissare una chat muta.
+function diagnosiConversazione(chi) {
+  const chiavi = chiaviStessaConversazione(chi);
+  const adesso = new Date().toLocaleString('sv-SE');
+  const cfg = bot.config(db);
+  const blocchi = [];
+
+  const righe = chiavi.length
+    ? db.prepare(`SELECT * FROM bot_conversazioni WHERE telefono IN (${chiavi.map(() => '?').join(',')})`).all(...chiavi)
+    : [];
+
+  const muta = righe.find((r) => r.muto_fino && r.muto_fino > adesso);
+  if (muta) {
+    blocchi.push({
+      tipo: 'silenzio',
+      testo: 'Qualcuno ha risposto a mano, o il cliente ha chiesto un operatore: il bot tace.',
+      fino: muta.muto_fino,
+    });
+  }
+
+  const tetto = bot.num(cfg.bot_max_risposte, 20);
+  const oggi = new Date().toLocaleDateString('sv-SE');
+  const piena = righe.find((r) => r.giorno_risposte === oggi && r.risposte_oggi > tetto);
+  if (piena) {
+    blocchi.push({
+      tipo: 'tetto',
+      testo: `Ha già ricevuto ${piena.risposte_oggi} risposte oggi, oltre il tetto di ${tetto}: `
+        + 'il bot si è fermato per non fare ping-pong all\'infinito. Si riapre da solo domani.',
+    });
+  }
+
+  // Il numero, per il registro degli STOP: quello si guarda anche per cifre,
+  // perché chi scrive STOP quasi mai è in rubrica con lo stesso indirizzo.
+  const cifre = String(chi).replace(/@.*$/, '').replace(/\D/g, '');
+  const numero = numeroPlausibile(cifre, chi) ? cifre : '';
+  if (chiavi.some((k) => bot.haDettoBasta(db, k, numero))) {
+    blocchi.push({
+      tipo: 'stop',
+      testo: 'Ha scritto STOP: ha chiesto di non ricevere più messaggi. '
+        + 'Si toglie solo se è stato lui a chiedere di riattivarli.',
+    });
+  }
+
+  const attesa = chiavi.length
+    ? db.prepare(
+      "SELECT * FROM bot_richieste WHERE stato = 'in_attesa' AND "
+      + `(chat_id IN (${chiavi.map(() => '?').join(',')}) OR telefono IN (${chiavi.map(() => '?').join(',')})) `
+      + 'ORDER BY id DESC LIMIT 1'
+    ).get(...chiavi, ...chiavi)
+    : null;
+  if (attesa) {
+    blocchi.push({
+      tipo: 'richiesta',
+      testo: `È in mano a una persona col codice ${attesa.codice}: finché resta aperta, `
+        + 'chi risponde è il locale, non il bot.',
+    });
+  }
+
+  const aMeta = righe.find((r) => r.passo && r.passo !== 'inizio');
+  return {
+    trovata: righe.length > 0 || !!attesa,
+    chiavi,
+    identita: identitaPerChiave(chiavi[0] || chi),
+    blocchi,
+    aMeta: aMeta ? aMeta.passo : '',
+  };
+}
+
+// Quello che si vede prima di premere: nessuno deve sbloccare alla cieca.
+app.get('/api/bot/conversazione', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const chi = String((req.query && req.query.chi) || '').trim();
+  if (!chi) return res.status(400).json({ error: 'Manca il numero o l\'indirizzo da cercare' });
+  res.json(diagnosiConversazione(chi));
+});
+
+// E il comando che li toglie tutti insieme, su TUTTI gli indirizzi di quella
+// persona. Lo STOP resta fuori se non lo si chiede apposta: quello non è un
+// inceppamento, è una persona che ha chiesto di essere lasciata in pace, e
+// rimetterla in lista con un tasto sarebbe la cosa peggiore che questa pagina
+// possa fare.
+app.post('/api/bot/conversazione/sblocca', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const chi = String((req.body && req.body.chi) || '').trim();
+  if (!chi) return res.status(400).json({ error: 'Manca il numero o l\'indirizzo da sbloccare' });
+  const ancheStop = !!(req.body && req.body.ancheStop);
+  const prima = diagnosiConversazione(chi);
+  const chiavi = prima.chiavi;
+  const fatto = [];
+
+  if (ridaiLaParola(chi)) fatto.push('tolto il silenzio');
+
+  let azzerate = 0;
+  for (const k of chiavi) {
+    azzerate += db.prepare('UPDATE bot_conversazioni SET risposte_oggi = 0 WHERE telefono = ? AND risposte_oggi > 0')
+      .run(k).changes;
+  }
+  if (azzerate) fatto.push('azzerato il conto delle risposte di oggi');
+
+  let chiuse = 0;
+  for (const k of chiavi) {
+    chiuse += db.prepare("UPDATE bot_richieste SET stato = 'chiusa' WHERE stato = 'in_attesa' AND (chat_id = ? OR telefono = ?)")
+      .run(k, k).changes;
+  }
+  if (chiuse) fatto.push(`chiusa ${chiuse === 1 ? 'la richiesta aperta' : chiuse + ' richieste aperte'}`);
+
+  let ripartite = 0;
+  for (const k of chiavi) {
+    ripartite += db.prepare("UPDATE bot_conversazioni SET passo = 'inizio', dati = '{}' WHERE telefono = ? AND passo != 'inizio'")
+      .run(k).changes;
+  }
+  if (ripartite) fatto.push('la conversazione riparte da capo');
+
+  let stop = 0;
+  if (ancheStop) {
+    const cifre = String(chi).replace(/@.*$/, '').replace(/\D/g, '');
+    const numero = numeroPlausibile(cifre, chi) ? cifre : '';
+    for (const k of chiavi) {
+      stop += db.prepare('DELETE FROM bot_stop WHERE chiave = ?').run(k).changes;
+    }
+    if (numero) stop += db.prepare('DELETE FROM bot_stop WHERE numero = ?').run(numero).changes;
+    if (stop) fatto.push('tolto lo STOP');
+  }
+
+  const nome = prima.identita.nome || chi;
+  if (fatto.length) annota('sbloccata', `${nome}: ${fatto.join(', ')}`);
+  res.json({ ok: true, fatto, dopo: diagnosiConversazione(chi) });
+});
+
+// Ridà la parola al bot su UNA conversazione, invece che su tutte come fa
+// «Azzera le prove». È la differenza fra «questo cliente ha già ripreso a
+// scrivere a un umano e va bene così» e «tutti gli altri, che nel frattempo
+// stavano prenotando tranquilli, restano dove erano».
+app.post('/api/bot/silenziate/riattiva', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const chiave = String((req.body && req.body.chiave) || '');
+  if (!chiave) return res.status(400).json({ error: 'Manca la conversazione da riattivare' });
+  const cambiate = ridaiLaParola(chiave);
+  if (cambiate) annota('riattivata', `il bot torna a rispondere su ${identitaPerChiave(chiave).nome || chiave}`);
+  res.json({ ok: true, cambiate });
+});
+
+// Rimette il bot come appena installato. Durante le prove ci si incastra di
+// continuo — una conversazione a metà, un silenzio da presa in carico, un
+// messaggio già visto — e senza un modo di ripartire puliti si perde più tempo
+// a capire in che stato si è che a provare la cosa vera.
+//
+// Le prenotazioni si cancellano SOLO se richiesto esplicitamente: sono l'unica
+// cosa qui dentro che, un domani, sarà lavoro vero di qualcuno.
+app.post('/api/bot/azzera-prove', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const anche = !!(req.body && req.body.anchePrenotazioni);
+  const fatto = {
+    conversazioni: db.prepare("UPDATE bot_conversazioni SET passo = 'inizio', dati = '{}', muto_fino = NULL, risposte_oggi = 0, giorno_risposte = NULL").run().changes,
+    silenzi: 0,
+    visti: db.prepare('DELETE FROM bot_visti').run().changes,
+    richieste: db.prepare("DELETE FROM bot_richieste WHERE stato = 'in_attesa'").run().changes,
+    prenotazioni: 0,
+  };
+  if (anche) fatto.prenotazioni = db.prepare('DELETE FROM prenotazioni').run().changes;
+  registroBot.length = 0;
+  annota('azzerato', `stato ripulito${anche ? `, cancellate ${fatto.prenotazioni} prenotazioni` : ' (prenotazioni lasciate)'}`);
+  res.json({ ok: true, ...fatto });
+});
+
+// ---- Il report di un periodo ----
+// Il conto su cui poi qualcuno decide quanti camerieri chiamare sabato. Il
+// calcolo sta nel motore, dove si può provare senza far finta di essere un
+// browser: qui c'è solo il periodo da leggere.
+function periodoChiesto(req) {
+  const oggi = bot.comeData(new Date());
+  const dal = dataVera(String(req.query.dal || '')) ? req.query.dal : '';
+  const al = dataVera(String(req.query.al || '')) ? req.query.al : '';
+  if (!dal || !al) return { errore: 'Serve un periodo: due date come 2026-09-01.' };
+  // ⚠️ Al contrario non è un errore da rifiutare, è un dito scivolato: si
+  // raddrizza. Rispondere «date sbagliate» a chi ha scelto due giorni giusti
+  // nell'ordine sbagliato è il modo di far credere che il report sia rotto.
+  const [a, b] = dal <= al ? [dal, al] : [al, dal];
+  // Un periodo lunghissimo non si rifiuta — un archivio di dieci anni è una
+  // domanda legittima — ma si limita: oltre, la pagina si siede.
+  if (bot.giorniFra(a, b) > 3700) return { errore: 'Il periodo è troppo lungo: al massimo dieci anni.' };
+  return { dal: a, al: b, oggi };
+}
+
+app.get('/api/bot/report', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const p = periodoChiesto(req);
+  if (p.errore) return res.status(400).json({ error: p.errore });
+  res.json(bot.reportPrenotazioni(db, bot.config(db), p.dal, p.al));
+});
+
+// ⚠️ Una cella che comincia per «=», «+», «-» o «@» viene eseguita come
+// formula da Excel e da Fogli Google appena si apre il file. Una nota scritta
+// da un cliente finisce dritta in un foglio che poi apre il commercialista:
+// davanti ci va un apice, che rende la cella un testo e basta.
+function cellaCsv(valore) {
+  let t = String(valore == null ? '' : valore);
+  if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+  return '"' + t.replace(/"/g, '""') + '"';
+}
+
+app.get('/api/bot/report/csv', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const p = periodoChiesto(req);
+  if (p.errore) return res.status(400).json({ error: p.errore });
+  const righe = db.prepare(
+    'SELECT * FROM prenotazioni WHERE data >= ? AND data <= ? ORDER BY data, ora, id'
+  ).all(p.dal, p.al);
+  const colonne = ['Data', 'Ora', 'Persone', 'Nome', 'Cognome', 'Telefono', 'Email', 'Note', 'Stato', 'Origine'];
+  const corpo = righe.map((r) => [
+    r.data, r.ora, r.persone, r.nome, r.cognome,
+    // L'indirizzo interno di WhatsApp non è un numero e non deve finire in un
+    // foglio come se lo fosse: chi lo legge proverebbe a chiamarlo.
+    String(r.telefono_contatto || r.telefono || '').includes('@') ? '' : (r.telefono_contatto || r.telefono),
+    r.email, r.note, r.stato, r.origine === 'manuale' ? 'presa a mano' : 'bot',
+  ].map(cellaCsv).join(';'));
+  // Il punto e virgola e il BOM: è quello che Excel in italiano si aspetta.
+  // Con la virgola finisce tutto in una colonna sola, e senza BOM gli accenti
+  // diventano scarabocchi — e allora il file «non funziona».
+  const csv = '\ufeff' + [colonne.map(cellaCsv).join(';'), ...corpo].join('\r\n') + '\r\n';
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="prenotazioni-${p.dal}_${p.al}.csv"`);
+  res.send(csv);
+});
+
+// ---- La scheda di un cliente ----
+// La domanda vera non è «fammi vedere le prenotazioni passate», è «chi è
+// questo che ha appena prenotato?». Da qui si risponde a quella.
+//
+// ⚠️ La SCHEDA si apre anche dalla sala, la RICERCA no, ed è una distinzione
+// voluta. La scheda si apre da una prenotazione che si ha già davanti: dice
+// chi è la persona che arriva stasera, che è esattamente la domanda di chi
+// apparecchia. La ricerca invece è un modo di sfogliare l'archivio dei clienti
+// a partire da niente, e quello resta sulla piattaforma — come la rubrica.
+const rottaSchedaCliente = (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const id = Number(req.query.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return res.status(400).json({ error: 'Manca la prenotazione da cui aprire la scheda.' });
+  }
+  const scheda = bot.schedaPersona(db, id, new Date());
+  if (!scheda) return res.status(404).json({ error: 'Prenotazione inesistente' });
+  res.json(scheda);
+};
+app.get('/api/bot/cliente', rottaSchedaCliente);
+
+app.get('/api/bot/clienti/cerca', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  // Il tetto e il minimo di due lettere stanno nel motore, dove valgono per
+  // chiunque lo chiami: qui non si riscrivono, o prima o poi ne resta indietro
+  // uno dei due.
+  res.json({ trovati: bot.cercaPersone(db, String(req.query.q || ''), 8) });
+});
+
+// ---- I giorni pieni (sold out) ----
+// Un giorno segnato pieno non è una chiusura: il locale c'è, i posti no. Al
+// cliente il bot risponde «non c'è più posto», non «siamo chiusi».
+app.get('/api/bot/pieni', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  res.json({ giorni: bot.giorniPieni(db, new Date()) });
+});
+
+app.post('/api/bot/pieni', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const data = String((req.body || {}).data || '');
+  if (!dataVera(data)) {
+    return res.status(400).json({ error: 'Giorno non valido: serve una data come 2026-09-05.' });
+  }
+  // ⚠️ Il passato si rifiuta invece di accettarlo in silenzio: segnare pieno
+  // ieri non serve a niente, e quasi sempre vuol dire che qualcuno ha sbagliato
+  // a scrivere l'anno. Un errore detto vale più di una riga inutile.
+  if (data < bot.comeData(new Date())) {
+    return res.status(400).json({ error: 'È un giorno già passato: non c\'è niente da chiudere.' });
+  }
+  // Una chiusura vera (ferie, evento privato) non si trasforma in un sold out
+  // per sbaglio: sono due cose diverse e il cliente le legge diverse.
+  const gia = bot.giornoBloccato(db, data);
+  if (gia && gia.tipo !== 'pieno') {
+    return res.status(409).json({ error: 'Quel giorno è già segnato come chiusura del locale.' });
+  }
+  bot.segnaPieno(db, data);
+  annota('sold out', `${bot.dataItaliana(data)} segnato pieno dalla pagina`);
+  res.json({ giorni: bot.giorniPieni(db, new Date()) });
+});
+
+// Togliere qualcuno dalla lista d'attesa, a mano. Chi ha ricevuto una
+// proposta e sta per rispondere viene riportato all'inizio della conversazione:
+// il suo «sì» non deve prenotare un posto che la sala ha appena dato a un altro.
+const rottaTogliAttesa = (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const r = bot.togliDallaAttesa(db, +req.params.id, 'tolta');
+  if (!r) return res.status(404).json({ error: 'Non è in lista d\'attesa' });
+  annota('lista d\'attesa', `${bot.nomeInSala(r)} tolto dalla lista per ${r.data}`);
+  res.json({ ok: true });
+};
+app.delete('/api/bot/attese/:id', rottaTogliAttesa);
+
+app.delete('/api/bot/pieni/:data', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const tolto = bot.togliPieno(db, String(req.params.data || ''));
+  // Un ✅ che non ha tolto niente farebbe credere che il bot ricominci a
+  // prendere prenotazioni per quel giorno. Non è così, e va detto.
+  if (!tolto) return res.status(404).json({ error: 'Quel giorno non era segnato pieno.' });
+  annota('sold out', `${bot.dataItaliana(req.params.data)} torna prenotabile`);
+  res.json({ giorni: bot.giorniPieni(db, new Date()) });
+});
+
+app.get('/api/bot/impostazioni', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  res.json({ impostazioni: bot.config(db), personale: db.prepare('SELECT * FROM bot_personale').all() });
+});
+
+// Gli indirizzi a cui questo computer risponde davvero. Serve perché la riga
+// «apri questo indirizzo dal tablet» scritta dal browser direbbe «localhost»:
+// giusta sul Mac, inutile sul telefono della sala. Il computer invece i suoi
+// indirizzi li sa, e sono l'unica cosa che il responsabile deve digitare.
+app.get('/api/bot/sala/indirizzi', (req, res) => {
+  const rete = [];
+  for (const schede of Object.values(os.networkInterfaces() || {})) {
+    for (const s of schede || []) {
+      // Solo IPv4 e solo schede vere: l'indirizzo interno (127.0.0.1) è quello
+      // che vale solo su questo computer, cioè esattamente quello che NON serve.
+      if (s.family === 'IPv4' && !s.internal) rete.push(s.address);
+    }
+  }
+  // Il nome Bonjour del Mac: da preferire al numero, perché il numero cambia
+  // da solo quando il router riassegna gli indirizzi, il nome no.
+  let nome = String(os.hostname() || '').trim();
+  if (nome && !nome.includes('.')) nome += '.local';
+  res.json({ porta: PORT_SALA, nome, rete });
+});
+
+app.post('/api/bot/impostazioni', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const valori = req.body || {};
+
+  // ⚠️ Due impostazioni che si contraddicono spengono il bot senza spegnerlo.
+  // «Posti da tenere liberi» uguale o maggiore dei coperti del turno vuol dire
+  // che ogni turno nasce già pieno: il bot rifiuta TUTTI, per sempre, a locale
+  // vuoto, e dice «siamo al completo» a gente che sarebbe entrata. Nessuno
+  // collegherebbe mai quel messaggio a un numero scritto in un'altra scheda.
+  const dopo = { ...bot.config(db), ...valori };
+  const perTurno = bot.num(dopo.bot_coperti_turno, 0);
+  const tenutiLiberi = bot.num(dopo.bot_coperti_liberi, 0);
+
+  // ⚠️ Coperti per turno a zero (o campo svuotato per riscriverlo, e salvato
+  // così) non vuol dire «senza limite»: vuol dire che ogni turno nasce pieno.
+  // Il bot risponde «siamo al completo» a chiunque, e in sala la tendina delle
+  // persone resta senza numeri — il modulo c'è ma non ci si può prenotare
+  // niente. Nessuno collegherebbe quel modulo muto a un campo svuotato in
+  // un'altra scheda: va detto qui, adesso.
+  if (valori.bot_coperti_turno !== undefined && perTurno < 1) {
+    return res.status(400).json({
+      error: 'I coperti per turno devono essere almeno 1: a zero il bot direbbe a tutti '
+        + 'che è al completo, e in sala non si potrebbe più segnare nessuna prenotazione.',
+    });
+  }
+
+  if (perTurno > 0 && tenutiLiberi >= perTurno) {
+    return res.status(400).json({
+      error: `I posti da tenere liberi (${tenutiLiberi}) devono essere meno dei coperti del turno `
+        + `(${perTurno}): così com'è, il bot direbbe «siamo al completo» anche a locale vuoto.`,
+    });
+  }
+
+  // ⚠️ La password della sala si salva SENZA spazi ai bordi. Un campo password
+  // non mostra quello che c'è dentro: una password incollata con uno spazio in
+  // fondo si salva con lo spazio, e chi la ridigita a mano — senza — si sente
+  // dire «password errata» senza poter vedere perché.
+  if (typeof valori.bot_sala_password === 'string') {
+    valori.bot_sala_password = valori.bot_sala_password.trim();
+  }
+
+  // ⚠️ Sala accesa senza password non accende niente: `salaAccesa()` chiede
+  // tutte e due le cose, e la pagina risponde «non è attiva». Chi ha appena
+  // spuntato la casella non ha modo di collegare quel messaggio al campo
+  // vuoto qui accanto.
+  if (bot.boolDi(dopo.bot_sala_attiva) && !String(dopo.bot_sala_password || '').trim()) {
+    return res.status(400).json({
+      error: 'Per accendere la pagina della sala serve anche una password: senza, '
+        + 'quella pagina resta spenta e chi la apre legge «non è attiva».',
+    });
+  }
+
+  // ⚠️ Pagamento acceso senza chiave di Stripe: il cliente finirebbe in «attesa
+  // di pagamento» SENZA NESSUN MODO DI PAGARE, con il tavolo tenuto fermo fino
+  // alla scadenza. Un tavolo perso ogni volta, e nessun errore da nessuna parte.
+  if (bot.boolDi(dopo.bot_pagamento_attivo)) {
+    const chiave = bot.chiaveStripe(dopo);
+    if (!chiave.presente) {
+      return res.status(400).json({
+        error: 'Per accendere il pagamento serve la chiave di Stripe: senza, il cliente '
+          + 'resterebbe in attesa di pagamento senza avere un modo per pagare, e il tavolo '
+          + 'verrebbe tenuto fermo fino alla scadenza.',
+      });
+    }
+    if (!chiave.forma) {
+      return res.status(400).json({
+        error: 'Questa non sembra una chiave di Stripe: cominciano con «rk_live_», «rk_test_» '
+          + 'o «sk_». Controlla di averla copiata tutta.',
+      });
+    }
+    // ⚠️ Stripe vuole un indirizzo dove mandare il cliente dopo il pagamento.
+    // A noi non serve — la conferma gli arriva in chat — ma è l'ultima pagina
+    // che vede di questa prenotazione, e mandarlo su un indirizzo che non esiste
+    // è il modo di far finire bene una cosa andata bene.
+    if (!/^https?:\/\/.+/i.test(String(dopo.bot_pagamento_ritorno || '').trim())) {
+      return res.status(400).json({
+        error: 'Serve l\'indirizzo dove torna il cliente dopo aver pagato (il sito del '
+          + 'ristorante, o la sua pagina Google). Stripe lo richiede, e dev\'essere un '
+          + 'indirizzo intero che comincia con http:// o https://.',
+      });
+    }
+    // ⚠️ E il conto deve dare qualcosa che Stripe accetti davvero. Sotto i 50
+    // centesimi rifiuta l'addebito: il link non si creerebbe, e il guasto si
+    // scoprirebbe col primo cliente invece che adesso.
+    const conti = bot.importoDaPagare(dopo, 1);
+    if (conti.adesso < bot.MINIMO_ADDEBITO) {
+      return res.status(400).json({
+        error: `Con questo prezzo e questa percentuale, a una persona toccherebbe pagare `
+          + `${bot.euro(conti.adesso)}: Stripe non accetta addebiti sotto ${bot.euro(bot.MINIMO_ADDEBITO)}. `
+          + 'Alza il prezzo o la percentuale.',
+      });
+    }
+  }
+
+  // ⚠️ Il logo viaggia dentro le impostazioni e dentro OGNI email: una foto
+  // da 3 MB renderebbe lenta la pagina e pesante ogni riepilogo. La pagina lo
+  // rimpicciolisce da sola, ma qui si controlla lo stesso — chi passa da qui
+  // non è per forza la pagina.
+  if (typeof valori.bot_email_logo === 'string' && valori.bot_email_logo) {
+    if (!/^data:image\/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(valori.bot_email_logo)) {
+      return res.status(400).json({ error: 'Il logo non è un\'immagine leggibile (PNG, JPG, GIF o WebP).' });
+    }
+    if (valori.bot_email_logo.length > 400 * 1024) {
+      return res.status(400).json({ error: 'Il logo è troppo pesante: usa un\'immagine più piccola (sotto i 300 KB).' });
+    }
+  }
+  if (typeof valori.bot_email_html === 'string' && valori.bot_email_html.length > 60 * 1024) {
+    return res.status(400).json({ error: 'Il modello HTML è troppo lungo (massimo 60 KB).' });
+  }
+
+  // Gli orari dei turni si ripuliscono qui: chi li scrive vede subito quello
+  // che è rimasto, invece di scoprire un «25:99» fra le proposte al cliente.
+  const ripuliti = {};
+  for (const chiave of ['bot_turni_pranzo', 'bot_turni_cena']) {
+    if (typeof valori[chiave] !== 'string') continue;
+    const buoni = bot.turniValidi(valori[chiave]);
+    if (buoni.join(',') !== valori[chiave]) ripuliti[chiave] = buoni.join(',');
+    valori[chiave] = buoni.join(',');
+  }
+
+  for (const [k, v] of Object.entries(valori)) {
+    if (!Object.prototype.hasOwnProperty.call(bot.PREDEFINITI, k)) continue; // solo chiavi conosciute
+    bot.scrivi(db, k, v);
+  }
+  res.json({ ok: true, impostazioni: bot.config(db), ripuliti });
+});
+
+// Riporta un testo (o tutti) a come era di fabbrica. Si cancella la riga
+// salvata: da quel momento torna a valere il valore predefinito, senza doverlo
+// ricopiare a mano — e senza il rischio di ricopiarlo sbagliato.
+app.post('/api/bot/testi/ripristina', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const chiave = req.body && req.body.chiave;
+  if (chiave) {
+    if (!String(chiave).startsWith('bot_t_')) return res.status(400).json({ error: 'Non è un testo del bot' });
+    db.prepare('DELETE FROM settings WHERE key = ?').run(chiave);
+  } else {
+    db.prepare("DELETE FROM settings WHERE key LIKE 'bot\\_t\\_%' ESCAPE '\\'").run();
+  }
+  res.json({ ok: true, impostazioni: bot.config(db) });
+});
+
+// ---------- Portare le frasi da una copia all'altra ----------
+// Le frasi vivono nel database, che NON va su GitHub: dentro ci sono la rubrica
+// dei clienti, le prenotazioni e le credenziali. Ma le frasi in se' non sono
+// dati di nessuno, e riscriverle a mano su ogni installazione e' lavoro sprecato
+// — soprattutto quando si prepara il mini-PC di un cliente nuovo.
+//
+// Quindi: un file solo con le frasi. Si porta su una chiavetta, si tiene da
+// parte come «set di partenza», e si ricarica dove serve.
+app.get('/api/bot/testi/esporta', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const cfg = bot.config(db);
+  const frasi = {};
+  for (const chiave of Object.keys(bot.PREDEFINITI)) {
+    if (chiave.startsWith('bot_t_')) frasi[chiave] = cfg[chiave];
+  }
+  const dato = {
+    istudio: 'frasi-bot',
+    versione: 1,
+    esportato_il: new Date().toLocaleString('sv-SE'),
+    // Il nome del locale non viene reimportato: serve solo a capire, fra sei
+    // mesi e tre file sulla scrivania, da quale installazione arriva questo.
+    locale: cfg.bot_locale || '',
+    frasi,
+    faq: db.prepare('SELECT parole, risposta FROM bot_faq ORDER BY id').all(),
+  };
+  const nome = 'frasi-bot' + (cfg.bot_locale ? '-' + cfg.bot_locale.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase() : '') + '.json';
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${nome}"`);
+  res.send(JSON.stringify(dato, null, 2));
+});
+
+app.post('/api/bot/testi/importa', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const dato = req.body || {};
+  if (dato.istudio !== 'frasi-bot') {
+    return res.status(400).json({ error: 'Questo non è un file di frasi di iStudio.' });
+  }
+  // ⚠️ Si scrivono SOLO le chiavi «bot_t_*» che esistono davvero. Il file e' un
+  // testo che chiunque puo' aprire e modificare: senza questo controllo, una
+  // riga in piu' potrebbe cambiare i coperti, gli orari o il seriale.
+  let frasi = 0, ignorate = 0;
+  for (const [k, v] of Object.entries(dato.frasi || {})) {
+    const ammessa = k.startsWith('bot_t_')
+      && Object.prototype.hasOwnProperty.call(bot.PREDEFINITI, k)
+      && typeof v === 'string';
+    if (!ammessa) { ignorate++; continue; }
+    bot.scrivi(db, k, v.slice(0, 2000));
+    frasi++;
+  }
+
+  // Le domande frequenti si sostituiscono in blocco: e' un ripristino, non una
+  // fusione. Aggiungerle lascerebbe doppioni che poi qualcuno deve togliere a
+  // mano una per una.
+  let faq = 0;
+  if (Array.isArray(dato.faq)) {
+    const buone = dato.faq.filter((f) => f && typeof f.parole === 'string' && typeof f.risposta === 'string'
+      && f.parole.trim() && f.risposta.trim());
+    db.prepare('DELETE FROM bot_faq').run();
+    const ins = db.prepare('INSERT INTO bot_faq (parole, risposta) VALUES (?, ?)');
+    for (const f of buone) { ins.run(f.parole.slice(0, 200), f.risposta.slice(0, 2000)); faq++; }
+  }
+  annota('frasi', `caricate ${frasi} frasi e ${faq} domande frequenti da un file`);
+  res.json({ ok: true, frasi, faq, ignorate });
+});
+
+// «Restano -8 coperti liberi» è una frase che non vuol dire niente: chi la
+// legge deve fermarsi a capire cosa sia un coperto libero negativo. Sopra il
+// limite si dice quanto lo si sfora, che è il numero su cui poi si decide.
+function quantoPosto(liberi, chiesti) {
+  if (liberi <= 0) return `il turno è pieno: la sfori di ${chiesti - liberi}`;
+  // «restano 1 coperto libero» è scritto male, e queste frasi le legge il
+  // cliente quando il locale gliele gira: al singolare il verbo cambia.
+  const quanti = liberi === 1 ? 'resta 1 coperto libero' : `restano ${liberi} coperti liberi`;
+  return liberi < chiesti ? `${quanti}, te ne servono ${chiesti}` : quanti;
+}
+
+// Cercare in rubrica mentre si scrive una prenotazione. Il cliente abituale ha
+// già nome, cognome e numero da qualche parte: farli riscrivere ogni volta
+// significa sbagliarli — e un numero sbagliato è una prenotazione che non si
+// può richiamare quando serve.
+//
+// ⚠️ Restituisce SOLO le corrispondenze, e poche: non è un modo per farsi dare
+// l'elenco dei clienti una lettera per volta. Sotto le due lettere non risponde
+// niente.
+const rottaCercaRubrica = (req, res) => {
+  const q = String(req.query.q || '').trim().toLowerCase();
+  if (q.length < 2) return res.json([]);
+  // Anche per numero: in sala capita di avere il numero sul telefono e non il
+  // nome, e cercare «347» deve trovare chi ha quel numero.
+  const soloCifre = q.replace(/\D/g, '');
+  const righe = db.prepare('SELECT id, nome, cognome, telefono, opt_out FROM contacts').all();
+  const trovati = righe.filter((c) => {
+    const intero = `${c.nome} ${c.cognome}`.toLowerCase();
+    if (intero.includes(q)) return true;
+    return soloCifre.length >= 3 && normalizePhone(c.telefono).includes(soloCifre);
+  });
+  trovati.sort((a, b) => `${a.nome} ${a.cognome}`.localeCompare(`${b.nome} ${b.cognome}`, 'it'));
+  res.json(trovati.slice(0, 8).map((c) => ({
+    id: c.id, nome: c.nome, cognome: c.cognome, telefono: c.telefono, optOut: !!c.opt_out,
+  })));
+};
+app.get('/api/bot/rubrica/cerca', rottaCercaRubrica);
+
+// Il numero da mettere in rubrica è quello a cui si RICHIAMA, non l'indirizzo
+// della chat: con gli indirizzi «@lid» WhatsApp non passa affatto il numero, e
+// salvarlo come telefono vorrebbe dire riempire la rubrica di codici interni
+// che non chiamano nessuno.
+function numeroDaRubrica(p) {
+  const contatto = String(p.telefono_contatto || '').trim();
+  if (contatto) return contatto;
+  const chat = String(p.telefono || '').trim();
+  return /^\d{8,}$/.test(chat) ? chat : '';
+}
+
+function contattoDellaPrenotazione(rubrica, p) {
+  // Prima il collegamento diretto: il numero può essere stato scritto solo in
+  // rubrica — succede quando lo si aggiunge a mano nel pannello — e cercare
+  // solo per telefono farebbe ricomparire il pulsante su chi c'è già.
+  const numero = normalizePhone(numeroDaRubrica(p));
+  const c = rubrica.find((x) => (p.contact_id && x.id === p.contact_id)
+    || (numero && x.chiave === numero));
+  return c ? { id: c.id, nome: `${c.nome} ${c.cognome}`.trim(), optOut: !!c.opt_out } : null;
+}
+
+// Mettere in rubrica chi ha prenotato. È il passaggio che trasforma una serata
+// in un cliente a cui poter scrivere la prossima volta — ed è il motivo per cui
+// questa piattaforma esiste. Resta un gesto DELIBERATO, uno per uno: chi
+// prenota un tavolo non ha chiesto di ricevere le novità del locale.
+app.post('/api/bot/prenotazioni/:id/rubrica', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Prenotazione non trovata' });
+
+  // Si usa quello che c'è scritto ADESSO nel pannello, non quello che è stato
+  // salvato: chi corregge «Dani ok» in «Daniele» vuole in rubrica il nome
+  // corretto, non quello che aveva scritto il cliente di fretta.
+  const corpo = req.body || {};
+  const dal = (campo, sePerso) => (corpo[campo] === undefined ? sePerso : String(corpo[campo]).trim());
+  const nome = dal('nome', p.nome || '');
+  const cognome = dal('cognome', p.cognome || '');
+  const telefono = dal('telefono', '') || numeroDaRubrica(p);
+  // ⚠️ L'email restava per strada: la prenotazione ce l'ha — il bot la chiede
+  // come ultimo passo, ed è quella che conferma il tavolo — ma qui si scriveva
+  // stringa vuota, e in rubrica finiva un contatto senza indirizzo. Poi la
+  // newsletter non gli arrivava, e nessuno capiva perché.
+  const email = dal('email', p.email || '');
+
+  if (!nome) return res.status(400).json({ error: 'Serve almeno il nome per metterlo in rubrica.' });
+  if (!telefono) {
+    return res.status(400).json({
+      error: 'Di questa prenotazione non abbiamo un numero di telefono: WhatsApp non lo ha passato. '
+        + 'Scrivilo nel campo Telefono qui sopra e riprova.',
+    });
+  }
+
+  // ⚠️ L'email va passata anche al controllo dei doppioni. Salvarla senza
+  // guardarla lascerebbe entrare due contatti con lo stesso indirizzo — cosa
+  // che il modulo normale della rubrica rifiuta — e la rubrica smetterebbe di
+  // avere una regola sola.
+  const dup = trovaDuplicato(telefono, email, null);
+  if (dup) {
+    // Non è un errore: è la risposta giusta. Si collega la prenotazione al
+    // contatto che c'è già, e non gli si tocca NIENTE — men che meno il
+    // consenso di chi aveva chiesto di non ricevere più messaggi.
+    db.prepare('UPDATE prenotazioni SET contact_id = ? WHERE id = ?').run(dup.contatto.id, p.id);
+    return res.json({
+      gia: true,
+      contatto: { id: dup.contatto.id, nome: `${dup.contatto.nome} ${dup.contatto.cognome}`.trim(),
+                  optOut: !!dup.contatto.opt_out },
+    });
+  }
+
+  const info = db.prepare('INSERT INTO contacts (nome, cognome, email, telefono) VALUES (?, ?, ?, ?)')
+    .run(nome, cognome, email, numeroInRubrica(telefono));
+  db.prepare('UPDATE prenotazioni SET contact_id = ? WHERE id = ?').run(info.lastInsertRowid, p.id);
+  annota('rubrica', `${nome} ${cognome}`.trim() + ' aggiunto in rubrica da una prenotazione');
+  res.json({ gia: false, contatto: { id: info.lastInsertRowid, nome: `${nome} ${cognome}`.trim(), optOut: false } });
+});
+
+const rottaServizio = (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  // Una data che non esiste mostrerebbe un giorno vuoto intestato «pippo»:
+  // meglio oggi, che è quello che si voleva vedere nel 99% dei casi.
+  const data = dataVera(String(req.query.data || '')) ? String(req.query.data) : bot.comeData(new Date());
+  const righe = db.prepare('SELECT * FROM prenotazioni WHERE data = ? ORDER BY ora, id').all(data);
+  const cfg = bot.config(db);
+  const turni = bot.turniDelGiorno(cfg, data).map((t) => ({
+    ora: t,
+    occupati: bot.copertiOccupati(db, cfg, data, t),
+    liberi: bot.postiLiberi(db, cfg, data, t),
+  }));
+  // Chi è già in rubrica lo si deve vedere PRIMA di premere il pulsante:
+  // scoprirlo dopo, con un messaggio d'errore, fa sembrare rotto qualcosa che
+  // ha funzionato benissimo la prima volta.
+  const rubrica = db.prepare('SELECT id, nome, cognome, telefono, opt_out FROM contacts').all()
+    .map((c) => ({ ...c, chiave: normalizePhone(c.telefono) }));
+  for (const r of righe) r.inRubrica = contattoDellaPrenotazione(rubrica, r);
+  // ⚠️ Se il giorno è segnato pieno o chiuso, chi guarda la giornata lo deve
+  // SAPERE. La griglia della settimana lo diceva, l'intestazione del giorno
+  // no: uno in sala vedeva «20:00: 3/6» e non aveva modo di accorgersi che il
+  // bot stava rifiutando tutti. Il caso peggiore è il responsabile che segna
+  // sold out, se ne dimentica, e la settimana dopo si chiede perché non
+  // arrivano più prenotazioni.
+  res.json({
+    data, righe, turni, capienza: bot.num(cfg.bot_coperti_turno, 0),
+    soldOut: bot.ePieno(db, data), chiuso: bot.eChiuso(db, data),
+    // Chi aspetta un posto per questo giorno: la sala lo deve vedere, sia per
+    // sapere che c'è richiesta, sia per chiamare a mano se vuole.
+    attese: bot.listaDAttesa(db, data),
+  });
+};
+// Quanto vale adesso il contatore delle prenotazioni. È la richiesta più
+// leggera di tutto il programma — una riga sola — e serve alla pagina della
+// sala per sapere se c'è qualcosa di nuovo senza riscaricarsi l'elenco intero
+// ogni pochi secondi. Il numero lo alza un trigger dell'archivio, quindi sale
+// per QUALUNQUE cambiamento: bot, piattaforma, un altro tablet.
+const rottaVersionePrenotazioni = (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const r = db.prepare("SELECT value FROM settings WHERE key = 'prenotazioni_versione'").get();
+  res.json({ versione: Number((r && r.value) || 0) });
+};
+app.get('/api/bot/prenotazioni/versione', rottaVersionePrenotazioni);
+
+app.get('/api/bot/prenotazioni', rottaServizio);
+
+// Il planning della settimana: sette giornate con i numeri che servono a
+// leggerle a colpo d'occhio. Il dettaglio di una giornata si apre cliccandola —
+// qui si guarda l'insieme, non le singole prenotazioni.
+const rottaSettimana = (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const cfg = bot.config(db);
+  const oggi = bot.comeData(new Date());
+  // ⚠️ Il formato non basta: «2026-02-31» lo passa, ma quel giorno non esiste
+  // e la settimana veniva costruita da un altro giorno ancora — si chiedeva
+  // una settimana e se ne otteneva un'altra, senza un errore.
+  const partenza = dataVera(String(req.query.dal || '')) ? req.query.dal : oggi;
+  const perTurno = bot.num(cfg.bot_coperti_turno, 0);
+
+  const giorni = [];
+  for (let i = 0; i < 7; i++) {
+    const [a, m, g] = partenza.split('-').map(Number);
+    const data = bot.comeData(new Date(a, m - 1, g + i));
+    const turni = bot.turniDelGiorno(cfg, data);
+    // ⚠️ Chiuso e pieno non sono la stessa cosa nemmeno qui. Un giorno «sold
+    // out» letto come chiusura spariva dal planning: niente coperti, niente
+    // barra, e — se c'erano prenotazioni — l'avviso «⚠️ chiuso, ma 40 pren.»,
+    // che è un allarme per una cosa normalissima. Il giorno più pieno
+    // dell'anno diventava quello che si vedeva meno.
+    const bloccato = bot.giornoBloccato(db, data);
+    const soldOut = !!bloccato && bloccato.tipo === 'pieno';
+    const chiuso = !turni.length || (!!bloccato && !soldOut);
+    // ⚠️ Chi sta pagando TIENE il posto: se non contasse qui, il planning
+    // scriverebbe «0 coperti» su una sera in cui il bot rifiuta i tavoli, e chi
+    // guarda lo schermo prenderebbe al telefono un tavolo che non c'è.
+    const righe = db.prepare(
+      'SELECT persone FROM prenotazioni WHERE data = ? AND stato IN ' + bot.dentro(bot.STATI_VIVI)
+    ).all(data);
+    giorni.push({
+      data,
+      etichetta: bot.dataItaliana(data),
+      // La capienza della giornata è i coperti di un turno per quanti turni ci
+      // sono: è il massimo onesto contro cui misurare quanto è piena.
+      // La capienza di un giorno pieno resta quella vera: serve a leggere
+      // quanti coperti ci sono davvero dentro, che è il motivo per cui lo si
+      // è chiuso.
+      capienza: chiuso ? 0 : perTurno * turni.length,
+      turni: turni.length,
+      chiuso,
+      soldOut,
+      passato: data < oggi,
+      oggi: data === oggi,
+      coperti: righe.reduce((n, r) => n + r.persone, 0),
+      prenotazioni: righe.length,
+    });
+  }
+  res.json({ oggi, dal: partenza, giorni });
+};
+app.get('/api/bot/settimana', rottaSettimana);
+
+// Le prossime prenotazioni, raggruppate per giornata. Entrando nella scheda si
+// vedeva SOLO il giorno scelto nel selettore: per sapere se domani c'era gente
+// bisognava cambiare data a mano, e chi apre di sfuggita non lo faceva mai —
+// quindi le prenotazioni «non si vedevano».
+app.get('/api/bot/prenotazioni/prossime', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const cfg = bot.config(db);
+  const oggi = bot.comeData(new Date());
+  const giorni = Math.min(Math.max(parseInt(req.query.giorni, 10) || 14, 1), 90);
+  // «prossimi 7 giorni» vuol dire oggi più i sei successivi — la settimana che
+  // uno ha in testa — non oggi più altri sette.
+  const fino = bot.comeData(new Date(Date.now() + (giorni - 1) * 86400000));
+  // Chi sta ancora pagando compare come tutti gli altri: tiene un posto, e una
+  // prenotazione che tiene un posto senza vedersi da nessuna parte è un tavolo
+  // perso. Nella riga si legge lo stato, quindi non c'è modo di confonderla con
+  // una confermata.
+  const righe = db.prepare(
+    'SELECT * FROM prenotazioni WHERE data >= ? AND data <= ? AND stato IN '
+    + bot.dentro(bot.STATI_VIVI) + ' ORDER BY data, ora, id'
+  ).all(oggi, fino);
+
+  // Raggruppate per giornata, col totale dei coperti: è il numero che serve
+  // davvero a colpo d'occhio, più dell'elenco stesso.
+  const perGiorno = [];
+  for (const r of righe) {
+    let g = perGiorno.find((x) => x.data === r.data);
+    if (!g) { g = { data: r.data, etichetta: bot.dataItaliana(r.data), oggi: r.data === oggi, coperti: 0, righe: [] }; perGiorno.push(g); }
+    g.coperti += r.persone;
+    g.righe.push(r);
+  }
+  res.json({
+    oggi,
+    giorni: perGiorno,
+    totale: righe.length,
+    coperti: righe.reduce((n, r) => n + r.persone, 0),
+    capienza: bot.num(cfg.bot_coperti_turno, 0),
+  });
+});
+
+// Interrogato dalla pagina ogni tot secondi, mentre è aperta: dice se sono
+// arrivate prenotazioni nuove dall'ultima volta, per farne comparire un
+// avviso a video senza dover ricaricare. Da qualunque via siano arrivate —
+// bot, pannello, NUOVA — non solo da WhatsApp.
+//
+// Le annullate restano fuori: qui si avvisa di quello che è appena successo
+// «in avanti», non del contrario — la riga annullata la si vede comunque
+// scomparire dalla tabella al prossimo giro.
+app.get('/api/bot/prenotazioni/nuove', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const dopo = parseInt(req.query.dopo, 10) || 0;
+  const nuove = db.prepare(
+    "SELECT * FROM prenotazioni WHERE id > ? AND stato != 'annullata' ORDER BY id LIMIT 50"
+  ).all(dopo);
+  const ultimo = db.prepare('SELECT MAX(id) m FROM prenotazioni').get().m || 0;
+  res.json({ ultimo, nuove });
+});
+
+// Modifica di una prenotazione. Data, ora e persone si possono cambiare —
+// succede di continuo al telefono — e il cliente va avvisato, altrimenti si
+// presenta all'orario vecchio e la colpa e' del locale.
+// ⚠️ Il bug: l'avviso al cliente partiva SEMPRE come «risposta in chat», cioè
+// mandato dritto all'indirizzo così com'era scritto. Funziona per chi ha
+// scritto su WhatsApp — lì c'è un indirizzo vero — ma NON per una prenotazione
+// presa a mano: lì c'è solo un numero (393331234567), che non è un indirizzo di
+// chat. WhatsApp non lo riconosce e il messaggio non parte. Il risultato: chi
+// prenota da solo veniva avvisato, chi prenotava per telefono no — e la
+// pagina diceva comunque «Salvata».
+function inviaAlCliente(p, testo) {
+  // Se c'è la conversazione, si risponde lì: è l'unico modo che regge anche
+  // con gli indirizzi «@lid», dove il numero non lo si conosce affatto.
+  if (p.chat_id) return rispondiConRitmo(p.chat_id, testo);
+  const numero = String(p.telefono || p.telefono_contatto || '').trim();
+  if (!numero) throw new Error('di questa prenotazione non abbiamo un numero');
+  // Un numero va prima risolto in indirizzo: ci pensa `inviaBot`.
+  return inviaConRitmo(numero, testo);
+}
+
+// ---------------------------------------------------------------------------
+//  Il controllo di giorno, ora e persone — uno solo, per tutte e due le rotte
+// ---------------------------------------------------------------------------
+//  ⚠️ Una prenotazione con dentro `data: 'pippo'` o `ora: '99:99'` non dà
+//  nessun errore: si salva, e poi **non compare da nessuna parte**. Nessun
+//  elenco la mostra (nessun giorno si chiama «pippo»), nessun turno la conta,
+//  l'appello di fine serata non la vede. Il cliente ha un tavolo che la sala
+//  non sa di avere: è il guaio peggiore che questo programma possa fare, ed è
+//  anche il più silenzioso.
+//
+//  Il formato non basta: `2026-02-31` passa qualsiasi controllo fatto con una
+//  espressione regolare, ma il 31 febbraio non esiste. L'unico modo onesto è
+//  ricostruire la data e chiederle se è rimasta quella che si era scritta.
+function dataVera(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ''))) return false;
+  const [a, m, g] = String(iso).split('-').map(Number);
+  // Mezzogiorno, mai mezzanotte: a mezzanotte il fuso può spostare il giorno.
+  const d = new Date(a, m - 1, g, 12, 0, 0);
+  return d.getFullYear() === a && d.getMonth() === m - 1 && d.getDate() === g;
+}
+
+function oraVera(testo) {
+  const m = String(testo || '').match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return false;
+  return +m[1] <= 23 && +m[2] <= 59;
+}
+
+// Un tavolo da novantanovemila persone non è un errore di battitura da
+// correggere in silenzio: è un numero che poi finisce nei coperti del turno e
+// fa risultare pieno tutto il locale per sempre.
+const PERSONE_MASSIMO = 200;
+
+// Il tavolo è un'etichetta scritta a mano dalla sala: «12», «T4», «terrazza 3».
+// Venti caratteri bastano a tutte, e sono abbastanza pochi da non farci finire
+// una nota intera per sbaglio. Gli spazi doppi si stringono: «12» e «12 » sono
+// lo stesso tavolo, e non devono sembrare due.
+const TAVOLO_MASSIMO = 20;
+function tavoloPulito(t) {
+  return String(t === null || t === undefined ? '' : t).replace(/\s+/g, ' ').trim().slice(0, TAVOLO_MASSIMO);
+}
+
+//  ⚠️ E un controllo troppo zelante fa un danno suo: se pretende che TUTTA la
+//  riga sia a posto, una prenotazione già sbagliata in archivio non si può più
+//  correggere — ogni tentativo di sistemarle il giorno viene respinto perché
+//  le persone sono ancora quelle assurde di prima. Quindi si controlla solo
+//  quello che sta CAMBIANDO: non si può introdurre un valore sbagliato, ma
+//  quelli già lì si possono sempre riparare, uno alla volta.
+function controllaPrenotazione(nuovi, opzioni = {}) {
+  const { permettiPassato, precedente } = opzioni;
+  const cambia = (campo) => !precedente || nuovi[campo] !== precedente[campo];
+
+  if (cambia('data') && !dataVera(nuovi.data)) {
+    return 'Il giorno non è una data vera (esempio: 2026-09-10).';
+  }
+  if (cambia('ora') && !oraVera(nuovi.ora)) {
+    return 'L\'ora non è un orario vero (esempio: 20:30).';
+  }
+  if (cambia('persone')
+      && (!Number.isInteger(nuovi.persone) || nuovi.persone < 1 || nuovi.persone > PERSONE_MASSIMO)) {
+    return `Le persone devono essere un numero da 1 a ${PERSONE_MASSIMO}.`;
+  }
+  if (!permettiPassato && cambia('data') && nuovi.data < new Date().toLocaleDateString('sv-SE')) {
+    return 'Quel giorno è già passato: una prenotazione lì non la vedrebbe più nessuno.';
+  }
+  return '';
+}
+
+const rottaModificaPrenotazione = async (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const b = req.body || {};
+  const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Prenotazione inesistente' });
+  const cfg = bot.config(db);
+
+  const nuovi = {
+    data: typeof b.data === 'string' && b.data ? b.data : p.data,
+    ora: typeof b.ora === 'string' && b.ora ? b.ora : p.ora,
+    persone: Number.isInteger(+b.persone) && +b.persone > 0 ? +b.persone : p.persone,
+    nome: typeof b.nome === 'string' ? b.nome.slice(0, 60) : p.nome,
+    cognome: typeof b.cognome === 'string' ? b.cognome.slice(0, 60) : p.cognome,
+    note: typeof b.note === 'string' ? b.note.slice(0, 200) : p.note,
+    // ⚠️ Si accetta anche «telefono»: la pagina della sala manda quello, e
+    // leggendo solo `telefono_contatto` il numero corretto a mano spariva
+    // senza un errore — restava quello vecchio, o nessuno.
+    telefono_contatto: typeof b.telefono_contatto === 'string'
+      ? b.telefono_contatto.replace(/\D/g, '').slice(0, 15)
+      : (typeof b.telefono === 'string'
+        ? b.telefono.replace(/\D/g, '').slice(0, 15) : p.telefono_contatto),
+    // L'email che il cliente ha dato per confermare. Si corregge come tutto il
+    // resto: chi la detta al telefono la sbaglia, e un indirizzo sbagliato è
+    // una conferma che non arriva.
+    email: typeof b.email === 'string' ? b.email.trim().slice(0, 120) : p.email,
+    // Il tavolo lo assegna la sala a prenotazione fatta. Non è un cambio che
+    // riguarda il cliente — non gli si scrive — e non riguarda gli avvisi:
+    // «cambiata», qui sotto, guarda solo giorno, ora e persone.
+    tavolo: b.tavolo !== undefined ? tavoloPulito(b.tavolo) : p.tavolo,
+    // Tre stati soli: prenotata, conclusa, cancellata. «non_presentato» non si
+    // può più assegnare — vedi la migrazione in preparaDatabase.
+    // Lo stato che c'è già passa comunque: è un «non cambiare niente».
+    stato: ['confermata', 'presentata', 'annullata'].includes(b.stato) || b.stato === p.stato
+      ? b.stato : p.stato,
+  };
+
+  // ⚠️ Un'email storta non si accetta in silenzio: finirebbe in archivio un
+  // dato falso, e la conferma non arriverebbe a nessuno senza che nessuno lo
+  // sappia. Vuota sì: non tutti la lasciano.
+  if (nuovi.email && !EMAIL_RE.test(nuovi.email)) {
+    return res.status(400).json({ error: 'L\'email non è scritta bene: per esempio nome@esempio.it' });
+  }
+
+  // ⚠️ Uno stato che non esiste veniva ignorato in silenzio, e la risposta era
+  // un 200 con dentro lo stato VECCHIO: chi l'ha mandato crede di averlo
+  // cambiato. Un errore detto è meglio di un successo finto.
+  // ⚠️ Uno stato uguale a quello che c'è già NON è un cambio, e rifiutarlo
+  // bloccava tutto il resto: la sala rimandava indietro lo stato che aveva
+  // letto — «attesa_pagamento» — e si sentiva rispondere «stato non valido»
+  // mentre stava solo correggendo un cognome. Il controllo serve a impedire di
+  // ASSEGNARE uno stato che non esiste, non a impedire di riscrivere il proprio.
+  if (b.stato !== undefined && b.stato !== p.stato
+      && !['confermata', 'presentata', 'annullata'].includes(b.stato)) {
+    return res.status(400).json({ error: 'Stato non valido: confermata, presentata o annullata.' });
+  }
+
+  // ⚠️ Si controlla come resterà la prenotazione, non quello che è arrivato:
+  // una modifica manda solo i campi toccati, e il resto viene da com'era.
+  // Il passato qui è permesso: si corregge anche una serata già fatta, per
+  // esempio per segnare chi era venuto davvero.
+  const guaio = controllaPrenotazione(nuovi, { permettiPassato: true, precedente: p });
+  if (guaio) return res.status(400).json({ error: guaio });
+
+  const cambiata = nuovi.data !== p.data || nuovi.ora !== p.ora || nuovi.persone !== p.persone;
+
+  // ⚠️ Cambiare il numero di persone mentre il cliente sta pagando è la cosa
+  // peggiore che si possa fare: lui ha davanti una pagina di Stripe con SOPRA
+  // UNA CIFRA, e quella cifra non si può cambiare da qui. Portando la
+  // prenotazione da 2 a 6 persone, il conto restava quello di 2 — il cliente
+  // pagava 120 € per un tavolo da 360 €, e nessuno se ne accorgeva.
+  //
+  // Si rifiuta, invece di accettare e mentire sull'importo. La via d'uscita
+  // c'è ed è breve: si aspetta il pagamento, oppure si annulla e si rifà.
+  if (p.stato === 'attesa_pagamento' && nuovi.persone !== p.persone) {
+    return res.status(409).json({
+      error: 'Questa prenotazione sta aspettando il pagamento, e il cliente ha davanti una '
+        + `pagina con l'importo di ${bot.euro(p.importo_dovuto)}: cambiando le persone quel `
+        + 'numero resterebbe sbagliato. Aspetta il pagamento — o annullala e rifalla.',
+    });
+  }
+
+  // Se sposta o cresce, si controlla che ci sia posto — ma senza contare se
+  // stessa, altrimenti una prenotazione risulterebbe sempre in conflitto con
+  // la propria vecchia versione.
+  //
+  // ⚠️ «confermata» non basta più: anche chi sta aspettando il pagamento TIENE
+  // il posto. Con il controllo legato al solo stato «confermata», una
+  // prenotazione in attesa si poteva spostare su un turno pieno senza nessun
+  // controllo — e si contava contro se stessa, perché `copertiOccupati` la
+  // conta e la sottrazione qui sotto no.
+  if (cambiata && bot.STATI_VIVI.includes(nuovi.stato)) {
+    const occupatiAltrui = bot.copertiOccupati(db, cfg, nuovi.data, nuovi.ora)
+      - (p.data === nuovi.data && p.ora === nuovi.ora && bot.STATI_VIVI.includes(p.stato) ? p.persone : 0);
+    const capienza = bot.num(cfg.bot_coperti_turno, 0) - bot.num(cfg.bot_coperti_liberi, 0);
+    if (!b.forza && occupatiAltrui + nuovi.persone > capienza) {
+      return res.status(409).json({
+        error: `Per ${bot.dataItaliana(nuovi.data)} alle ${nuovi.ora} ${quantoPosto(capienza - occupatiAltrui, nuovi.persone)}.`,
+        liberi: capienza - occupatiAltrui,
+      });
+    }
+  }
+
+  db.prepare('UPDATE prenotazioni SET data = ?, ora = ?, persone = ?, nome = ?, cognome = ?, '
+    + 'note = ?, telefono_contatto = ?, email = ?, tavolo = ?, stato = ? WHERE id = ?')
+    .run(nuovi.data, nuovi.ora, nuovi.persone, nuovi.nome, nuovi.cognome,
+         nuovi.note, nuovi.telefono_contatto, nuovi.email, nuovi.tavolo, nuovi.stato, p.id);
+
+  // L'acconto facoltativo: il tavolo è confermato e nessuno ha ancora versato
+  // niente. Qui le persone si possono cambiare — il tavolo è vero e la sala
+  // deve poterlo correggere — ma il conto va rifatto, sennò resta scritto
+  // quello di prima e il «resto da saldare» dice una cifra che non esiste.
+  if (!p.pagato_at && p.importo_dovuto > 0 && nuovi.persone !== p.persone
+      && p.stato !== 'attesa_pagamento') {
+    const conti = bot.importoDaPagare(cfg, nuovi.persone);
+    db.prepare('UPDATE prenotazioni SET importo_dovuto = ?, importo_totale = ? WHERE id = ?')
+      .run(conti.adesso, conti.totale, p.id);
+    // Va detto: il collegamento già mandato al cliente chiede ancora la cifra
+    // vecchia, e questa è l'unica traccia che qualcuno se ne accorga.
+    annota('pagamento', `${bot.nomeInSala(p)}: da ${p.persone} a ${nuovi.persone} persone, `
+      + `acconto rifatto da ${bot.euro(p.importo_dovuto)} a ${bot.euro(conti.adesso)} `
+      + '(il collegamento già mandato chiede ancora la cifra vecchia)');
+  }
+  const dopo = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(p.id);
+
+  // ⚠️ Annullare dalla pagina NON diceva niente a nessuno: né al cliente, che
+  // si presentava lo stesso, né a chi in sala riceve gli avvisi. Disdire per
+  // il cliente è la cosa più importante da comunicare di tutte, ed era l'unica
+  // che partiva soltanto quando l'annullamento passava da WhatsApp.
+  const annullataAdesso = nuovi.stato === 'annullata' && p.stato !== 'annullata';
+  const daDire = annullataAdesso || (cambiata && nuovi.stato !== 'annullata');
+
+  // ⚠️ Annullare una prenotazione GIÀ PAGATA non restituisce i soldi, e finora
+  // non lo diceva nessuno: la riga spariva dalla giornata e l'incasso restava
+  // su Stripe, senza che a nessuno venisse in mente che c'era un rimborso da
+  // fare. Il rimborso resta una decisione di una persona — non lo facciamo noi,
+  // e va bene così — ma la persona deve sapere che c'è da prenderla.
+  let avvisoSoldi = '';
+  if (annullataAdesso && p.pagato_at && p.importo_dovuto > 0) {
+    avvisoSoldi = `Attenzione: questa prenotazione aveva già pagato ${bot.euro(p.importo_dovuto)}. `
+      + 'Annullandola i soldi NON tornano indietro da soli: il rimborso si fa dal tuo cruscotto Stripe.';
+    annota('pagamento', `annullata la ${p.id} di ${bot.nomeInSala(p)} che aveva pagato `
+      + `${bot.euro(p.importo_dovuto)}: rimborso da decidere`);
+  }
+  // E se NON aveva ancora pagato, il collegamento si chiude: un tavolo che
+  // non c'è più non deve poter incassare.
+  if (annullataAdesso) await chiudiIlPagamento(p);
+
+  let avvisato = false;
+  let avvisoFallito = '';
+  if (b.avvisa && daDire) {
+    if (!dopo.chat_id && !dopo.telefono && !dopo.telefono_contatto) {
+      // Non è un guasto: di questa prenotazione non abbiamo un recapito. Ma va
+      // detto, perché chi ha spostato un tavolo crede di aver avvisato.
+      avvisoFallito = 'di questa prenotazione non abbiamo un numero';
+    } else {
+      const frase = annullataAdesso ? cfg.bot_t_annullata_locale : cfg.bot_t_modificata;
+      try {
+        await inviaAlCliente(dopo, bot.riempi(frase, {
+          locale: cfg.bot_locale, assistente: cfg.bot_assistente,
+          nome: [dopo.nome, dopo.cognome].filter(Boolean).join(' '),
+          data: bot.dataItaliana(dopo.data), ora: dopo.ora, persone: dopo.persone,
+        }));
+        avvisato = true;
+        annota(annullataAdesso ? 'annullata admin' : 'modificata',
+          `avvisato il cliente: ${dopo.data} ${dopo.ora}, ${dopo.persone} pers.`);
+      } catch (e) {
+        avvisoFallito = e.message;
+        annota('errore', `non riesco ad avvisare il cliente: ${e.message}`);
+      }
+    }
+  }
+
+  // Chi riceve gli avvisi lo deve sapere comunque, e a prescindere dalla
+  // spunta: quella riguarda il CLIENTE. È lo stesso meccanismo già usato
+  // quando a disdire o a spostare è il cliente da solo — chi sta in cucina non
+  // può sapere di un tavolo tolto solo perché qualcun altro guardava lo schermo.
+  if (annullataAdesso) {
+    await avvisaPrenotazione(dopo, 'annullata');
+  } else if (cambiata && nuovi.stato === 'confermata') {
+    await avvisaPrenotazione(dopo, 'spostata',
+      { prima: { data: p.data, ora: p.ora, persone: p.persone, tavolo: p.tavolo } });
+  }
+  // ⚠️ Un avviso non partito va DETTO. Prima finiva solo nel registro: la
+  // pagina scriveva «Salvata» e il cliente si presentava all'ora vecchia,
+  // convinto che nessuno gli avesse cambiato niente.
+  res.json({ ...dopo, avvisato, avvisoFallito, avvisoSoldi });
+};
+app.patch('/api/bot/prenotazioni/:id', rottaModificaPrenotazione);
+
+// «Questa ha pagato»: la spunta a mano.
+//
+// ⚠️ NON è un metodo di pagamento — è l'intervento di una persona su
+// un'eccezione: il cliente affezionato che passa a pagare al banco, quello che
+// ha telefonato. Per questo il pulsante nella pagina sta SOLO sulle
+// prenotazioni in attesa: se comparisse su tutte, prima o poi qualcuno lo preme
+// su una che non ha pagato niente.
+// «Questa chiave funziona?» — si chiede a Stripe chi siamo.
+//
+// ⚠️ È la stessa regola dell'installatore di Ubuntu, che prova la password
+// appena l'hai scelta: il guasto peggiore è quello che si scopre col primo
+// cliente vero, di sabato sera.
+// Una prenotazione d'esempio per vedere l'email prima che parta davvero. Con
+// il pagamento acceso è in attesa, col collegamento dentro: è il caso in cui
+// l'email dice di più, ed è quello da guardare.
+function prenotazioneDiEsempio(cfg, a) {
+  const domani = new Date(Date.now() + 86400000);
+  const conPagamento = bot.boolDi(cfg.bot_pagamento_attivo) && bot.serveIlPagamento(cfg, 2);
+  const conti = bot.importoDaPagare(cfg, 2);
+  return {
+    nome: 'Anna', cognome: 'Bianchi', data: bot.comeData(domani), ora: '20:00', persone: 2,
+    telefono_contatto: '393331112233', note: 'senza glutine', email: a,
+    stato: conPagamento && bot.pagamentoObbligatorio(cfg) ? 'attesa_pagamento' : 'confermata',
+    importo_dovuto: conPagamento ? conti.adesso : 0, importo_totale: conPagamento ? conti.totale : 0,
+    pagamento_scade_at: conPagamento ? bot.comeOrario(new Date(Date.now() + 30 * 60000)) : null,
+    pagato_at: null,
+  };
+}
+
+// Le impostazioni come sono NEL MODULO, non come sono salvate: si prova prima
+// di salvare, altrimenti «Anteprima» e «Salva» andrebbero premuti in
+// quest'ordine e nessuno se lo ricorderebbe.
+function configDalModulo(req) {
+  const cfg = { ...bot.config(db) };
+  const b = req.body || {};
+  for (const k of ['bot_email_oggetto', 'bot_email_testo', 'bot_email_html', 'bot_email_logo', 'bot_email_attiva']) {
+    if (typeof b[k] === 'string') cfg[k] = b[k];
+  }
+  return cfg;
+}
+
+app.post('/api/bot/email/anteprima', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const cfg = configDalModulo(req);
+  const p = prenotazioneDiEsempio(cfg, getSetting('smtp_user') || 'cliente@esempio.it');
+  const link = p.importo_dovuto ? 'https://checkout.stripe.com/c/pay/esempio' : '';
+  const e = composizioneEmail(cfg, p, link);
+  // Nell'anteprima il logo non può viaggiare come allegato: si mette dentro
+  // la pagina così com'è.
+  const html = cfg.bot_email_logo ? e.html.split('cid:logo-istudio').join(cfg.bot_email_logo) : e.html;
+  res.type('html').send('<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><title>'
+    + htmlSicuro(e.oggetto) + '</title></head><body style="margin:0">'
+    + '<div style="font-family:Arial,sans-serif;font-size:13px;color:#667781;padding:10px 14px;border-bottom:1px solid #e0e4e8;background:#fff">'
+    + 'Anteprima · oggetto: <b style="color:#222">' + htmlSicuro(e.oggetto) + '</b> · dati d\'esempio, niente è partito</div>'
+    + html + '</body></html>');
+});
+
+app.post('/api/bot/email/prova', async (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const transporter = buildTransporter();
+  if (!transporter) return res.status(400).json({ error: 'La posta non è configurata: Impostazioni → Email.' });
+  const a = String((req.body && req.body.a) || getSetting('smtp_user') || '').trim();
+  if (!EMAIL_RE.test(a)) return res.status(400).json({ error: 'Scrivi un indirizzo a cui mandare la prova.' });
+  const cfg = configDalModulo(req);
+  const p = prenotazioneDiEsempio(cfg, a);
+  const e = composizioneEmail(cfg, p, p.importo_dovuto ? 'https://checkout.stripe.com/c/pay/esempio' : '');
+  const nomeMittente = getSetting('smtp_from_name') || cfg.bot_locale || '';
+  try {
+    await transporter.sendMail({
+      from: nomeMittente ? `"${nomeMittente}" <${getSetting('smtp_user')}>` : getSetting('smtp_user'),
+      to: a, subject: '[PROVA] ' + e.oggetto, text: e.testo, html: e.html, attachments: e.allegati,
+    });
+    res.json({ ok: true, a });
+  } catch (err) {
+    // L'errore della posta si riporta com'è: dice cose precise.
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/bot/pagamento/prova', async (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  // La chiave arriva dal modulo se la si sta ancora scrivendo, sennò da quella
+  // salvata: così si può provare PRIMA di salvare.
+  const cfg = { ...bot.config(db) };
+  if (req.body && typeof req.body.chiave === 'string' && req.body.chiave.trim()) {
+    cfg.bot_pagamento_chiave = req.body.chiave.trim();
+  }
+  const k = bot.chiaveStripe(cfg);
+  if (!k.presente) return res.status(400).json({ error: 'Non c\'è nessuna chiave da provare.' });
+  const r = await stripeChiSono(cfg);
+  if (!r.ok) return res.status(400).json({ error: r.errore });
+  res.json({ ok: true, nome: r.nome, prova: k.prova });
+});
+
+app.post('/api/bot/prenotazioni/:id/pagata', async (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const cfg = bot.config(db);
+  const esito = bot.segnaPagata(db, cfg, req.params.id, 'mano');
+  if (!esito.ok) {
+    if (esito.motivo === 'niente posto') {
+      // Il caso che fa arrabbiare: nel frattempo il posto è stato dato a un
+      // altro. Non si conferma in silenzio, e non si decide da soli cosa fare
+      // dei soldi: lo si dice a chi sta guardando lo schermo.
+      return res.status(409).json({
+        error: 'Su quel turno non c\'è più posto: nel frattempo è stato preso. '
+          + 'Se il cliente ha già pagato, va deciso cosa fare — la prenotazione resta com\'è.',
+      });
+    }
+    return res.status(404).json({ error: 'Prenotazione non trovata' });
+  }
+  const p = esito.prenotazione;
+  if (!esito.gia) {
+    annota('pagamento', `${bot.nomeInSala(p)} segnata come pagata a mano`);
+    // Il cliente deve sapere che adesso il tavolo è suo davvero: fin qui gli
+    // avevamo scritto a lettere chiare che NON era prenotato.
+    try {
+      await inviaAlCliente(p, testoDelPagamento(cfg, p, esito.eraGiaConfermata));
+    } catch (e) {
+      // La prenotazione È confermata: questo lo sa già il locale, che ha
+      // premuto il pulsante. Se il messaggio non parte si dice, ma non si
+      // rimette in discussione il tavolo.
+      annota('errore', `confermata la ${p.id} ma il messaggio al cliente non è partito: ${e.message}`);
+      await mandaEmailPrenotazione(p);
+      return res.json({ ok: true, prenotazione: p, avviso: 'Confermata, ma il messaggio al cliente non è partito.' });
+    }
+    await mandaEmailPrenotazione(p);
+  }
+  res.json({ ok: true, prenotazione: p });
+});
+
+// Una prenotazione presa al telefono o di persona. Il locale non vive solo di
+// WhatsApp, e una pagina che mostra meta' delle prenotazioni non la guarda
+// nessuno — a quel punto tornano tutti al quaderno.
+const rottaNuovaPrenotazione = async (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const b = req.body || {};
+  const cfg = bot.config(db);
+  const data = String(b.data || '');
+  const ora = String(b.ora || '');
+  const persone = +b.persone;
+  if (!data || !ora || !(persone > 0)) {
+    return res.status(400).json({ error: 'Servono giorno, ora e numero di persone' });
+  }
+  const guaio = controllaPrenotazione({ data, ora, persone });
+  if (guaio) return res.status(400).json({ error: guaio });
+  const capienza = bot.num(cfg.bot_coperti_turno, 0) - bot.num(cfg.bot_coperti_liberi, 0);
+  const occupati = bot.copertiOccupati(db, cfg, data, ora);
+  if (!b.forza && occupati + persone > capienza) {
+    return res.status(409).json({
+      error: `Per ${bot.dataItaliana(data)} alle ${ora} ${quantoPosto(capienza - occupati, persone)}.`,
+      liberi: capienza - occupati,
+    });
+  }
+  const telefono = b.telefono ? normalizePhone(String(b.telefono)) : '';
+  // Anche presa al telefono la prenotazione può avere un'email: se il cliente
+  // la detta, va scritta qui e non in un foglio a parte. Storta si rifiuta —
+  // vale la stessa regola della modifica.
+  const email = String(b.email || '').trim().slice(0, 120);
+  if (email && !EMAIL_RE.test(email)) {
+    return res.status(400).json({ error: 'L\'email non è scritta bene: per esempio nome@esempio.it' });
+  }
+  // Anche il tavolo, se chi la scrive lo sa già: chi entra senza prenotare
+  // e viene segnato a mano si siede in quel momento.
+  const info = db.prepare('INSERT INTO prenotazioni (telefono, nome, cognome, data, ora, persone, note, '
+    + 'telefono_contatto, email, tavolo, origine) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(telefono, String(b.nome || '').slice(0, 60), String(b.cognome || '').slice(0, 60),
+         data, ora, persone, String(b.note || '').slice(0, 200), telefono, email,
+         tavoloPulito(b.tavolo), 'manuale');
+  const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(info.lastInsertRowid);
+  annota('admin', `${p.data} ${p.ora}, ${p.persone} pers., ${bot.nomeInSala(p)}`);
+  await avvisaPrenotazione(p, 'nuova');
+
+  let avvisato = false;
+  let avvisoFallito = '';
+  if (b.avvisa && telefono) {
+    try {
+      await inviaConRitmo(telefono, bot.riempi(cfg.bot_t_manuale, {
+        locale: cfg.bot_locale, assistente: cfg.bot_assistente,
+        nome: [p.nome, p.cognome].filter(Boolean).join(' '),
+        data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
+      }));
+      avvisato = true;
+    } catch (e) {
+      avvisoFallito = e.message;
+      annota('errore', `non riesco a confermare al cliente: ${e.message}`);
+    }
+  }
+  res.json({ ...p, avvisato, avvisoFallito });
+};
+app.post('/api/bot/prenotazioni', rottaNuovaPrenotazione);
+
+app.get('/api/bot/faq', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  res.json({
+    faq: db.prepare('SELECT * FROM bot_faq ORDER BY id').all(),
+    nonCapite: db.prepare('SELECT * FROM bot_non_capite WHERE risolta = 0 ORDER BY volte DESC, ultima_at DESC LIMIT 50').all(),
+  });
+});
+
+app.post('/api/bot/faq', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const { parole, risposta, chiudiNonCapita } = req.body || {};
+  if (!parole || !risposta) return res.status(400).json({ error: 'Servono le parole chiave e la risposta' });
+  db.prepare('INSERT INTO bot_faq (parole, risposta) VALUES (?, ?)').run(String(parole), String(risposta));
+  if (chiudiNonCapita) db.prepare('UPDATE bot_non_capite SET risolta = 1 WHERE id = ?').run(chiudiNonCapita);
+  res.json({ ok: true });
+});
+
+app.delete('/api/bot/faq/:id', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  db.prepare('DELETE FROM bot_faq WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// Togliere una frase dall'elenco senza scriverci una risposta. Serve per le
+// prove, per gli sbagli di battitura e per le domande a cui non si vuole
+// rispondere: senza questo, una frase inutile resta davanti per sempre e
+// l'elenco smette di essere utile — che e' il modo in cui si smette di
+// guardarlo.
+app.delete('/api/bot/non-capite/:id', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  db.prepare('UPDATE bot_non_capite SET risolta = 1 WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/bot/non-capite/svuota', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const r = db.prepare('UPDATE bot_non_capite SET risolta = 1 WHERE risolta = 0').run();
+  res.json({ ok: true, tolte: r.changes });
+});
+
+app.post('/api/bot/personale', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const { nome, telefono, canale, riceve, gestisce } = req.body || {};
+  if (!nome || !telefono) return res.status(400).json({ error: 'Servono nome e numero' });
+  const tel = normalizePhone(telefono);
+  // Mai il numero del locale: il bot manderebbe messaggi a se stesso.
+  // Va impedito adesso, non scoperto la prima sera che serve davvero.
+  if (state.me && tel === normalizePhone(state.me)) {
+    return res.status(400).json({ error: 'Questo è il numero del locale: gli avvisi andrebbero a se stesso.' });
+  }
+  db.prepare('INSERT INTO bot_personale (nome, telefono, canale, riceve, gestisce) VALUES (?, ?, ?, ?, ?)')
+    .run(String(nome), tel, canale || 'whatsapp', riceve || 'niente', gestisce === false ? 0 : 1);
+  res.json({ ok: true, personale: db.prepare('SELECT * FROM bot_personale').all() });
+});
+
+// Genera il codice da far scrivere alla persona dal SUO telefono. È l'unico
+// modo di collegare un telefono che funzioni sempre: non dipende dal fatto che
+// WhatsApp ci dica il numero, cosa che con certi indirizzi non fa mai.
+app.post('/api/bot/personale/:id/codice', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const p = db.prepare('SELECT * FROM bot_personale WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Persona inesistente' });
+  // Stesso alfabeto senza caratteri ambigui dei codici di installazione: va
+  // letto ad alta voce e ricopiato su un telefono, di fretta.
+  const gruppo = () => Array.from(crypto.randomBytes(4))
+    .map((b) => ALFABETO_CODICE[b % ALFABETO_CODICE.length]).join('');
+  const codice = 'SALA-' + gruppo();
+  db.prepare('UPDATE bot_personale SET codice_collegamento = ?, chat_id = ? WHERE id = ?')
+    .run(codice, '', p.id);
+  res.json({ ok: true, codice, nome: p.nome });
+});
+
+// Cambiare ruolo o numero SENZA cancellare e rifare. Non e' comodita': chi
+// viene cancellato perde anche il telefono collegato, e per cambiargli una
+// spunta bisognerebbe rifargli scrivere il codice SALA- dal suo telefono.
+app.patch('/api/bot/personale/:id', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const p = db.prepare('SELECT * FROM bot_personale WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Persona inesistente' });
+  const b = req.body || {};
+  const nome = b.nome === undefined ? p.nome : String(b.nome).trim();
+  if (!nome) return res.status(400).json({ error: 'Il nome non puo\' restare vuoto' });
+  const tel = b.telefono === undefined ? p.telefono : normalizePhone(String(b.telefono));
+  if (!tel) return res.status(400).json({ error: 'Il numero non puo\' restare vuoto' });
+  if (state.me && tel === normalizePhone(state.me)) {
+    return res.status(400).json({ error: 'Questo è il numero del locale: gli avvisi andrebbero a se stesso.' });
+  }
+  // Il telefono collegato si azzera SOLO se il numero cambia davvero: un altro
+  // numero e' un altro apparecchio, e tenere il vecchio indirizzo di chat
+  // manderebbe gli avvisi alla persona sbagliata. Correggere un refuso nel
+  // nome, invece, non deve costare un nuovo collegamento.
+  const cambiaNumero = tel !== p.telefono;
+  db.prepare('UPDATE bot_personale SET nome = ?, telefono = ?, gestisce = ?, riceve = ?'
+    + (cambiaNumero ? ", chat_id = '', codice_collegamento = ''" : '') + ' WHERE id = ?')
+    .run(nome, tel,
+         b.gestisce === undefined ? p.gestisce : (b.gestisce ? 1 : 0),
+         b.riceve === undefined ? p.riceve : String(b.riceve), p.id);
+  res.json({ ok: true, scollegato: cambiaNumero && !!p.chat_id });
+});
+
+app.delete('/api/bot/personale/:id', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  db.prepare('DELETE FROM bot_personale WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ---------- Il simulatore ----------
+//  Fa girare una conversazione VERA (stesso motore, stesso database) senza
+//  passare da WhatsApp. Serve a provare orari, coperti e testi prima di
+//  collegare un numero, e a far vedere il bot al ristoratore in due minuti.
+//  Il numero finto comincia per 000 così non può mai coincidere con uno vero.
+app.post('/api/bot/simula', async (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const testo = String((req.body && req.body.testo) || '');
+  const telefono = '000' + String((req.body && req.body.sessione) || '1');
+  // Nel simulatore non c'è un telefono vero, ma serve comunque un numero
+  // altrimenti la domanda «a quale numero possiamo richiamarti?» non si può
+  // provare: rispondendo OK il bot direbbe di non aver capito, e sembrerebbe
+  // rotto quando invece sta funzionando.
+  const esito = bot.elaboraMessaggio(db, telefono, testo, new Date(), { numero: '393000000000' });
+  // ⚠️ Il simulatore è lo strumento con cui il ristoratore prova il bot PRIMA
+  // dei clienti veri. Senza questo pezzo, con il pagamento acceso la
+  // conversazione finiva nel vuoto dopo l'email: lui avrebbe visto un bot rotto
+  // proprio mentre funzionava, e non avrebbe avuto modo di provare la parte che
+  // gli interessa di più.
+  if (esito.daPagare) {
+    const cfg = bot.config(db);
+    const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(esito.daPagare.id);
+    const r = p ? await stripeCreaPagamento(cfg, p) : { ok: false, errore: 'prenotazione sparita' };
+    if (r.ok) {
+      db.prepare('UPDATE prenotazioni SET pagamento_id = ? WHERE id = ?').run(r.id, p.id);
+      esito.risposte.push(String(esito.daPagare.testo).split('{link}').join(r.link));
+    } else {
+      // Anche il fallimento va mostrato: è quello che vedrebbe il cliente, e
+      // provare il bot serve proprio a scoprire che Stripe non risponde PRIMA
+      // che succeda di sabato sera.
+      esito.risposte.push(bot.riempi(cfg.bot_t_pagamento_lento, {
+        nome: (p && p.nome) || '', data: p ? bot.dataItaliana(p.data) : '', ora: (p && p.ora) || '',
+        persone: (p && p.persone) || '',
+      }));
+      esito.risposte.push(`⚠️ (solo nel simulatore) Stripe non ha risposto: ${r.errore}`);
+    }
+    if (p) esito.simulaEmail = await mandaEmailPrenotazione(p, r.ok ? r.link : '');
+  } else if (esito.prenotazione) {
+    esito.simulaEmail = await mandaEmailPrenotazione(esito.prenotazione);
+  }
+  // ⚠️ L'email parte DAVVERO, all'indirizzo scritto nella prova: è l'unico modo
+  // di sapere se la posta è configurata bene PRIMA che ci sia un cliente vero
+  // dall'altra parte. E l'esito si dice: un'email che non parte, nel
+  // simulatore, non lascia nessuna traccia visibile — sembrerebbe tutto a
+  // posto.
+  if (esito.simulaEmail) {
+    esito.risposte.push(esito.simulaEmail.ok
+      ? `📧 (solo nel simulatore) email di riepilogo mandata a ${esito.simulaEmail.a}`
+      : `📧 (solo nel simulatore) email di riepilogo NON mandata: ${esito.simulaEmail.motivo}`);
+  }
+  res.json({
+    risposte: esito.risposte,
+    daPagare: !!esito.daPagare,
+    passaAUmano: esito.passaAUmano,
+    prenotazione: esito.prenotazione,
+    annullata: esito.annullata,
+    passo: bot.statoDi(db, telefono).passo,
+  });
+});
+
+app.post('/api/bot/simula/azzera', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const telefono = '000' + String((req.body && req.body.sessione) || '1');
+  bot.azzeraStato(db, telefono);
+  db.prepare('UPDATE bot_conversazioni SET muto_fino = NULL, risposte_oggi = 0 WHERE telefono = ?').run(telefono);
+  db.prepare("DELETE FROM prenotazioni WHERE telefono = ? ").run(telefono);
+  res.json({ ok: true });
+});
+
 app.listen(PORT, () => {
   console.log(`iStudio in ascolto su http://localhost:${PORT}`);
+});
+
+// ---------- La pagina della sala, su una porta sua ----------
+// Il responsabile di sala deve vedere le prenotazioni e poterle gestire, e
+// NIENT'ALTRO: non la rubrica, non le campagne, non le impostazioni, non il
+// seriale. La strada facile sarebbe una pagina con meno pulsanti sulla stessa
+// porta — ma i pulsanti nascosti non sono una protezione: basta scrivere
+// /api/contacts nella barra degli indirizzi per avere l'elenco dei clienti.
+//
+// Quindi è un server SUO, su una porta sua, dove sono montate soltanto le rotte
+// che servono. Quello che non è servito non è raggiungibile, qualunque cosa si
+// scriva nella barra.
+const PORT_SALA = Number(process.env.ISTUDIO_PORT_SALA || 0) || PORT + 1;
+const sessioniSala = new Map();      // token -> scadenza
+
+const paginaAccessoSala = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sala — Accesso</title>\n<link rel="icon" href="/comune/icona.svg" type="image/svg+xml">
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.box{background:#fff;border:1px solid #e0e4e8;border-radius:14px;padding:34px;width:320px;text-align:center}
+h1{font-size:1.3rem;color:#128c7e;margin:0 0 6px}p{color:#667781;font-size:.9rem;margin:0 0 18px}
+input{width:100%;padding:12px;border:1px solid #e0e4e8;border-radius:9px;font-size:1rem;box-sizing:border-box;margin-bottom:12px}
+button{width:100%;padding:12px;background:#128c7e;color:#fff;border:none;border-radius:9px;font-size:1rem;font-weight:600;cursor:pointer}
+.loc{color:#111b21;font-weight:600;font-size:1rem;margin:0 0 4px}
+.err{color:#ea4335;font-size:.85rem;min-height:1.2em;margin-top:10px}</style></head>
+<body><form class="box" id="f"><h1>Prenotazioni</h1>__LOCALE__<p>Password della sala</p>
+<input type="password" id="p" autofocus><button type="submit">Entra</button><div class="err" id="e"></div></form>
+<script>document.getElementById('f').addEventListener('submit',async(ev)=>{ev.preventDefault();
+const r=await fetch('/api/sala/accesso',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('p').value})});
+if(r.ok){location.reload();return;}let d={};try{d=await r.json();}catch{}document.getElementById('e').textContent=d.error||'Password errata';});<\/script></body></html>`;
+
+function salaAccesa() {
+  return bot.boolDi(bot.leggi(db, 'bot_sala_attiva'))
+    && String(bot.leggi(db, 'bot_sala_password') || '').length > 0;
+}
+
+function salaAutenticato(req) {
+  const cookie = req.headers.cookie || '';
+  const m = cookie.match(/(?:^|;\s*)istudio_sala=([a-f0-9]+)/);
+  if (!m) return false;
+  const scadenza = sessioniSala.get(m[1]);
+  if (!scadenza || scadenza < Date.now()) { sessioniSala.delete(m[1]); return false; }
+  return true;
+}
+
+const sala = express();
+sala.use(express.json({ limit: '1mb' }));
+
+// L'interruttore vale per TUTTO, compreso l'accesso: spenta, questa porta non
+// risponde niente. È l'unico modo per cui «spenta» vuol dire davvero spenta.
+sala.use((req, res, next) => {
+  if (!salaAccesa()) return res.status(503).send('La pagina della sala non è attiva.');
+  next();
+});
+
+// ⚠️ Lo stesso cancello dell'abbonamento della piattaforma. Senza, questa porta
+// sarebbe il modo di continuare a usare iStudio con il seriale scaduto: basta
+// aprire l'altro indirizzo.
+sala.use((req, res, next) => {
+  if (modalitaAbbonamento && !abbonamento.valido) {
+    return res.status(403).send('Abbonamento non attivo: apri iStudio sulla porta principale.');
+  }
+  if (!botDisponibile() || !botPermesso()) {
+    return res.status(403).send('Le prenotazioni non sono incluse in questo abbonamento.');
+  }
+  next();
+});
+
+// Come sulla piattaforma: il logo si serve prima della password, o la pagina
+// d'accesso resta senza icona.
+sala.get('/comune/icona.svg', (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'comune', 'icona.svg')));
+
+// ⚠️ La pagina della sala sta su una porta raggiungibile dalla rete del
+// locale — e qualcuno la aprirà anche da fuori. Senza un freno, una password
+// da otto caratteri si prova tutta in poche ore con uno script: qui non c'è
+// nessun limite ai tentativi, e il confronto è pure velocissimo.
+//
+// Il freno è volutamente semplice: dopo cinque sbagli da uno stesso indirizzo
+// si aspetta un minuto, poi due, poi quattro, fino a un quarto d'ora. Chi ha
+// dimenticato la password aspetta un minuto una volta; chi le prova a milioni
+// si ferma. Il conto sta in memoria: al riavvio riparte, e va benissimo.
+const tentativiSala = new Map();
+const SALA_TENTATIVI_LIBERI = 5;
+
+function attesaSala(chi) {
+  const r = tentativiSala.get(chi);
+  if (!r || r.sbagli < SALA_TENTATIVI_LIBERI) return 0;
+  const minuti = Math.min(2 ** (r.sbagli - SALA_TENTATIVI_LIBERI), 15);
+  const finoA = r.ultimo + minuti * 60 * 1000;
+  return Math.max(0, finoA - Date.now());
+}
+
+sala.post('/api/sala/accesso', (req, res) => {
+  const chi = String(req.ip || req.socket.remoteAddress || 'ignoto');
+  const resta = attesaSala(chi);
+  if (resta > 0) {
+    const secondi = Math.ceil(resta / 1000);
+    return res.status(429).json({
+      error: secondi > 60
+        ? `Troppi tentativi: riprova fra ${Math.ceil(secondi / 60)} minuti.`
+        : `Troppi tentativi: riprova fra ${secondi} secondi.`,
+    });
+  }
+  const attesa = Buffer.from(String(bot.leggi(db, 'bot_sala_password') || '').trim());
+  const tentativo = Buffer.from(String((req.body && req.body.password) || '').trim());
+  const valida = tentativo.length === attesa.length && crypto.timingSafeEqual(tentativo, attesa);
+  if (!valida) {
+    const r = tentativiSala.get(chi) || { sbagli: 0, ultimo: 0 };
+    r.sbagli += 1;
+    r.ultimo = Date.now();
+    tentativiSala.set(chi, r);
+    if (r.sbagli === SALA_TENTATIVI_LIBERI) {
+      annota('sala', `cinque password sbagliate da ${chi}: da ora rallento i tentativi`);
+    }
+    return res.status(401).json({ error: 'Password errata' });
+  }
+  tentativiSala.delete(chi);   // entrata buona: il conto riparte da zero
+  const token = crypto.randomBytes(32).toString('hex');
+  // Trenta giorni: il tablet della sala non deve chiedere la password ogni
+  // sera, o dopo una settimana qualcuno la scrive su un foglietto al bancone.
+  sessioniSala.set(token, Date.now() + SESSION_TTL);
+  res.setHeader('Set-Cookie',
+    `istudio_sala=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL / 1000}`);
+  res.json({ ok: true });
+});
+
+sala.use((req, res, next) => {
+  if (salaAutenticato(req)) return next();
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Accesso non autorizzato' });
+  // Il nome del locale sulla pagina d'accesso: chi apre il tablet — o
+  // l'amministratore con tre copie sullo stesso computer — deve sapere di
+  // quale ristorante è la sala che sta per aprire. Composto qui e non
+  // all'avvio, perché il nome si può cambiare a programma acceso; e passato
+  // dal filtro dell'HTML, perché è un testo scritto dal locale.
+  const locale = String(bot.leggi(db, 'bot_locale') || '').trim()
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  res.send(paginaAccessoSala.replace('__LOCALE__', locale ? `<p class="loc">${locale}</p>` : ''));
+});
+
+// Il planning è lo stesso file che usa la piattaforma: una copia sola.
+for (const via of ['/', '/index.html']) {
+  sala.get(via, serviPagina(path.join(__dirname, 'public-sala', 'index.html')));
+}
+sala.use('/comune', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  next();
+});
+sala.use('/comune', express.static(path.join(__dirname, 'public', 'comune')));
+sala.use(express.static(path.join(__dirname, 'public-sala')));
+
+// Chi sta guardando deve sapere di quale locale sono queste prenotazioni: le
+// copie di prova e quella vera sono identiche a vedersi.
+sala.get('/api/sala/stato', (req, res) => {
+  res.json({ locale: bot.leggi(db, 'bot_locale') || '', versione: versioneInstallata() });
+});
+
+// ⚠️ Qui sotto ci sono SOLO le prenotazioni, e sono ESATTAMENTE gli stessi
+// gestori della piattaforma — non una copia, non un ponte fra i due server:
+// una copia divergerebbe, e un ponte rifarebbe passare la richiesta da tutti i
+// controlli dell'altra porta, password compresa.
+// Ogni riga aggiunta a questo elenco è una cosa in più che il tablet della sala
+// può fare: si aggiunge una per volta e di proposito, mai «tanto è comodo».
+sala.get('/api/bot/settimana', rottaSettimana);
+// La ricerca in rubrica c'è anche in sala: chi prende una prenotazione al
+// telefono ha davanti un cliente che spesso è già in archivio, e riscriverne il
+// numero a mano vuol dire sbagliarlo. È lo STESSO gestore della piattaforma,
+// quindi valgono gli stessi limiti — sotto le due lettere non risponde, e non
+// torna mai più di otto risultati: non è un modo di leggere l'elenco dei
+// clienti una lettera per volta. Quello che resta fuori dalla sala è tutto il
+// resto della rubrica: non si aggiunge, non si modifica, non si scorre.
+sala.get('/api/bot/prenotazioni/versione', rottaVersionePrenotazioni);
+// La storia di chi arriva stasera: si apre toccando un nome, e da lì soltanto.
+sala.get('/api/bot/cliente', rottaSchedaCliente);
+sala.get('/api/bot/prenotazioni', rottaServizio);
+sala.delete('/api/bot/attese/:id', rottaTogliAttesa);
+sala.post('/api/bot/prenotazioni', rottaNuovaPrenotazione);
+sala.patch('/api/bot/prenotazioni/:id', rottaModificaPrenotazione);
+
+sala.listen(PORT_SALA, () => {
+  console.log(`Pagina della sala in ascolto su http://localhost:${PORT_SALA}`);
 });
 
 // ---------- Chiusura pulita ----------

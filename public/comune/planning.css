@@ -1,0 +1,53 @@
+/* Il planning della settimana. Questo file lo caricano DUE pagine: la
+   piattaforma e la pagina della sala. Due copie dello stesso codice divergono —
+   in questo progetto è già successo, con due funzioni identiche rimaste in giro
+   dopo una modifica — quindi qui la copia è una sola. */
+/* Planning settimanale. Ogni giornata è un rapporto rispetto a un limite
+   (coperti su capienza), quindi si disegna come un «meter»: la traccia è una
+   tonalità piu' chiara dello STESSO verde del riempimento, non un grigio, così
+   lo stato si legge lungo tutta la barra. Il numero è sempre scritto: il
+   colore rinforza, non informa da solo. */
+.settimana { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+@media (max-width: 760px) { .settimana { grid-template-columns: repeat(2, 1fr); } }
+.giorno {
+  background: var(--sfondo); border: 1px solid transparent; border-radius: 10px;
+  padding: 10px 8px; text-align: left; cursor: pointer; font: inherit; color: inherit;
+  display: flex; flex-direction: column; gap: 6px; min-height: 104px;
+}
+.giorno:hover { border-color: var(--verde); }
+.giorno.oggi { border-color: var(--verde-scuro); background: #eafff2; }
+.giorno.chiuso { opacity: .55; cursor: pointer; }
+.giorno.passato { opacity: .5; }
+.giorno .gg { font-size: .72rem; color: var(--grigio); text-transform: uppercase; letter-spacing: .04em; }
+.giorno .num { font-size: 1.5rem; font-weight: 700; line-height: 1; }
+.giorno .sotto { font-size: .74rem; color: var(--grigio); }
+/* 4px di raggio sulle estremità del dato, come tutte le barre del sistema */
+.meter { height: 6px; border-radius: 4px; background: #cdeedd; overflow: hidden; }
+.meter > i { display: block; height: 100%; border-radius: 4px; background: var(--verde-scuro); }
+.meter > i.quasi { background: #ffb300; }
+.meter > i.pieno { background: var(--rosso); }
+
+/* ⚠️ Sul telefono il planning si mangiava tre quarti della prima schermata:
+   sette riquadri da 116 pixel, e per vedere una prenotazione bisognava
+   scorrere. Qui i riquadri si stringono — via il min-height, meno imbottitura,
+   il numero un po' più piccolo — e sparisce la riga della capienza, che è
+   l'informazione meno urgente delle tre: il riempimento lo dice già la barra,
+   e il numero esatto resta nel titolo del riquadro.
+   La riga dello stato invece RESTA: è quella che dice «pieno» a parole, e non
+   si può affidare il pieno al solo colore. */
+@media (max-width: 430px) {
+  .settimana { gap: 6px; }
+  .giorno { min-height: 0; padding: 8px; gap: 4px; }
+  .giorno .num { font-size: 1.3rem; }
+  /* ⚠️ Non «.sotto:first-of-type»: quello guarda il primo elemento del suo TIPO
+     fra i fratelli — cioè il primo <span>, che è il giorno — e non sarebbe mai
+     stata la riga giusta. Serve una classe sua. */
+  .giorno .capienza { display: none; }
+}
+
+/* Un giorno chiuso in cui però c'è gente prenotata: non è «chiuso» e basta, ed
+   è l'unico caso in cui una giornata chiusa va guardata. Il colore da solo non
+   basterebbe (e non deve bastare): la scritta dice già «chiuso, ma N pren.». */
+.giorno.chiuso-con-gente { opacity: 1; border-color: #b26a00; background: #fff8e6; }
+.giorno.chiuso-con-gente .num { color: #b26a00; }
+.giorno.chiuso-con-gente .sotto:last-child { color: #b26a00; font-weight: 600; }

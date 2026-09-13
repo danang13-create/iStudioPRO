@@ -101,6 +101,7 @@ for f in server.js package.json VERSIONE.txt; do
   [ -f "$BASE_DIR/$f" ] && cp "$BASE_DIR/$f" "$BACKUP/$f"
 done
 [ -d "$BASE_DIR/public" ] && cp -R "$BASE_DIR/public" "$BACKUP/public"
+[ -d "$BASE_DIR/public-sala" ] && cp -R "$BASE_DIR/public-sala" "$BACKUP/public-sala"
 
 # --- 5. installo ---
 # Si usa `mv` e MAI `cp`: sovrascrivere un file .command mentre la shell lo sta

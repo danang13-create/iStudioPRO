@@ -95,6 +95,8 @@ else
     [ -f "$BK/VERSIONE.txt" ] && cp "$BK/VERSIONE.txt" "$ISTUDIO_DIR/VERSIONE.txt"
     [ -d "$BK/public" ]       && rm -rf "$ISTUDIO_DIR/public" \
                               && cp -R "$BK/public" "$ISTUDIO_DIR/public"
+    [ -d "$BK/public-sala" ]  && rm -rf "$ISTUDIO_DIR/public-sala" \
+                              && cp -R "$BK/public-sala" "$ISTUDIO_DIR/public-sala"
     if accendi; then
       echo "✅ iStudio è ripartita con la versione precedente."
       echo "   L'aggiornamento verrà riprovato al prossimo avvio."

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2ee06f"/>
+      <stop offset="1" stop-color="#0f7d70"/>
+    </linearGradient>
+  </defs>
+  <!-- solo il fumetto: niente riquadro, sfondo trasparente -->
+  <path d="M132 96h760c48 0 88 40 88 88v496c0 48-40 88-88 88H404L214 950c-19 17-48 2-48-24V768h-34c-48 0-88-40-88-88V184c0-48 40-88 88-88z"
+        fill="url(#g)"/>
+  <rect x="228" y="268" width="568" height="72" rx="36" fill="#fff"/>
+  <rect x="228" y="400" width="568" height="72" rx="36" fill="#fff" opacity=".78"/>
+  <rect x="228" y="532" width="330" height="72" rx="36" fill="#fff" opacity=".55"/>
+</svg>
