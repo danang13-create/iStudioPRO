@@ -214,6 +214,7 @@ Stanno in `~/iStudio/Linux/`:
 | `bash Diagnostica.sh` | È viva? A che indirizzo? Cosa dice il registro? Non ripara niente di proposito |
 | `bash Avvia.sh` | La aggiorna e la riavvia |
 | `bash "Aggiorna adesso.sh"` | Prende subito la versione pubblicata, senza aspettare le 5 |
+| `bash riordina-cartella.sh` | Rimette in vista solo i comandi e la guida (lo fanno già installazione e aggiornamento) |
 | `bash Ferma.sh` | La ferma (riparte da sola se la macchina si riavvia) |
 | `journalctl -u istudio -f` | Il registro dal vivo |
 

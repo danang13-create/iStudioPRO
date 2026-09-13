@@ -451,6 +451,10 @@ fi
 # ------------------------------------------------------------------
 # Fine
 # ------------------------------------------------------------------
+# La cartella del cliente: in vista solo quello che lo riguarda. Su Ubuntu si
+# fa con un file «.hidden», che è quello che legge il gestore file di GNOME.
+[ -x "$DESTINAZIONE/Linux/riordina-cartella.sh" ] && "$DESTINAZIONE/Linux/riordina-cartella.sh" "$DESTINAZIONE"
+
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 verde "════════════════════════════════════════════"

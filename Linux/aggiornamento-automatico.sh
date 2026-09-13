@@ -179,6 +179,8 @@ for elemento in "$TMP/nuova"/* "$TMP/nuova"/.[!.]*; do
   cp -a "$elemento" "$CARTELLA/$nome"
 done
 chmod +x "$CARTELLA/Linux/"*.sh 2>/dev/null
+# Quello che è appena arrivato sarebbe di nuovo in vista: si rinasconde.
+[ -x "$CARTELLA/Linux/riordina-cartella.sh" ] && "$CARTELLA/Linux/riordina-cartella.sh" "$CARTELLA" 2>/dev/null
 
 # Le librerie possono essere cambiate. Se npm fallisce si torna indietro: meglio
 # la versione di ieri che funziona di quella di oggi che non parte.

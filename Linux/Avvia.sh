@@ -11,6 +11,10 @@
 set -u
 CARTELLA="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Sulle copie dei clienti rimette in ordine la cartella: dopo un aggiornamento
+# i file appena arrivati tornerebbero visibili. Sulle altre non fa niente.
+[ -x "$CARTELLA/Linux/riordina-cartella.sh" ] && "$CARTELLA/Linux/riordina-cartella.sh" "$CARTELLA"
+
 echo "⏳ Aggiorno iStudio…"
 bash "$CARTELLA/Linux/aggiornamento-automatico.sh" --adesso
 
