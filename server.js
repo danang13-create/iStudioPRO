@@ -909,6 +909,72 @@ function versioneInstallata() {
   catch { return null; }
 }
 
+// ------------------------------------------------------------------
+//  «C'è una versione più nuova» — il cartello, non l'aggiornamento
+// ------------------------------------------------------------------
+//  L'aggiornamento vero lo fanno gli aggiornatori (Mac/ e Linux/), ognuno col
+//  suo momento: il Mac al prossimo avvio, il mini-PC alle 5 del mattino. Qui
+//  non si aggiorna niente: si guarda che numero è pubblicato e, se è più alto
+//  di quello installato, LO SI DICE nella piattaforma.
+//
+//  ⚠️ Perché serve. Finora l'unico modo di sapere che era uscita una versione
+//     era andare a guardare il magazzino, o lanciare un comando. Chi usa
+//     iStudio non lo fa, quindi non lo sapeva: restava sulla versione vecchia
+//     senza motivo, e per settimane. C'è già un cartello per «questa PAGINA è
+//     vecchia rispetto al server acceso»; mancava quello per «questo
+//     COMPUTER è vecchio rispetto a quello che è stato pubblicato».
+//
+//  Solo sulle copie dei clienti: il file «aggiornamenti-di-questo-mac.txt» dice
+//  da quale deposito si aggiorna, e sul Mac di chi sviluppa non c'è.
+function depositoAggiornamenti() {
+  try {
+    return fs.readFileSync(path.join(__dirname, 'aggiornamenti-di-questo-mac.txt'), 'utf8').trim() || null;
+  } catch { return null; }
+}
+
+// Numerico campo per campo, come negli aggiornatori: «.56» di ieri è più
+// vecchio di «.1» di oggi, e un confronto testuale direbbe il contrario.
+function versionePiuRecente(a, b) {
+  if (!a || !b || a === b) return false;
+  const pezzi = (v) => String(v).split('.').map((n) => Number(n) || 0);
+  const x = pezzi(a), y = pezzi(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  }
+  return false;
+}
+
+// Quando arriverà da sola, senza che nessuno faccia niente. Sono i due momenti
+// veri: «Avvia iStudio» sul Mac, il crontab delle 5 sul mini-PC.
+const QUANDO_ARRIVA = process.platform === 'darwin'
+  ? 'Si installa da sola al prossimo avvio di iStudio.'
+  : 'Si installa da sola stanotte alle 5, a locale chiuso.';
+
+let versionePubblicata = null;   // l'ultima vista nel magazzino, o null
+
+async function guardaSeCePiuNuova() {
+  const deposito = depositoAggiornamenti();
+  if (!deposito) return;
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${deposito}/main/VERSIONE.txt`, {
+      headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) return;
+    const trovata = (await r.text()).trim();
+    if (/^\d+(\.\d+){3}$/.test(trovata)) versionePubblicata = trovata;
+  } catch {
+    // Nessuna rete, GitHub giù: si tiene quello che si sapeva e non si disturba
+    // nessuno. Un cartello mancante non ha mai rotto niente.
+  }
+}
+
+// Cosa dire alla pagina: niente, se non c'è niente da dire.
+function aggiornamentoDisponibile() {
+  const qui = versioneInstallata();
+  if (!versionePubblicata || !versionePiuRecente(versionePubblicata, qui)) return null;
+  return { versione: versionePubblicata, quando: QUANDO_ARRIVA };
+}
+
 // Numero WhatsApp a cui il cliente scrive per rinnovare. Sta in un file perché possa
 // cambiare senza toccare il programma; se manca, la schermata mostra un testo semplice
 // invece del collegamento. Sul Mac di chi sviluppa non c'è: non deve scrivere a se stesso.
@@ -1330,6 +1396,7 @@ app.get('/api/status', (req, res) => {
   // posti: è già successo col ritmo delle pause, e la stima aveva cominciato a mentire.
   res.json({ ...state, authEnabled: Boolean(APP_PASSWORD), abbonamento: abb, edizione,
              tettoEmail: tettoEmailGiornaliero(), versione: versioneInstallata(),
+             aggiornamento: aggiornamentoDisponibile(),
              // Il nome del locale, per l'intestazione: le copie di prova e quella
              // vera sono identiche a vedersi, e questa è l'unica riga che dice di
              // chi è la pagina che si ha davanti.
@@ -4225,6 +4292,16 @@ async function giroDelMinuto() {
 
 if (botDisponibile()) {
   setInterval(() => { giroDelMinuto().catch(() => {}); }, 60 * 1000);
+}
+
+// ---------- «C'è una versione più nuova» ----------
+// Ogni sei ore, e una volta poco dopo l'accensione. Non serve di più: le
+// versioni escono qualche volta al mese, e chiedere a GitHub ogni minuto
+// sarebbe rumore per niente. Il primo controllo aspetta venti secondi per non
+// rallentare l'avvio, che è il momento in cui la macchina ha altro da fare.
+if (depositoAggiornamenti()) {
+  setTimeout(() => { guardaSeCePiuNuova().catch(() => {}); }, 20 * 1000).unref?.();
+  setInterval(() => { guardaSeCePiuNuova().catch(() => {}); }, 6 * 60 * 60 * 1000);
 }
 
 // ---------- L'email di riepilogo ----------

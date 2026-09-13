@@ -266,6 +266,16 @@
     flex-wrap: wrap; justify-content: center; background: #fff4d6; color: #5a4212;
     border-bottom: 1px solid #e6d3a3; padding: 10px 16px; font-size: .9rem;
   }
+  /* Il cartello «c'è una versione più nuova»: stessa forma di quello della
+     pagina vecchia, colore diverso, perché dice una cosa diversa — lì è la
+     pagina aperta a essere indietro, qui è il computer. */
+  #versione-nuova[hidden] { display: none; }
+  #versione-nuova {
+    position: sticky; top: 0; z-index: 199; display: flex; gap: 12px; align-items: center;
+    flex-wrap: wrap; justify-content: center; background: #e7f5ec; color: #14502f;
+    border-bottom: 1px solid #b9ddc8; padding: 10px 16px; font-size: .9rem;
+  }
+  #versione-nuova b { font-weight: 600; }
   #pagina-vecchia button {
     border: 1px solid #b8933f; background: #fff; color: #5a4212; border-radius: 8px;
     padding: 6px 14px; font: inherit; font-weight: 600; cursor: pointer; min-height: 36px;
@@ -598,6 +608,19 @@
 <div id="pagina-vecchia" hidden>
   <span>Questa pagina è di una versione precedente: alcune cose potrebbero non funzionare.</span>
   <button type="button" id="pagina-ricarica">Ricarica</button>
+</div>
+
+<!-- ⚠️ Due cartelli diversi, che sembrano simili e non lo sono:
+     «pagina vecchia» = la scheda aperta nel browser è indietro rispetto al
+        programma acceso adesso. Si risolve ricaricando.
+     «versione nuova» = QUESTO COMPUTER è indietro rispetto a quello che è
+        stato pubblicato. Ricaricare non serve a niente: deve arrivare
+        l'aggiornamento, e arriva da solo. Qui si dice solo quando.
+     Finora il secondo non c'era, e l'unico modo di saperlo era andare a
+     guardare il magazzino: infatti nessuno lo sapeva. -->
+<div id="versione-nuova" hidden>
+  <span>È disponibile la versione <b id="versione-nuova-numero"></b>.</span>
+  <span id="versione-nuova-quando"></span>
 </div>
 
 <header>
@@ -2309,6 +2332,7 @@ async function aggiornaStato() {
       if (t) t.textContent = s.tettoEmail;
     }
     mostraVersione(s.versione);
+    mostraAggiornamento(s.aggiornamento);
     if (ripristinoInCorsoUI) return;
     const firma = s.status + '|' + (s.me || '') + '|' + (s.qr || '').slice(0, 40);
     if (firma === statoDisegnato) return;
@@ -5059,6 +5083,17 @@ function mostraVersione(versioneServer) {
   const piede = document.getElementById('pie-versione');
   if (piede && versioneServer) piede.textContent = 'iStudio — versione ' + versioneServer;
   guardaSeVecchia(versioneServer);
+}
+
+// Il cartello del computer indietro. Lo decide il server, che è l'unico che
+// può chiedere a GitHub: la pagina si limita a mostrare quello che gli arriva.
+function mostraAggiornamento(agg) {
+  const cartello = document.getElementById('versione-nuova');
+  if (!cartello) return;
+  cartello.hidden = !agg;
+  if (!agg) return;
+  document.getElementById('versione-nuova-numero').textContent = agg.versione;
+  document.getElementById('versione-nuova-quando').textContent = agg.quando || '';
 }
 
 function guardaSeVecchia(versioneServer) {
