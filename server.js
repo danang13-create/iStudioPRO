@@ -87,6 +87,18 @@ db.exec(`
   );
   -- Richieste di cancellazione riconosciute nelle risposte WhatsApp.
   -- Non vengono mai applicate da sole: l'utente conferma (vedi NOTE-TECNICHE).
+  -- ⚠️ Le sessioni di accesso stavano SOLO in memoria, e il biscotto diceva
+  -- trenta giorni: a ogni riavvio il server se le dimenticava tutte. Un
+  -- aggiornamento riavvia sempre, quindi ogni aggiornamento buttava fuori il
+  -- tablet della sala — e la pagina della sala non se ne accorgeva: continuava
+  -- a mostrare l'elenco di prima, fermo, senza dire niente. In sala vuol dire
+  -- guardare le prenotazioni di ieri credendo che siano quelle di stasera.
+  -- Qui restano, e un riavvio non si porta più via nessuno.
+  CREATE TABLE IF NOT EXISTS sessioni (
+    token TEXT PRIMARY KEY,
+    dove TEXT NOT NULL,              -- 'piattaforma' oppure 'sala'
+    scade_at INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS optout_requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_nome TEXT NOT NULL,
@@ -1230,7 +1242,40 @@ mostra();
 
 // ---------- Autenticazione (attiva solo se ISTUDIO_PASSWORD è impostata) ----------
 const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 giorni
-const sessions = new Map(); // token -> scadenza
+
+// ------------------------------------------------------------------
+//  Le sessioni, che devono sopravvivere a un riavvio
+// ------------------------------------------------------------------
+//  ⚠️ Stavano solo in una Map, mentre il biscotto prometteva trenta giorni. Un
+//  aggiornamento riavvia sempre iStudio, quindi ogni aggiornamento buttava
+//  fuori tutti — e il tablet della sala non se ne accorgeva nemmeno: le sue
+//  richieste tornavano 401, la pagina le ingoiava in silenzio e continuava a
+//  mostrare l'elenco di prima. Fermo. Senza dirlo a nessuno.
+//  La Map resta come cassetto veloce; la verità sta nell'archivio.
+const sessions = new Map();          // piattaforma: token -> scadenza
+const sessioniSala = new Map();      // sala:        token -> scadenza
+
+function ricordaSessione(dove, token, scadenza) {
+  (dove === 'sala' ? sessioniSala : sessions).set(token, scadenza);
+  try {
+    db.prepare('INSERT INTO sessioni (token, dove, scade_at) VALUES (?, ?, ?) '
+      + 'ON CONFLICT(token) DO UPDATE SET scade_at = excluded.scade_at').run(token, dove, scadenza);
+  } catch {}
+}
+
+function scordaSessione(dove, token) {
+  (dove === 'sala' ? sessioniSala : sessions).delete(token);
+  try { db.prepare('DELETE FROM sessioni WHERE token = ?').run(token); } catch {}
+}
+
+// All'accensione si rilegge chi era già entrato, e si buttano le scadute: senza
+// la pulizia, in tre anni la tabella diventerebbe un elenco di token morti.
+try {
+  db.prepare('DELETE FROM sessioni WHERE scade_at < ?').run(Date.now());
+  for (const r of db.prepare('SELECT token, dove, scade_at FROM sessioni').all()) {
+    (r.dove === 'sala' ? sessioniSala : sessions).set(r.token, Number(r.scade_at));
+  }
+} catch {}
 
 function getSessionToken(req) {
   const cookie = req.headers.cookie || '';
@@ -1243,7 +1288,7 @@ function isAuthed(req) {
   const token = getSessionToken(req);
   if (!token) return false;
   const expiry = sessions.get(token);
-  if (!expiry || expiry < Date.now()) { sessions.delete(token); return false; }
+  if (!expiry || expiry < Date.now()) { scordaSessione('piattaforma', token); return false; }
   return true;
 }
 
@@ -1320,7 +1365,7 @@ app.post('/api/login', (req, res) => {
   const valida = tentativo.length === attesa.length && crypto.timingSafeEqual(tentativo, attesa);
   if (!valida) return res.status(401).json({ error: 'Password errata' });
   const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, Date.now() + SESSION_TTL);
+  ricordaSessione('piattaforma', token, Date.now() + SESSION_TTL);
   res.setHeader('Set-Cookie',
     `istudio_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL / 1000}`);
   res.json({ ok: true });
@@ -1406,7 +1451,9 @@ app.get('/api/status', (req, res) => {
 // Uscita dalla piattaforma (chiude la sessione di accesso, solo con password attiva)
 app.post('/api/app-logout', (req, res) => {
   const token = getSessionToken(req);
-  if (token) sessions.delete(token);
+  // Anche dall'archivio, sennò «Esci» chiuderebbe la sessione solo fino al
+  // prossimo riavvio e poi si rientrerebbe da soli.
+  if (token) scordaSessione('piattaforma', token);
   res.setHeader('Set-Cookie', 'istudio_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
   res.json({ ok: true });
 });
@@ -5505,7 +5552,13 @@ const rottaServizio = (req, res) => {
 const rottaVersionePrenotazioni = (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const r = db.prepare("SELECT value FROM settings WHERE key = 'prenotazioni_versione'").get();
-  res.json({ versione: Number((r && r.value) || 0) });
+  // ⚠️ Insieme al contatore delle prenotazioni viaggia anche il numero di
+  // versione del PROGRAMMA. Non c'entrano niente l'uno con l'altro, ma questa
+  // richiesta la sala la fa già ogni quattro secondi: attaccarci un campo costa
+  // zero richieste in più, e le fa scoprire in quattro secondi di essere
+  // vecchia invece che in cinque minuti. Sul tablet del bancone, cinque minuti
+  // con una pagina vecchia sono cinque minuti di conti sbagliati.
+  res.json({ versione: Number((r && r.value) || 0), programma: versioneInstallata() });
 };
 app.get('/api/bot/prenotazioni/versione', rottaVersionePrenotazioni);
 
@@ -6279,7 +6332,6 @@ app.listen(PORT, () => {
 // che servono. Quello che non è servito non è raggiungibile, qualunque cosa si
 // scriva nella barra.
 const PORT_SALA = Number(process.env.ISTUDIO_PORT_SALA || 0) || PORT + 1;
-const sessioniSala = new Map();      // token -> scadenza
 
 const paginaAccessoSala = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sala — Accesso</title>\n<link rel="icon" href="/comune/icona.svg" type="image/svg+xml">
@@ -6306,7 +6358,7 @@ function salaAutenticato(req) {
   const m = cookie.match(/(?:^|;\s*)istudio_sala=([a-f0-9]+)/);
   if (!m) return false;
   const scadenza = sessioniSala.get(m[1]);
-  if (!scadenza || scadenza < Date.now()) { sessioniSala.delete(m[1]); return false; }
+  if (!scadenza || scadenza < Date.now()) { scordaSessione('sala', m[1]); return false; }
   return true;
 }
 
@@ -6386,7 +6438,7 @@ sala.post('/api/sala/accesso', (req, res) => {
   const token = crypto.randomBytes(32).toString('hex');
   // Trenta giorni: il tablet della sala non deve chiedere la password ogni
   // sera, o dopo una settimana qualcuno la scrive su un foglietto al bancone.
-  sessioniSala.set(token, Date.now() + SESSION_TTL);
+  ricordaSessione('sala', token, Date.now() + SESSION_TTL);
   res.setHeader('Set-Cookie',
     `istudio_sala=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL / 1000}`);
   res.json({ ok: true });

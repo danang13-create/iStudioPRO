@@ -325,9 +325,16 @@
 </style>
 </head>
 <body>
+<!-- ⚠️ In sala non basta avvisare. Il tablet sta sul bancone, chi passa ha le
+     mani occupate, e un tasto da premere per una cosa che non sembra urgente
+     non lo preme nessuno: la pagina restava vecchia per giorni. Qui si avvisa
+     E ci si ricarica da soli, ma solo quando non si porta via niente a
+     nessuno — pannello chiuso e nessuno che stia scrivendo. Il conto alla
+     rovescia si vede, così non è mai una sorpresa. -->
 <div id="pagina-vecchia" hidden>
   <span>Questa pagina è di una versione precedente.</span>
-  <button type="button" id="pagina-ricarica">Ricarica</button>
+  <span id="pagina-fra"></span>
+  <button type="button" id="pagina-ricarica">Ricarica adesso</button>
 </div>
 <header>
   <h1>Prenotazioni</h1>
@@ -758,7 +765,58 @@ function mostraVersione(versioneServer) {
 function guardaSeVecchia(versioneServer) {
   if (!versioneServer || VERSIONE_PAGINA === SEGNAPOSTO) return;
   const avviso = $('#pagina-vecchia');
-  if (avviso) avviso.hidden = versioneServer === VERSIONE_PAGINA;
+  if (!avviso) return;
+  const vecchia = versioneServer !== VERSIONE_PAGINA;
+  avviso.hidden = !vecchia;
+  if (vecchia) avviaRicaricaDaSola();
+}
+
+// ---------------------------------------------------------------------------
+//  La ricarica da sola
+// ---------------------------------------------------------------------------
+//  ⚠️ Ricaricare sotto le dita di qualcuno è l'unico danno vero che questa
+//  pagina possa fare: si porta via una prenotazione scritta a metà. Perciò il
+//  conto scende SOLO quando non c'è niente da perdere — pannello chiuso,
+//  nessun campo in mano — e si ferma appena qualcuno comincia a scrivere,
+//  ripartendo da capo quando ha finito. Su un tablet fermo sul bancone la
+//  pagina si aggiorna da sola in mezzo minuto; su uno in uso, quando si può.
+const SECONDI_PRIMA_DI_RICARICARE = 30;
+let quantiMancano = SECONDI_PRIMA_DI_RICARICARE;
+let orologioRicarica = null;
+// I due motivi per cui questa pagina si ricarica da sola dicono cose diverse a
+// chi legge: «mi aggiorno» quando è uscita una versione, «rientro» quando il
+// tablet è stato disconnesso. Un conto alla rovescia che non dice cosa sta per
+// succedere si legge come un errore.
+let motivoRicarica = 'versione';
+
+function siPuoRicaricare() {
+  if (pannelloAperto() || scrivendoUnTavolo()) return false;
+  // Qualunque campo in mano vale come «sto scrivendo», non solo quello del tavolo.
+  const a = document.activeElement;
+  return !(a && a.matches && a.matches('input, textarea, select'));
+}
+
+function avviaRicaricaDaSola() {
+  if (orologioRicarica) return;                 // già avviato: non si riparte da capo
+  orologioRicarica = setInterval(() => {
+    if (!siPuoRicaricare()) {
+      // Si aspetta, e si riparte da capo: chi ha appena finito di scrivere non
+      // deve vedersi ricaricare la pagina un secondo dopo.
+      quantiMancano = SECONDI_PRIMA_DI_RICARICARE;
+      const fra = $('#pagina-fra');
+      if (fra) fra.textContent = motivoRicarica === 'sessione'
+        ? '— rientro appena hai finito' : '— si aggiorna appena hai finito';
+      return;
+    }
+    quantiMancano--;
+    const fra = $('#pagina-fra');
+    if (fra) {
+      if (quantiMancano <= 0) fra.textContent = motivoRicarica === 'sessione' ? '— rientro…' : '— mi aggiorno…';
+      else fra.textContent = motivoRicarica === 'sessione'
+        ? `— rientro fra ${quantiMancano}s` : `— si aggiorna da sola fra ${quantiMancano}s`;
+    }
+    if (quantiMancano <= 0) { clearInterval(orologioRicarica); location.reload(); }
+  }, 1000);
 }
 
 $('#pagina-ricarica').addEventListener('click', () => location.reload());
@@ -1033,20 +1091,49 @@ async function ricaricaTutto({ dillo } = {}) {
   }
 }
 
+// Torna tutte e due le cose che quella richiesta porta: il contatore delle
+// prenotazioni e il numero di versione del programma. Sono due domande diverse
+// con una risposta sola, perché è una richiesta che si fa già.
 async function leggiVersione() {
   try {
     const r = await fetch('/api/bot/prenotazioni/versione');
-    if (!r.ok) return null;               // sessione scaduta o bot fermo: si riproverà
-    return (await r.json()).versione;
+    // ⚠️ 401 = questo tablet non è più dentro. Prima si tornava «null» e la
+    // pagina taceva: restava lì con l'elenco di prima, fermo, e in sala vuol
+    // dire leggere le prenotazioni di ieri credendo che siano di stasera.
+    // Adesso lo dice, e torna alla richiesta della password appena si può.
+    if (r.status === 401) { sessioneFinita(); return null; }
+    if (!r.ok) return null;               // bot fermo o sala spenta: si riproverà
+    return await r.json();
   } catch { return null; }                // rete che balla: si riproverà fra quattro secondi
+}
+
+// La sessione è finita: si avvisa e si torna al cancello. Con le stesse
+// cautele della ricarica per versione nuova — mai sotto le dita di qualcuno.
+let sessioneGiaFinita = false;
+function sessioneFinita() {
+  if (sessioneGiaFinita) return;
+  sessioneGiaFinita = true;
+  const avviso = $('#pagina-vecchia');
+  if (avviso) {
+    avviso.querySelector('span').textContent = 'Questo tablet è stato disconnesso: quello che vedi non si aggiorna più.';
+    avviso.hidden = false;
+  }
+  const tasto = $('#pagina-ricarica');
+  if (tasto) tasto.textContent = 'Rientra adesso';
+  motivoRicarica = 'sessione';
+  avviaRicaricaDaSola();
 }
 
 async function guardaSeCambiato() {
   // Schermo spento o pagina in secondo piano: non si chiede niente. Su un
   // tablet lasciato acceso tutto il giorno sono migliaia di richieste inutili.
   if (document.hidden) return;
-  const versione = await leggiVersione();
-  if (versione === null) return;
+  const d = await leggiVersione();
+  if (d === null) return;
+  // ⚠️ Il numero del programma viaggia con questa stessa risposta: la sala si
+  // accorge di essere vecchia in quattro secondi invece che in cinque minuti.
+  mostraVersione(d.programma);
+  const versione = d.versione;
   // ⚠️ Il riferimento si fissa all'APERTURA, non al primo controllo: fissarlo
   // qui vorrebbe dire ingoiare tutto quello che è arrivato nei primi secondi —
   // e quella prenotazione non comparirebbe mai, senza che nessuno lo sappia.
@@ -1081,9 +1168,10 @@ function ricaricaSeNonScrive() {
 
 setInterval(guardaSeCambiato, OGNI);
 
-// La versione del programma si guarda ogni cinque minuti, non ogni quattro
-// secondi: cambia una volta al mese, e il tablet resta acceso per giorni. È
-// l'unico modo perché una pagina lasciata aperta si accorga di essere vecchia.
+// ⚠️ RIPIEGO, non la strada principale. Il numero di versione arriva ormai col
+// controllo dei quattro secondi. Ma quella rotta risponde 503 quando il bot è
+// spento, e allora resta solo questa: senza, una sala con il bot fermo non si
+// accorgerebbe mai di essere vecchia.
 setInterval(async () => {
   try {
     const s = await (await fetch('/api/sala/stato')).json();
@@ -1105,7 +1193,7 @@ window.addEventListener('focus', guardaSeCambiato);
   await caricaGiorno();
   await Planning.carica(opzioniPlanning());
   // Da qui in poi ogni cambiamento è roba nuova da mostrare.
-  versioneVista = await leggiVersione();
+  versioneVista = (await leggiVersione() || {}).versione ?? null;
 })();
 </script>
 </body>
