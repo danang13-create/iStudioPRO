@@ -632,13 +632,18 @@
   <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
     <!-- Le spie WhatsApp ed Email stavano qui. Tolte: lo stato dei tre servizi si
          legge già nella Dashboard, in alto, scritto per esteso e più chiaro. -->
-    <!-- Profilo: compare solo sulle copie con abbonamento (lo mostra mostraAvvisoAbbonamento) -->
-    <button class="badge" id="badge-profilo" title="Il tuo abbonamento" style="display:none">
+    <!-- ⚠️ Qui c'era anche «Esci», e su un telefono le due pillole mangiavano
+         mezza intestazione accanto al nome del locale. «Esci» si preme una volta
+         al giorno, «Profilo» quasi mai: nessuno dei due merita quel posto fisso.
+         Adesso «Esci» sta DENTRO la scheda Profilo, che è dove sta la roba di
+         account, e in alto resta una pillola sola.
+         Profilo compare se c'è un abbonamento OPPURE se c'è una password: in
+         quest'ultimo caso è l'unico modo di uscire, e non deve poter sparire. -->
+    <button class="badge" id="badge-profilo" title="Il tuo abbonamento e l'uscita" style="display:none">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="#fff" aria-hidden="true">
         <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z"/>
       </svg><span>Profilo</span>
     </button>
-    <button class="badge" id="btn-esci" title="Esci dalla piattaforma" style="display:none">🚪 Esci</button>
   </div>
 </header>
 <nav id="nav-principale">
@@ -659,6 +664,7 @@
   <!-- IMPOSTAZIONI -->
   <!-- PROFILO — solo sulle copie con abbonamento -->
   <section id="scheda-profilo" class="scheda">
+    <div id="profilo-abbonamento" style="display:none">
     <div class="card">
       <h2>Il tuo abbonamento</h2>
       <div class="dettagli" id="profilo-dati"><p class="vuoto">Caricamento…</p></div>
@@ -696,6 +702,21 @@
         <button class="btn" id="btn-rinnova">Attiva il seriale</button>
       </div>
       <div id="profilo-esito" style="margin-top:10px;font-size:.9rem"></div>
+    </div>
+    </div>
+
+    <!-- L'uscita. Sta qui e non più in alto: è roba di account, come il resto di
+         questa scheda, e in alto rubava spazio al nome del locale su ogni
+         schermo stretto. Compare solo se la piattaforma ha una password: senza,
+         non c'è nessuna sessione da chiudere. -->
+    <div class="card" id="profilo-accesso" style="display:none">
+      <h2>Accesso</h2>
+      <p class="conteggio" style="margin-top:0">Chiude la sessione su questo browser.
+        Per rientrare servirà di nuovo la password. iStudio resta accesa e il bot
+        continua a rispondere: esci tu, non il programma.</p>
+      <div style="margin-top:10px">
+        <button class="btn" id="btn-esci">🚪 Esci</button>
+      </div>
     </div>
   </section>
 
@@ -2278,7 +2299,6 @@ function mostraAvvisoAbbonamento(dati) {
   // fa comparire «Profilo» nel menu. Sulle copie senza, `dati` è null e non compare.
   if (dati && !profiloAttivo) {
     profiloAttivo = true;
-    $('#badge-profilo').style.display = 'flex';
     aggiornaProfilo();
   }
   const esistente = document.getElementById('fascia-abbonamento');
@@ -2314,7 +2334,12 @@ async function aggiornaStato() {
   try {
     const s = await (await fetch('/api/status')).json();
     // Va impostato sempre, anche quando il riquadro non si ridisegna.
-    $('#btn-esci').style.display = s.authEnabled ? 'flex' : 'none';
+    // La pillola «Profilo» serve se c'è un abbonamento da guardare OPPURE se c'è
+    // una password: in quel caso è l'unica strada per uscire, e se sparisse non
+    // ci sarebbe più modo di chiudere la sessione.
+    $('#badge-profilo').style.display = (s.authEnabled || s.abbonamento) ? 'flex' : 'none';
+    $('#profilo-accesso').style.display = s.authEnabled ? '' : 'none';
+    $('#profilo-abbonamento').style.display = s.abbonamento ? '' : 'none';
     mostraAvvisoAbbonamento(s.abbonamento);
     // PRO sulle copie dei clienti, MASTER su quella di lavoro. Si imposta a ogni giro
     // ma il valore non cambia mai a programma acceso: costa nulla e non richiede un
