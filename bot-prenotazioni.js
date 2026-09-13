@@ -564,6 +564,10 @@ const PREDEFINITI = {
   // cosa sta facendo, non trovata già aperta.
   bot_sala_attiva: 'false',
   bot_sala_password: '',
+  // Come si vede il tablet: 'chiaro', 'scuro' oppure 'auto' (segue il tablet,
+  // che di sera passa allo scuro da solo). La sera uno schermo bianco acceso
+  // sul bancone dà fastidio a chi sta in sala e si vede dal tavolo accanto.
+  bot_sala_tema: 'chiaro',
 
   // Recensioni
   bot_recensione_attiva: 'false',

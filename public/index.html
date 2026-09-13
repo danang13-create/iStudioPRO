@@ -1624,6 +1624,14 @@
           <input id="cfg-bot_sala_password" autocomplete="off" placeholder="una password diversa dalla tua">
           <span class="conteggio" style="margin:0">Senza password la pagina resta chiusa, anche con l'interruttore acceso. Tienila diversa da quella della piattaforma: il tablet della sala è il dispositivo meno protetto del locale.</span>
         </label>
+        <label style="display:block;margin-top:12px">Come si vede il tablet
+          <select id="cfg-bot_sala_tema" autocomplete="off" style="width:auto">
+            <option value="chiaro">Chiara</option>
+            <option value="scuro">Scura</option>
+            <option value="auto">Automatica</option>
+          </select>
+          <span class="conteggio" style="margin:0">La sera uno schermo bianco acceso sul bancone dà fastidio, e si vede dal tavolo accanto. «Automatica» segue il tablet, che di sera passa allo scuro da solo. Vale per tutti i tablet del locale e si applica entro cinque minuti, senza riaprire niente.</span>
+        </label>
         <p class="conteggio" style="margin:8px 0 0" id="sala-indirizzo"></p>
         <p class="conteggio" style="margin:4px 0 0">
           Da lì si vedono <b>solo</b> le prenotazioni: si guarda il planning, si aggiunge, si sposta,
@@ -3934,7 +3942,7 @@ setInterval(caricaRichiesteCancellazione, 2 * 60 * 1000);
 const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_turni_cena', 'bot_turni_pranzo', 'bot_coperti_turno',
   'bot_durata_tavolo', 'bot_max_persone', 'bot_coperti_liberi', 'bot_preavviso_ore',
   'bot_recensione_link', 'bot_recensione_giorni', 'bot_recensione_ora',
-  'bot_recensione_max', 'bot_promemoria_ora', 'bot_promemoria_giorni', 'bot_sala_password',
+  'bot_recensione_max', 'bot_promemoria_ora', 'bot_promemoria_giorni', 'bot_sala_password', 'bot_sala_tema',
   'bot_pagamento_prezzo', 'bot_pagamento_modo', 'bot_pagamento_percentuale',
   'bot_pagamento_minuti', 'bot_pagamento_obbligatorio', 'bot_pagamento_chiave', 'bot_pagamento_ritorno',
   'bot_lista_attesa', 'bot_attesa_minuti',

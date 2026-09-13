@@ -22,11 +22,73 @@
 <style>
   /* Gli stessi colori della piattaforma: chi passa dall'una all'altra deve
      riconoscere lo stesso programma, non trovarsi davanti un'altra cosa. */
+  /* ------------------------------------------------------------------
+     I due temi
+     ------------------------------------------------------------------
+     La sera un tablet bianco acceso sul bancone dà fastidio a chi sta in
+     sala e si vede dal tavolo accanto. Qui ci sono tre modi: chiaro, scuro,
+     e automatico — che segue quello che il tablet fa già da solo la sera.
+
+     ⚠️ Tutti i colori passano da queste variabili. Un colore scritto a mano
+     dentro una regola resta chiaro anche col tema scuro, e si vede subito:
+     è un rettangolo bianco in mezzo a una pagina nera. Se serve un colore
+     nuovo, si aggiunge qui e si dà il suo valore anche allo scuro.
+     ⚠️ E i nomi dicono il MESTIERE, non il colore: «--carta» è la superficie
+     di una scheda, che nel tema chiaro è bianca e nello scuro no. Chiamarla
+     «--bianco» era giusto finché il tema era uno solo. */
   :root {
-    --verde: #25d366; --verde-scuro: #128c7e; --sfondo: #f0f2f5;
-    --bianco: #ffffff; --testo: #111b21; --grigio: #667781;
+    --verde: #25d366; --verde-scuro: #128c7e; --verde-premuto: #0f7a6d;
+    --sfondo: #f0f2f5; --carta: #ffffff; --testo: #111b21; --grigio: #667781;
     --rosso: #ea4335; --bordo: #e0e4e8;
+    --oggi: #eafff2;              /* il giorno di oggi, e il verde appena acceso */
+    --avviso-fondo: #fff4e5; --avviso-bordo: #ffd8a8;
+    --nota-fondo: #fff4d6; --nota-testo: #5a4212; --nota-bordo: #e6d3a3;
+    --ombra: rgba(0,0,0,.28);
+    /* ⚠️ Il toast è «al contrario»: fondo scuro su pagina chiara. Scritto come
+       «background: var(--testo)» funzionava con un tema solo; col tema scuro
+       --testo diventa chiaro, e sarebbe scritta bianca su fondo bianco. */
+    --toast-fondo: #111b21; --toast-testo: #ffffff;
+    /* Il cartello «prenotazione nuova»: chiaro, non un blocco di verde pieno. */
+    --arrivo-fondo: #eafff2; --arrivo-testo: #0b3d2c; --arrivo-bordo: #128c7e;
+    /* Le usa anche «comune/planning.css», che è condiviso con la piattaforma:
+       là non sono definite e valgono i valori di prima. */
+    --meter-fondo: #cdeedd; --quasi: #ffb300;
+    --allarme: #b26a00; --allarme-fondo: #fff8e6;
   }
+  /* Scuro scelto a mano. */
+  :root[data-tema="scuro"] {
+    --verde: #2bd66b; --verde-scuro: #0e6b61; --verde-premuto: #0a554d;
+    --sfondo: #10171c; --carta: #1a232a; --testo: #e6edf3; --grigio: #9bacb8;
+    --rosso: #ff6b5e; --bordo: #2b3740;
+    --oggi: #12332a;
+    --avviso-fondo: #3a2d18; --avviso-bordo: #6b5220;
+    --nota-fondo: #3a2f14; --nota-testo: #f0dfb0; --nota-bordo: #6b5a24;
+    --ombra: rgba(0,0,0,.6);
+    --toast-fondo: #e6edf3; --toast-testo: #10171c;
+    --arrivo-fondo: #12332a; --arrivo-testo: #d7f5e4; --arrivo-bordo: #2bd66b;
+    --meter-fondo: #22403a; --quasi: #d99400;
+    --allarme: #f0a33a; --allarme-fondo: #3a2d18;
+  }
+  /* Automatico: si fa dire dal tablet se è ora. */
+  @media (prefers-color-scheme: dark) {
+    :root[data-tema="auto"] {
+      --verde: #2bd66b; --verde-scuro: #0e6b61; --verde-premuto: #0a554d;
+      --sfondo: #10171c; --carta: #1a232a; --testo: #e6edf3; --grigio: #9bacb8;
+      --rosso: #ff6b5e; --bordo: #2b3740;
+      --oggi: #12332a;
+      --avviso-fondo: #3a2d18; --avviso-bordo: #6b5220;
+      --nota-fondo: #3a2f14; --nota-testo: #f0dfb0; --nota-bordo: #6b5a24;
+      --ombra: rgba(0,0,0,.6);
+    --toast-fondo: #e6edf3; --toast-testo: #10171c;
+    --arrivo-fondo: #12332a; --arrivo-testo: #d7f5e4; --arrivo-bordo: #2bd66b;
+    --meter-fondo: #22403a; --quasi: #d99400;
+    --allarme: #f0a33a; --allarme-fondo: #3a2d18;
+    }
+  }
+  /* Perché i campi, le tendine e le barre di scorrimento del browser seguano. */
+  :root[data-tema="scuro"] { color-scheme: dark; }
+  :root[data-tema="chiaro"] { color-scheme: light; }
+  :root[data-tema="auto"] { color-scheme: light dark; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   /* Il doppio tocco su un pulsante, su iPhone, ingrandisce la pagina: si tocca
      due volte di fretta e ci si ritrova la pagina zoomata storta. Su ciò che si
@@ -42,7 +104,7 @@
   main { max-width: 1000px; margin: 0 auto;
          padding: 18px 16px calc(60px + env(safe-area-inset-bottom)); }
   header { padding-top: calc(14px + env(safe-area-inset-top)); }
-  .card { background: var(--bianco); border: 1px solid var(--bordo); border-radius: 12px;
+  .card { background: var(--carta); border: 1px solid var(--bordo); border-radius: 12px;
           padding: 18px; margin-bottom: 16px; }
   h2 { font-size: 1rem; margin-bottom: 12px; }
   .riga-strumenti { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -60,14 +122,14 @@
      usa più di tutti. */
   .btn { background: var(--verde-scuro); color: #fff; border: none; border-radius: 9px;
          padding: 11px 16px; font-size: .95rem; font-weight: 600; cursor: pointer; }
-  .btn:hover { background: #0f7a6d; }
-  header .btn { background: var(--bianco); color: var(--verde-scuro); }
-  header .btn:hover { background: #eafff2; }
+  .btn:hover { background: var(--verde-premuto); }
+  header .btn { background: var(--carta); color: var(--verde-scuro); }
+  header .btn:hover { background: var(--oggi); }
   /* Chi usa la tastiera — o un tablet con tastiera — deve vedere dov'è. */
   button:focus-visible, .matita:focus-visible, .chi-tocca:focus-visible {
     outline: 2px solid var(--verde); outline-offset: 2px; }
   .btn:disabled { opacity: .5; cursor: default; }
-  .btn-secondario { background: var(--bianco); color: var(--testo); border: 1px solid var(--bordo); }
+  .btn-secondario { background: var(--carta); color: var(--testo); border: 1px solid var(--bordo); }
   .btn-secondario:hover { background: var(--sfondo); color: var(--testo); }
   .btn-piccolo { padding: 7px 12px; font-size: .88rem; }
   /* ⚠️ La sala si usa col dito, sempre: qui non c'era nessuna regola per il
@@ -83,7 +145,7 @@
   }
   input, select, textarea { width: 100%; padding: 11px; border: 1px solid var(--bordo);
                             border-radius: 9px; font-size: 1rem; font-family: inherit;
-                            background: var(--bianco); color: var(--testo);
+                            background: var(--carta); color: var(--testo);
                             /* Il campo della data porta con sé il pulsantino del
                                calendario ed è più alto degli altri: con l'altezza
                                di riga scritta, i bordi dei campi affiancati
@@ -138,7 +200,7 @@
      nome del cliente dentro. */
   .matita {
     flex: 0 0 auto; width: 44px; height: 44px; border-radius: 10px;
-    border: 1px solid var(--bordo); background: var(--bianco); color: var(--grigio);
+    border: 1px solid var(--bordo); background: var(--carta); color: var(--grigio);
     display: flex; align-items: center; justify-content: center; cursor: pointer;
     margin-left: auto;
   }
@@ -182,7 +244,7 @@
      pannello: sembrava che la pagina fosse tagliata. */
   .velo .card > h2 {
     position: sticky; top: 0; z-index: 1; margin: 0 -18px 14px;
-    padding: 16px 18px 12px; background: var(--bianco);
+    padding: 16px 18px 12px; background: var(--carta);
     border-bottom: 1px solid var(--bordo); border-radius: 14px 14px 0 0;
   }
   .griglia2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -242,7 +304,7 @@
     .pann-tasti { margin: 0 -14px; padding: 12px 14px 0; }
     .pann-tasti .btn { flex: 1; min-height: 48px; }
   }
-  .avviso { background: #fff4e5; border: 1px solid #ffd8a8; border-radius: 9px;
+  .avviso { background: var(--avviso-fondo); border: 1px solid var(--avviso-bordo); border-radius: 9px;
             padding: 10px 12px; font-size: .88rem; }
   @media (max-width: 520px) {
     /* Il tasto che si usa di più prende tutta la riga: in sala si preme col
@@ -282,7 +344,7 @@
   .cli-nota { display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 10px;
               border-radius: 999px; background: var(--sfondo); font-size: .84rem; }
   /* Quella che torna più volte è un fatto, non la nota di una sera. */
-  .cli-nota.torna { background: #fff4d6; }
+  .cli-nota.torna { background: var(--nota-fondo); }
   .cli-nota b { font-weight: 600; font-size: .76rem; color: var(--grigio); }
   .sto-titolo { display: flex; align-items: baseline; justify-content: space-between;
                 gap: 10px; margin: 14px 0 4px; }
@@ -311,11 +373,11 @@
   #pagina-vecchia[hidden] { display: none; }
   #pagina-vecchia {
     position: sticky; top: 0; z-index: 200; display: flex; gap: 12px; align-items: center;
-    flex-wrap: wrap; justify-content: center; background: #fff4d6; color: #5a4212;
-    border-bottom: 1px solid #e6d3a3; padding: 10px 14px; font-size: .88rem;
+    flex-wrap: wrap; justify-content: center; background: var(--nota-fondo); color: var(--nota-testo);
+    border-bottom: 1px solid var(--nota-bordo); padding: 10px 14px; font-size: .88rem;
   }
   #pagina-vecchia button {
-    border: 1px solid #b8933f; background: #fff; color: #5a4212; border-radius: 8px;
+    border: 1px solid var(--nota-bordo); background: var(--carta); color: var(--nota-testo); border-radius: 8px;
     padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer; min-height: 44px;
   }
   /* ⚠️ L'avviso di una prenotazione nuova NON è un toast. Il toast durava 2,6
@@ -327,10 +389,10 @@
   #arrivate[hidden] { display: none; }
   #arrivate {
     position: fixed; left: 50%; transform: translateX(-50%); top: 12px; z-index: 120;
-    background: var(--verde); color: #fff; border-radius: 14px;
-    border: 3px solid #fff;
+    background: var(--arrivo-fondo); color: var(--arrivo-testo); border-radius: 14px;
+    border: 2px solid var(--arrivo-bordo);
     padding: 14px 20px; min-width: 260px; max-width: calc(100vw - 24px);
-    box-shadow: 0 8px 26px rgba(0,0,0,.32); cursor: pointer;
+    box-shadow: 0 8px 26px var(--ombra); cursor: pointer;
     font-size: 1.05rem; text-align: center; line-height: 1.45;
   }
   #arrivate b { font-weight: 700; }
@@ -338,10 +400,24 @@
   #arrivate .via { display: block; font-size: .8rem; opacity: .85; margin-top: 7px; }
   @media (max-width: 520px) { #arrivate { left: 12px; right: 12px; transform: none; min-width: 0; } }
   #toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
-           background: var(--testo); color: #fff; padding: 12px 20px; border-radius: 9px;
+           background: var(--toast-fondo); color: var(--toast-testo); padding: 12px 20px; border-radius: 9px;
            opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 90; }
   #toast.visibile { opacity: 1; }
 </style>
+<script>
+// ⚠️ Questo pezzo sta QUI, prima del corpo della pagina, e non in fondo con
+// tutto il resto: se il tema si applicasse dopo, un tablet in sala di sera
+// sparerebbe mezzo secondo di schermo bianco a ogni apertura. Che è esattamente
+// il fastidio da cui nasce questa impostazione.
+// Il valore vero lo decide la piattaforma e arriva col primo stato; qui si usa
+// l'ultimo conosciuto, tenuto sul tablet, così la prima pennellata è già giusta.
+(function () {
+  try {
+    var t = localStorage.getItem('istudio_tema');
+    document.documentElement.dataset.tema = (t === 'scuro' || t === 'chiaro' || t === 'auto') ? t : 'chiaro';
+  } catch (e) { document.documentElement.dataset.tema = 'chiaro'; }
+})();
+</script>
 </head>
 <body>
 <!-- ⚠️ In sala non basta avvisare. Il tablet sta sul bancone, chi passa ha le
@@ -787,6 +863,15 @@ const SEGNAPOSTO = '__' + 'VERSIONE__';
 // Il numero in fondo alla pagina e l'avviso «questa pagina è vecchia» si
 // aggiornano insieme, dallo stesso dato: due chiamate separate si
 // dimenticherebbero l'una dell'altra.
+// Il tema lo decide la piattaforma, in «Impostazioni»: vale per tutti i tablet
+// del locale, che è quello che serve — non si va a sistemare tablet per tablet.
+// «auto» vuol dire «fai come fa il tablet», che di sera passa da solo allo scuro.
+function applicaTema(tema) {
+  const buono = (tema === 'scuro' || tema === 'chiaro' || tema === 'auto') ? tema : 'chiaro';
+  document.documentElement.dataset.tema = buono;
+  try { localStorage.setItem('istudio_tema', buono); } catch (e) {}
+}
+
 function mostraVersione(versioneServer) {
   const piede = document.getElementById('pie-versione');
   if (piede && versioneServer) piede.textContent = 'iStudio — versione ' + versioneServer;
@@ -1229,6 +1314,7 @@ setInterval(async () => {
   try {
     const s = await (await fetch('/api/sala/stato')).json();
     mostraVersione(s.versione);
+    applicaTema(s.tema);   // cambiato dalla piattaforma: si adegua senza riaprire
   } catch {}
 }, 5 * 60 * 1000);
 // Il tablet che si risveglia deve mostrare la situazione di ADESSO, non quella
@@ -1241,6 +1327,7 @@ window.addEventListener('focus', guardaSeCambiato);
   try {
     const s = await (await fetch('/api/sala/stato')).json();
     $('#quale-locale').textContent = s.locale || '';
+    applicaTema(s.tema);
     mostraVersione(s.versione);
   } catch {}
   await caricaGiorno();

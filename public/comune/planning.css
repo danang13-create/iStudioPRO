@@ -21,8 +21,8 @@
     display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px;
     scroll-snap-type: x proximity; scrollbar-width: none;
     background-image:
-      linear-gradient(to right, var(--bianco, #fff) 40%, rgba(255,255,255,0)),
-      linear-gradient(to left, var(--bianco, #fff) 40%, rgba(255,255,255,0)),
+      linear-gradient(to right, var(--carta, #fff) 40%, transparent),
+      linear-gradient(to left, var(--carta, #fff) 40%, transparent),
       radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.16), transparent),
       radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.16), transparent);
     background-position: 0 0, 100% 0, 0 0, 100% 0;
@@ -39,16 +39,16 @@
   display: flex; flex-direction: column; gap: 6px; min-height: 104px;
 }
 .giorno:hover { border-color: var(--verde); }
-.giorno.oggi { border-color: var(--verde-scuro); background: #eafff2; }
+.giorno.oggi { border-color: var(--verde-scuro); background: var(--oggi, #eafff2); }
 .giorno.chiuso { opacity: .55; cursor: pointer; }
 .giorno.passato { opacity: .5; }
 .giorno .gg { font-size: .72rem; color: var(--grigio); text-transform: uppercase; letter-spacing: .04em; }
 .giorno .num { font-size: 1.5rem; font-weight: 700; line-height: 1; }
 .giorno .sotto { font-size: .74rem; color: var(--grigio); }
 /* 4px di raggio sulle estremità del dato, come tutte le barre del sistema */
-.meter { height: 6px; border-radius: 4px; background: #cdeedd; overflow: hidden; }
+.meter { height: 6px; border-radius: 4px; background: var(--meter-fondo, #cdeedd); overflow: hidden; }
 .meter > i { display: block; height: 100%; border-radius: 4px; background: var(--verde-scuro); }
-.meter > i.quasi { background: #ffb300; }
+.meter > i.quasi { background: var(--quasi, #ffb300); }
 .meter > i.pieno { background: var(--rosso); }
 
 /* ⚠️ Sul telefono il planning si mangiava tre quarti della prima schermata:
@@ -72,6 +72,6 @@
 /* Un giorno chiuso in cui però c'è gente prenotata: non è «chiuso» e basta, ed
    è l'unico caso in cui una giornata chiusa va guardata. Il colore da solo non
    basterebbe (e non deve bastare): la scritta dice già «chiuso, ma N pren.». */
-.giorno.chiuso-con-gente { opacity: 1; border-color: #b26a00; background: #fff8e6; }
-.giorno.chiuso-con-gente .num { color: #b26a00; }
-.giorno.chiuso-con-gente .sotto:last-child { color: #b26a00; font-weight: 600; }
+.giorno.chiuso-con-gente { opacity: 1; border-color: var(--allarme, #b26a00); background: var(--allarme-fondo, #fff8e6); }
+.giorno.chiuso-con-gente .num { color: var(--allarme, #b26a00); }
+.giorno.chiuso-con-gente .sotto:last-child { color: var(--allarme, #b26a00); font-weight: 600; }

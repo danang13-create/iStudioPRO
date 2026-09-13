@@ -6490,7 +6490,8 @@ sala.use(express.static(path.join(__dirname, 'public-sala')));
 // Chi sta guardando deve sapere di quale locale sono queste prenotazioni: le
 // copie di prova e quella vera sono identiche a vedersi.
 sala.get('/api/sala/stato', (req, res) => {
-  res.json({ locale: bot.leggi(db, 'bot_locale') || '', versione: versioneInstallata() });
+  res.json({ locale: bot.leggi(db, 'bot_locale') || '', versione: versioneInstallata(),
+             tema: bot.leggi(db, 'bot_sala_tema') || 'chiaro' });
 });
 
 // ⚠️ Qui sotto ci sono SOLO le prenotazioni, e sono ESATTAMENTE gli stessi
