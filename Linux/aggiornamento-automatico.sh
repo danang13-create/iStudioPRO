@@ -94,26 +94,89 @@ fi
 
 nota "aggiorno: $VECCHIA → $NUOVA"
 
-# --- Una copia di sicurezza del programma (non dei dati) ---
-# Serve a tornare indietro se la nuova non parte. I dati non ci vanno: sono
-# già al loro posto e non vengono toccati.
+# ------------------------------------------------------------------
+#  Cosa NON si tocca — l'elenco al CONTRARIO
+# ------------------------------------------------------------------
+# ⚠️ Prima qui c'era l'elenco dritto: «copia questi file». Sembra più prudente,
+# ed è la trappola: a decidere è l'aggiornatore VECCHIO, quello già installato
+# su quel mini-PC, che le cartelle nuove non le conosce. Una versione che
+# aggiunge una cartella non arriverebbe MAI alle macchine già in giro, e il
+# guaio non si presenta come «manca una cartella»: si presenta mesi dopo, come
+# una funzione che da quel cliente non va e da tutti gli altri sì.
+# L'aggiornatore del Mac l'aveva già imparato il 6 agosto 2026, quando i comandi
+# furono divisi in «Mac» e «Windows»; qui era rimasto il modo vecchio.
+# Adesso la regola è la stessa nei due posti: si sostituisce tutto, tranne
+# quello che appartiene a QUESTA installazione.
+DA_NON_TOCCARE="data\.db|data\.db-.*|\.wwebjs_auth|\.wwebjs_cache|allegati-invii|node_modules|\.versione-precedente|aggiornamenti\.log|VERSIONE\.txt|copia-cliente\.txt|aggiornamenti-di-questo-mac\.txt|chrome-di-questo-mac\.txt|\.env|\.git"
+
+da_toccare() {   # $1 = nome
+  ! printf '%s' "$1" | grep -qE "^($DA_NON_TOCCARE)$"
+}
+
+# ------------------------------------------------------------------
+#  La copia di sicurezza (del programma, non dei dati)
+# ------------------------------------------------------------------
+# ⚠️ Prima salvava un elenco fisso più corto di quello che poi sostituiva:
+# package.json non c'era. Un ritorno indietro rimetteva il server vecchio
+# tenendosi le librerie nuove, e rilanciava npm con il package.json sbagliato.
+# Adesso mette da parte ESATTAMENTE quello che sta per cambiare, e segna anche
+# cosa prima non c'era, per poterlo togliere tornando indietro.
 RIPIEGO="$CARTELLA/.versione-precedente"
 rm -rf "$RIPIEGO"; mkdir -p "$RIPIEGO"
-for x in server.js bot-prenotazioni.js public public-sala Linux VERSIONE.txt; do
-  [ -e "$CARTELLA/$x" ] && cp -a "$CARTELLA/$x" "$RIPIEGO/" 2>/dev/null
+: > "$RIPIEGO/.aggiunti"
+for elemento in "$TMP/nuova"/* "$TMP/nuova"/.[!.]*; do
+  [ -e "$elemento" ] || continue
+  nome="$(basename "$elemento")"
+  da_toccare "$nome" || continue
+  if [ -e "$CARTELLA/$nome" ]; then
+    cp -a "$CARTELLA/$nome" "$RIPIEGO/$nome"
+  else
+    printf '%s\n' "$nome" >> "$RIPIEGO/.aggiunti"
+  fi
 done
+printf '%s\n' "$VECCHIA" > "$RIPIEGO/VERSIONE.txt"
 
-sudo systemctl stop istudio 2>/dev/null
+torna_indietro() {
+  local n x
+  while IFS= read -r n; do
+    [ -n "$n" ] && rm -rf "$CARTELLA/$n"
+  done < "$RIPIEGO/.aggiunti"
+  for x in "$RIPIEGO"/*; do
+    [ -e "$x" ] || continue
+    n="$(basename "$x")"
+    rm -rf "$CARTELLA/$n"
+    cp -a "$x" "$CARTELLA/$n"
+  done
+  (cd "$CARTELLA" && npm install --no-audit --no-fund >>"$REGISTRO" 2>&1)
+}
 
-# Solo il programma. L'elenco è esplicito: un «cp -a nuova/* .» copierebbe anche
-# quello che nel pacchetto non c'è più, e soprattutto renderebbe possibile un
-# giorno sovrascrivere data.db senza che nessuno se ne accorga.
-for x in server.js bot-prenotazioni.js package.json package-lock.json \
-         public public-sala Mac Windows Linux Installazione \
-         GUIDA.md INSTALLA-CLIENTE.md chiave-seriali-pubblica.pem VERSIONE.txt; do
-  [ -e "$TMP/nuova/$x" ] || continue
-  rm -rf "$CARTELLA/$x"
-  cp -a "$TMP/nuova/$x" "$CARTELLA/$x"
+# ------------------------------------------------------------------
+#  Si ferma il servizio — e se non ci si riesce, NON si tocca niente
+# ------------------------------------------------------------------
+# ⚠️ Prima l'esito non si guardava. Senza il permesso di fermare il servizio
+# senza password (lo scrive l'installatore in /etc/sudoers.d/istudio, e su una
+# macchina installata a mano può mancare) i file venivano sostituiti SOTTO il
+# programma acceso: la pagina rispondeva ancora — era il processo vecchio — e
+# il registro scriveva «aggiornata, risponde ✅». Una bugia, ogni notte.
+if ! sudo systemctl stop istudio 2>>"$REGISTRO"; then
+  nota "non riesco a FERMARE il servizio: non tocco niente, resto alla $VECCHIA"
+  nota "   (manca /etc/sudoers.d/istudio? serve per fermare e riavviare senza password)"
+  [ -n "$ADESSO" ] && {
+    echo "   ⚠️  Non riesco a fermare iStudio, quindi non aggiorno niente."
+    echo "      Riprova con:  sudo systemctl stop istudio"
+  }
+  exit 0
+fi
+
+# ------------------------------------------------------------------
+#  Si sostituisce il programma
+# ------------------------------------------------------------------
+for elemento in "$TMP/nuova"/* "$TMP/nuova"/.[!.]*; do
+  [ -e "$elemento" ] || continue
+  nome="$(basename "$elemento")"
+  da_toccare "$nome" || continue
+  rm -rf "$CARTELLA/$nome"
+  cp -a "$elemento" "$CARTELLA/$nome"
 done
 chmod +x "$CARTELLA/Linux/"*.sh 2>/dev/null
 
@@ -121,32 +184,64 @@ chmod +x "$CARTELLA/Linux/"*.sh 2>/dev/null
 # la versione di ieri che funziona di quella di oggi che non parte.
 if ! (cd "$CARTELLA" && npm install --no-audit --no-fund >>"$REGISTRO" 2>&1); then
   nota "npm install fallito: torno alla $VECCHIA"
-  cp -a "$RIPIEGO/." "$CARTELLA/" 2>/dev/null
-  (cd "$CARTELLA" && npm install --no-audit --no-fund >>"$REGISTRO" 2>&1)
+  torna_indietro
+  sudo systemctl start istudio 2>>"$REGISTRO"
+  [ -n "$ADESSO" ] && echo "   ⚠️  Le librerie non si sono installate: sono tornato alla $VECCHIA."
+  exit 0
 fi
 
-sudo systemctl start istudio 2>/dev/null
+sudo systemctl start istudio 2>>"$REGISTRO"
 
-# --- Risponde? ---
+# ------------------------------------------------------------------
+#  Risponde?
+# ------------------------------------------------------------------
 # ⚠️ «Il servizio è partito» non basta: node può essere vivo con dentro un
-# errore. Se la pagina non si apre entro un minuto si torna indietro da soli,
-# perché alle 5 del mattino non c'è nessuno che possa farlo.
+# errore. Si guardano TUTTE E DUE le porte — la piattaforma e la pagina della
+# sala — perché la sala gira nello stesso processo ma su un'altra porta, e una
+# delle due può non legarsi. Se non rispondono entro un minuto si torna
+# indietro da soli: alle 5 del mattino non c'è nessuno che possa farlo.
+# ISTUDIO_PORTA e ISTUDIO_ATTESA servono SOLO alle prove automatiche, che
+# fanno rispondere un finto iStudio su porte libere e non possono aspettare
+# un minuto per ogni caso. In produzione valgono i valori veri.
+PORTA="${ISTUDIO_PORTA:-3100}"
+PORTA_SALA=$((PORTA + 1))
+ATTESA="${ISTUDIO_ATTESA:-60}"
+risponde() {   # $1 = porta
+  [ "$(curl -s -o /dev/null -w '%{http_code}' -m 2 "http://127.0.0.1:$1/" 2>/dev/null)" != "000" ]
+}
 SU=""
-for i in $(seq 1 60); do
-  if [ "$(curl -s -o /dev/null -w '%{http_code}' -m 2 http://127.0.0.1:3100/ 2>/dev/null)" != "000" ]; then
-    SU="si"; break
-  fi
+for i in $(seq 1 "$ATTESA"); do
+  if risponde "$PORTA" && risponde "$PORTA_SALA"; then SU="si"; break; fi
   sleep 1
 done
 
 if [ -n "$SU" ]; then
+  printf '%s\n' "$NUOVA" > "$CARTELLA/VERSIONE.txt"
   nota "aggiornata alla $NUOVA, risponde ✅"
   [ -n "$ADESSO" ] && echo "   ✅ aggiornata: $VECCHIA → $NUOVA"
-else
-  nota "la $NUOVA non risponde: torno alla $VECCHIA"
-  sudo systemctl stop istudio 2>/dev/null
-  cp -a "$RIPIEGO/." "$CARTELLA/" 2>/dev/null
-  (cd "$CARTELLA" && npm install --no-audit --no-fund >>"$REGISTRO" 2>&1)
-  sudo systemctl start istudio 2>/dev/null
+  exit 0
+fi
+
+nota "la $NUOVA non risponde: torno alla $VECCHIA"
+sudo systemctl stop istudio 2>>"$REGISTRO"
+torna_indietro
+sudo systemctl start istudio 2>>"$REGISTRO"
+
+# ⚠️ E il ritorno indietro, ha funzionato? Prima non lo controllava nessuno: se
+# falliva anche quello, il locale restava senza bot e il registro non diceva
+# niente. Una riga che si legge è l'unica cosa che resta a chi guarda dopo.
+TORNATA=""
+for i in $(seq 1 "$ATTESA"); do
+  if risponde "$PORTA"; then TORNATA="si"; break; fi
+  sleep 1
+done
+if [ -n "$TORNATA" ]; then
+  nota "tornata alla $VECCHIA, risponde ✅"
   [ -n "$ADESSO" ] && echo "   ⚠️  La nuova versione non partiva: sono tornato alla $VECCHIA."
+else
+  nota "❌ GRAVE: né la $NUOVA né la $VECCHIA rispondono. iStudio è FERMA."
+  [ -n "$ADESSO" ] && {
+    echo "   ❌ GRAVE: iStudio non riparte, né con la nuova né con la vecchia."
+    echo "      Guarda:  bash \"$CARTELLA/Linux/Diagnostica.sh\""
+  }
 fi

@@ -89,14 +89,27 @@ else
     # Senza questo, un aggiornamento sbagliato lascerebbe il cliente con iStudio
     # morta e nessun modo di rimediare da solo.
     echo "⚠️  La versione appena scaricata non parte: torno a quella precedente…"
+    # ⚠️ Si rimette TUTTO quello che l'aggiornamento aveva cambiato, non un
+    # elenco scritto a mano. Prima l'elenco c'era, ed era più corto: mancava
+    # «bot-prenotazioni.js», cioè si tornava al server di ieri tenendosi il
+    # motore del bot di oggi — proprio il file che poteva essere la causa.
+    # Quello che la versione nuova aveva AGGIUNTO va tolto, sennò resta lì.
     BK="$ISTUDIO_DIR/.versione-precedente"
-    [ -f "$BK/server.js" ]    && cp "$BK/server.js"    "$ISTUDIO_DIR/server.js"
-    [ -f "$BK/package.json" ] && cp "$BK/package.json" "$ISTUDIO_DIR/package.json"
-    [ -f "$BK/VERSIONE.txt" ] && cp "$BK/VERSIONE.txt" "$ISTUDIO_DIR/VERSIONE.txt"
-    [ -d "$BK/public" ]       && rm -rf "$ISTUDIO_DIR/public" \
-                              && cp -R "$BK/public" "$ISTUDIO_DIR/public"
-    [ -d "$BK/public-sala" ]  && rm -rf "$ISTUDIO_DIR/public-sala" \
-                              && cp -R "$BK/public-sala" "$ISTUDIO_DIR/public-sala"
+    while IFS= read -r n; do
+      [ -n "$n" ] && rm -rf "$ISTUDIO_DIR/$n"
+    done < "$BK/.aggiunti" 2>/dev/null
+    # Si scambia col «mv», mai sovrascrivendo: questo script è dentro «Mac/» ed
+    # è in esecuzione adesso. Cambiare il nome nella cartella lo lascia leggere
+    # in pace fino alla fine; sovrascriverlo lo manderebbe in tilt a metà.
+    for x in "$BK"/*; do
+      [ -e "$x" ] || continue
+      n="$(basename "$x")"
+      rm -rf "$ISTUDIO_DIR/$n.nuovo" "$ISTUDIO_DIR/$n.vecchio"
+      cp -R "$x" "$ISTUDIO_DIR/$n.nuovo" || continue
+      [ -e "$ISTUDIO_DIR/$n" ] && mv "$ISTUDIO_DIR/$n" "$ISTUDIO_DIR/$n.vecchio"
+      mv "$ISTUDIO_DIR/$n.nuovo" "$ISTUDIO_DIR/$n"
+      rm -rf "$ISTUDIO_DIR/$n.vecchio"
+    done
     if accendi; then
       echo "✅ iStudio è ripartita con la versione precedente."
       echo "   L'aggiornamento verrà riprovato al prossimo avvio."

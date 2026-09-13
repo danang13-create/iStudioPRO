@@ -95,15 +95,7 @@ if ! node --check "$NUOVA/server.js" >/dev/null 2>&1; then
   exit 0
 fi
 
-# --- 4. metto da parte la versione attuale (rete di sicurezza per il ritorno indietro) ---
-rm -rf "$BACKUP"; mkdir -p "$BACKUP"
-for f in server.js package.json VERSIONE.txt; do
-  [ -f "$BASE_DIR/$f" ] && cp "$BASE_DIR/$f" "$BACKUP/$f"
-done
-[ -d "$BASE_DIR/public" ] && cp -R "$BASE_DIR/public" "$BACKUP/public"
-[ -d "$BASE_DIR/public-sala" ] && cp -R "$BASE_DIR/public-sala" "$BACKUP/public-sala"
 
-# --- 5. installo ---
 # Si usa `mv` e MAI `cp`: sovrascrivere un file .command mentre la shell lo sta
 # ancora leggendo lo manderebbe in tilt a metà esecuzione. `mv` cambia solo il nome
 # nella cartella, e chi ha il file già aperto continua a leggere quello vecchio.
@@ -133,10 +125,37 @@ installa() {
 # dell'amministratore, e se cambia numero o chiave i clienti devono riceverla.
 DA_NON_TOCCARE="data.db|data.db-.*|\.wwebjs_auth|\.wwebjs_cache|allegati-invii|node_modules|\.versione-precedente|VERSIONE\.txt|aggiornamenti-di-questo-mac\.txt|chrome-di-questo-mac\.txt|\.git"
 
+da_toccare() {   # $1 = nome
+  ! printf '%s' "$1" | grep -qE "^($DA_NON_TOCCARE)$"
+}
+
+# --- 4. metto da parte quello che sto per cambiare ---
+# ⚠️ Prima metteva da parte un elenco fisso — server.js, package.json,
+# VERSIONE.txt, public, public-sala — mentre ne sostituiva molti di più. Fra i
+# mancanti c'era «bot-prenotazioni.js»: un ritorno indietro rimetteva il server
+# di ieri lasciando il motore del bot di oggi, cioè proprio il file che poteva
+# essere la causa del guasto. Adesso si salva ESATTAMENTE quello che cambia, e
+# si segna cosa prima non c'era, per poterlo togliere tornando indietro.
+# La stessa regola sta nell'aggiornatore di Linux.
+rm -rf "$BACKUP"; mkdir -p "$BACKUP"
+: > "$BACKUP/.aggiunti"
 for elemento in "$NUOVA"/* "$NUOVA"/.[!.]*; do
   [ -e "$elemento" ] || continue
   nome="$(basename "$elemento")"
-  if printf '%s' "$nome" | grep -qE "^($DA_NON_TOCCARE)$"; then continue; fi
+  da_toccare "$nome" || continue
+  if [ -e "$BASE_DIR/$nome" ]; then
+    cp -R "$BASE_DIR/$nome" "$BACKUP/$nome"
+  else
+    printf '%s\n' "$nome" >> "$BACKUP/.aggiunti"
+  fi
+done
+[ -f "$BASE_DIR/VERSIONE.txt" ] && cp "$BASE_DIR/VERSIONE.txt" "$BACKUP/VERSIONE.txt"
+
+# --- 5. installo ---
+for elemento in "$NUOVA"/* "$NUOVA"/.[!.]*; do
+  [ -e "$elemento" ] || continue
+  nome="$(basename "$elemento")"
+  da_toccare "$nome" || continue
   installa "$elemento" "$BASE_DIR/$nome"
 done
 chmod +x "$BASE_DIR/Mac/"*.command "$BASE_DIR/Mac/"*.sh 2>/dev/null
