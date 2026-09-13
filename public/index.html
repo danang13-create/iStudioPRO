@@ -34,7 +34,8 @@
   .marchio { display: flex; align-items: center; gap: 9px; }
   .beta-badge {
     display: inline-block; background: rgba(255,255,255,.22); color: #fff;
-    font-size: .62rem; font-weight: 700; letter-spacing: .5px; line-height: 1;
+    /* .7rem e non .62: sotto gli undici pixel una spia non si legge da un telefono. */
+    font-size: .7rem; font-weight: 700; letter-spacing: .5px; line-height: 1;
     padding: 3px 7px; border-radius: 999px; border: 1px solid rgba(255,255,255,.35);
   }
   .badge {
@@ -136,6 +137,10 @@
   .btn-rosso { background: #fdecea; color: var(--rosso); border: 1px solid #f5c6c0; }
   .btn-rosso:hover { background: #f8d6d1; border-color: #eeb5ac; }
   /* [nome] e [cognome] cliccabili nelle etichette: inseriscono il segnaposto nel testo */
+  /* I corpi dei riquadri di testo stanno qui e non in linea: uno stile in
+     linea non si batte dalla regola del telefono qui sotto. */
+  .frase-testo { font-size: .9rem; }
+  #cfg-bot_email_html { font-size: .85rem; }
   .token-inserisci {
     background: none; border: none; padding: 0 2px; margin: 0; font: inherit;
     color: var(--verde-scuro); font-weight: 600; text-decoration: underline dotted;
@@ -493,9 +498,27 @@
      Sotto i 44 pixel con un dito si sbaglia; sotto i 16 pixel di carattere
      iOS ingrandisce la pagina a ogni tocco su un campo — ed è quello che
      fa sembrare «rotto» un sito sul telefono. */
-  @media (pointer: coarse) {
+  /* ⚠️ Anche per LARGHEZZA, non solo per «pointer: coarse»: un tablet con
+     un mouse attaccato, o un browser che non dichiara il dito, restavano coi
+     tasti da 27 pixel. Sotto i 900 pixel si è su un telefono o su un tablet,
+     e le dita sono quelle. */
+  @media (pointer: coarse), (max-width: 900px) {
     .btn { min-height: 44px; }
     .btn-piccolo { min-height: 40px; padding: 8px 12px; }
+    /* I segnaposto «[nome]» «[cognome]» da inserire nel testo: erano alti
+       quindici pixel, un dito ne copre tre. L'area del tocco cresce sopra e
+       sotto senza far crescere la riga (margini negativi). */
+    .token-inserisci { padding: 12px 6px; margin: -12px 0; min-height: 40px; display: inline-block; }
+    #chat-allega { min-height: 44px; min-width: 44px; }
+    /* La ✕ della lista d'attesa: larga quanto il carattere, cioè niente. */
+    [data-togli-attesa] { min-width: 40px; min-height: 40px; }
+    /* Le frecce della settimana: un carattere solo, larghe trenta pixel. */
+    #sett-indietro, #sett-avanti { min-width: 44px; }
+    .rep-periodo { min-height: 40px; }
+    /* I riquadri di testo che hanno un corpo loro (le frasi, l'HTML
+       dell'email): sotto i 16 pixel iOS ingrandisce la pagina quando ci si
+       entra, e poi non la rimpicciolisce più. */
+    .frase-testo, #cfg-bot_email_html { font-size: 16px; }
     .sotto-nav button, #nav-principale button { min-height: 44px; }
     input:not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 16px; min-height: 44px; }
     input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
@@ -514,6 +537,21 @@
      al centro, che si salva da solo appena lo si lascia. */
   .tavolo-campo { width: 76px; padding: 6px 8px; text-align: center; font-weight: 600;
                   font-variant-numeric: tabular-nums; }
+  /* La chat: elenco a sinistra, conversazione a destra. Erano stili in
+     linea, e da una media query uno stile in linea non si batte: sul
+     telefono le due colonne restavano affiancate, la conversazione veniva
+     schiacciata a cento pixel e la casella per scrivere finiva fuori dallo
+     schermo. */
+  #chat-layout { display: flex; height: 540px; }
+  #chat-lista { width: 290px; min-width: 220px; border-right: 1px solid var(--bordo); overflow-y: auto; }
+  @media (max-width: 600px) {
+    /* Sul telefono una sopra l'altra: l'elenco in una striscia che scorre,
+       la conversazione sotto, a tutta larghezza. */
+    #chat-layout { flex-direction: column; height: auto; }
+    #chat-lista { width: 100%; min-width: 0; max-height: 210px; border-right: none; border-bottom: 1px solid var(--bordo); }
+    #chat-destra { min-height: 420px; }
+    #chat-messaggi { min-height: 240px; }
+  }
   .scorri {
     overflow-x: auto;
     background-image:
@@ -993,8 +1031,8 @@
       <button class="voce-menu" id="azione-aggiungi-anagrafica" style="display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;border:none;background:none;font-size:.9rem;font-family:inherit;cursor:pointer;text-align:left">➕ Aggiungi in rubrica</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
-      <div id="chat-layout" style="display:flex;height:540px">
-        <div id="chat-lista" style="width:290px;min-width:220px;border-right:1px solid var(--bordo);overflow-y:auto">
+      <div id="chat-layout">
+        <div id="chat-lista">
           <p class="vuoto">Caricamento chat…</p>
         </div>
         <div id="chat-destra" style="flex:1;display:flex;flex-direction:column;min-width:0">
@@ -1437,7 +1475,7 @@
               non può cambiare la tua grafica.
             </p>
             <textarea id="cfg-bot_email_html" rows="10" autocomplete="off" spellcheck="false"
-              style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.85rem"
+              style="width:100%;font-family:ui-monospace,Menlo,monospace"
               placeholder="&lt;div style=&quot;max-width:600px;margin:0 auto&quot;&gt;{logo}&lt;h2&gt;{locale}&lt;/h2&gt;{testo}&lt;/div&gt;"></textarea>
           </details>
 
@@ -5375,7 +5413,7 @@ async function caricaConfigBot() {
       <span style="font-weight:600;font-size:.92rem">${i + 1}. ${titolo}</span>
       ${aiuto ? `<br><span class="conteggio" style="margin:0">${aiuto}</span>` : ''}
       <textarea id="txt-${chiave}" autocomplete="off" rows="${chiave === 'bot_t_benvenuto' ? 4 : 3}"
-        style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;font-size:.9rem;resize:vertical">${testoSicuro(d.impostazioni[chiave] || '')}</textarea>
+        class="frase-testo" style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;resize:vertical">${testoSicuro(d.impostazioni[chiave] || '')}</textarea>
       <button class="btn btn-secondario" data-ripristina="${chiave}" style="padding:3px 9px;font-size:.78rem;margin-top:4px">Riporta com'era</button>
     </label>`).join('');
   $('#pren-testi').querySelectorAll('[data-ripristina]').forEach((b) => {

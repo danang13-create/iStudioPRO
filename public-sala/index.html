@@ -70,6 +70,17 @@
   .btn-secondario { background: var(--bianco); color: var(--testo); border: 1px solid var(--bordo); }
   .btn-secondario:hover { background: var(--sfondo); color: var(--testo); }
   .btn-piccolo { padding: 7px 12px; font-size: .88rem; }
+  /* ⚠️ La sala si usa col dito, sempre: qui non c'era nessuna regola per il
+     tocco, e i tasti della settimana («‹», «›», «Questa settimana») e
+     «Aggiorna» erano alti 32 pixel — un dito ne copre due. Sotto i 900 pixel
+     o con un dito dichiarato, tutto quello che si preme è alto almeno 40. */
+  @media (pointer: coarse), (max-width: 900px) {
+    .btn { min-height: 44px; }
+    .btn-piccolo { min-height: 40px; }
+    [data-togli-attesa] { min-width: 40px; min-height: 40px; }
+    /* Le frecce della settimana: un carattere solo, larghe trenta pixel. */
+    #sett-indietro, #sett-avanti { min-width: 44px; }
+  }
   input, select, textarea { width: 100%; padding: 11px; border: 1px solid var(--bordo);
                             border-radius: 9px; font-size: 1rem; font-family: inherit;
                             background: var(--bianco); color: var(--testo);
@@ -231,28 +242,8 @@
     /* Il tasto che si usa di più prende tutta la riga: in sala si preme col
        pollice, spesso con l'altra mano occupata. */
     header #nuova { width: 100%; padding: 13px; }
-    /* ⚠️ La settimana su due colonne prendeva TUTTO il primo schermo: quattro
-       righe di caselle, e l'elenco del servizio — cioè quello che serve in
-       sala — cominciava sotto la piega. Sette caselle in una striscia che
-       scorre di lato: un decimo dello spazio, e la giornata si vede subito.
-       L'ombra sui lati dice da che parte continua; «oggi» si centra da solo
-       (vedi centraOggi). Vale solo qui: il planning è un file condiviso con la
-       piattaforma, e lì le sette colonne ci stanno. */
-    .settimana {
-      display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px;
-      scroll-snap-type: x proximity; scrollbar-width: none;
-      background-image:
-        linear-gradient(to right, var(--bianco) 40%, rgba(255,255,255,0)),
-        linear-gradient(to left, var(--bianco) 40%, rgba(255,255,255,0)),
-        radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.16), transparent),
-        radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.16), transparent);
-      background-position: 0 0, 100% 0, 0 0, 100% 0;
-      background-repeat: no-repeat;
-      background-size: 36px 100%, 36px 100%, 12px 100%, 12px 100%;
-      background-attachment: local, local, scroll, scroll;
-    }
-    .settimana::-webkit-scrollbar { display: none; }
-    .settimana .giorno { flex: 0 0 108px; scroll-snap-align: start; }
+    /* La striscia della settimana sul telefono sta in comune/planning.css:
+       vale per la sala e per la piattaforma, che avevano lo stesso problema. */
     /* Meno cornice, più contenuto: 18px di imbottitura per lato su 390 di
        schermo sono un decimo della larghezza buttato via. */
     main { padding: 12px 10px calc(40px + env(safe-area-inset-bottom)); }
@@ -961,21 +952,9 @@ async function salvaDavvero() {
   await Planning.carica(opzioniPlanning());
 }
 
-// Su telefono la settimana è una striscia che scorre di lato, e «oggi» è il
-// quinto giorno: senza questo, all'apertura si vedevano lunedì e martedì, e
-// la casella evidenziata stava fuori dallo schermo. Si guarda la griglia
-// invece di toccare ogni punto che la ridisegna: ne ha tre, e uno dei tre
-// prima o poi verrebbe dimenticato. Solo scrollLeft, mai scrollIntoView:
-// quello sposta anche la pagina in verticale, e in sala non deve muoversi
-// niente che non si sia toccato.
-function centraOggi() {
-  const griglia = $('#sett-griglia');
-  const oggi = griglia && griglia.querySelector('.giorno.oggi');
-  if (!oggi || griglia.scrollWidth <= griglia.clientWidth) return;
-  griglia.scrollLeft = oggi.offsetLeft - griglia.offsetLeft - (griglia.clientWidth - oggi.offsetWidth) / 2;
-}
-new MutationObserver(centraOggi).observe($('#sett-griglia'), { childList: true });
-window.addEventListener('resize', centraOggi);
+// «Oggi» si centra da solo nella striscia della settimana: lo fa planning.js
+// dopo ogni disegno e a ogni rotazione dello schermo, per la sala e per la
+// piattaforma insieme.
 
 $('#sett-indietro').addEventListener('click', () => Planning.sposta(-7, opzioniPlanning()));
 $('#sett-avanti').addEventListener('click', () => Planning.sposta(7, opzioniPlanning()));

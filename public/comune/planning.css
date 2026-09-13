@@ -9,6 +9,30 @@
    colore rinforza, non informa da solo. */
 .settimana { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
 @media (max-width: 760px) { .settimana { grid-template-columns: repeat(2, 1fr); } }
+/* ⚠️ Sul telefono la settimana su due colonne prendeva TUTTO il primo schermo:
+   quattro righe di caselle, e l'elenco del giorno cominciava sotto la piega.
+   Sette caselle in una striscia che scorre di lato: un decimo dello spazio, e
+   la giornata si vede subito. L'ombra sui lati dice da che parte continua;
+   «oggi» si centra da solo (vedi centraOggi in planning.js).
+   Stava solo nella sala, con scritto «in piattaforma le sette colonne ci
+   stanno»: a 390 pixel non ci stavano affatto. Ora è qui, per tutte e due. */
+@media (max-width: 600px) {
+  .settimana {
+    display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px;
+    scroll-snap-type: x proximity; scrollbar-width: none;
+    background-image:
+      linear-gradient(to right, var(--bianco, #fff) 40%, rgba(255,255,255,0)),
+      linear-gradient(to left, var(--bianco, #fff) 40%, rgba(255,255,255,0)),
+      radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.16), transparent),
+      radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.16), transparent);
+    background-position: 0 0, 100% 0, 0 0, 100% 0;
+    background-repeat: no-repeat;
+    background-size: 36px 100%, 36px 100%, 12px 100%, 12px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+  .settimana::-webkit-scrollbar { display: none; }
+  .settimana .giorno { flex: 0 0 108px; scroll-snap-align: start; }
+}
 .giorno {
   background: var(--sfondo); border: 1px solid transparent; border-radius: 10px;
   padding: 10px 8px; text-align: left; cursor: pointer; font: inherit; color: inherit;

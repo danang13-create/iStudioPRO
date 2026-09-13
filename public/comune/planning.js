@@ -101,6 +101,26 @@ window.Planning = (function () {
     griglia.querySelectorAll('[data-giorno]').forEach((b) => {
       b.addEventListener('click', () => opzioni.alGiorno(b.dataset.giorno));
     });
+    centraOggi(griglia);
+    ultimaGriglia = griglia;
+  }
+  // Girando il telefono la striscia cambia larghezza: «oggi» si ricentra.
+  // (Le prove leggono questo file con una finestra finta senza eventi: si
+  // controlla che ci sia, invece di dare per scontato il browser.)
+  let ultimaGriglia = null;
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('resize', () => { if (ultimaGriglia) centraOggi(ultimaGriglia); });
+  }
+  // Sul telefono la settimana è una striscia che scorre di lato, e «oggi» è il
+  // quinto giorno: senza questo, all'apertura si vedevano lunedì e martedì, e
+  // la casella evidenziata stava fuori dallo schermo. Solo scrollLeft, mai
+  // scrollIntoView: quello sposta anche la pagina in verticale, e in sala non
+  // deve muoversi niente che non si sia toccato. Su uno schermo largo, dove
+  // la griglia non scorre, non fa niente.
+  function centraOggi(griglia) {
+    const oggi = griglia.querySelector('.giorno.oggi');
+    if (!oggi || griglia.scrollWidth <= griglia.clientWidth) return;
+    griglia.scrollLeft = oggi.offsetLeft - griglia.offsetLeft - (griglia.clientWidth - oggi.offsetWidth) / 2;
   }
 
   function sposta(giorni, opzioni) {
