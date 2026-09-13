@@ -97,7 +97,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS sessioni (
     token TEXT PRIMARY KEY,
     dove TEXT NOT NULL,              -- 'piattaforma' oppure 'sala'
-    scade_at INTEGER NOT NULL
+    scade_at INTEGER NOT NULL,
+    versione TEXT                    -- con quale versione di iStudio si è entrati
   );
   CREATE TABLE IF NOT EXISTS optout_requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,6 +111,7 @@ db.exec(`
 `);
 
 // Migrazioni per database creati con la versione precedente
+try { db.exec("ALTER TABLE sessioni ADD COLUMN versione TEXT"); } catch {}
 try { db.exec("ALTER TABLE campaigns ADD COLUMN channel TEXT NOT NULL DEFAULT 'whatsapp'"); } catch {}
 try { db.exec("ALTER TABLE campaigns ADD COLUMN subject TEXT"); } catch {}
 try { db.exec("ALTER TABLE campaigns ADD COLUMN alias TEXT"); } catch {}
@@ -1258,8 +1260,9 @@ const sessioniSala = new Map();      // sala:        token -> scadenza
 function ricordaSessione(dove, token, scadenza) {
   (dove === 'sala' ? sessioniSala : sessions).set(token, scadenza);
   try {
-    db.prepare('INSERT INTO sessioni (token, dove, scade_at) VALUES (?, ?, ?) '
-      + 'ON CONFLICT(token) DO UPDATE SET scade_at = excluded.scade_at').run(token, dove, scadenza);
+    db.prepare('INSERT INTO sessioni (token, dove, scade_at, versione) VALUES (?, ?, ?, ?) '
+      + 'ON CONFLICT(token) DO UPDATE SET scade_at = excluded.scade_at, versione = excluded.versione')
+      .run(token, dove, scadenza, versioneInstallata());
   } catch {}
 }
 
@@ -1268,10 +1271,26 @@ function scordaSessione(dove, token) {
   try { db.prepare('DELETE FROM sessioni WHERE token = ?').run(token); } catch {}
 }
 
-// All'accensione si rilegge chi era già entrato, e si buttano le scadute: senza
-// la pulizia, in tre anni la tabella diventerebbe un elenco di token morti.
+// All'accensione si rilegge chi era già entrato, e si butta via:
+//  - chi è scaduto — sennò in tre anni la tabella diventa un elenco di token morti;
+//  - chi era entrato con una VERSIONE DIVERSA da quella che sta partendo adesso.
+//
+// ⚠️ La seconda regola è voluta, ed è una scelta: **a ogni aggiornamento si
+// esce, e si rientra sulla versione nuova.** Un riavvio qualunque (corrente
+// che salta, macchina riavviata, servizio ripartito) non butta fuori nessuno,
+// perché il numero di versione è lo stesso; un aggiornamento sì, perché quel
+// numero cambia. Così nessuno può restare su una pagina vecchia senza
+// accorgersene: la sessione non c'è più, e l'unico modo di andare avanti è
+// ricaricare — che è esattamente quello che serve.
+//
+// Il prezzo, dichiarato: la mattina dopo un aggiornamento notturno il tablet
+// della sala e la piattaforma chiedono di nuovo la password. La pagina della
+// sala non lo fa di soppiatto — lo scrive, e torna al cancello solo quando non
+// sta portando via niente a nessuno (vedi «sessioneFinita» in public-sala).
+const VERSIONE_DI_ADESSO = versioneInstallata();
 try {
   db.prepare('DELETE FROM sessioni WHERE scade_at < ?').run(Date.now());
+  db.prepare('DELETE FROM sessioni WHERE versione IS NULL OR versione <> ?').run(VERSIONE_DI_ADESSO);
   for (const r of db.prepare('SELECT token, dove, scade_at FROM sessioni').all()) {
     (r.dove === 'sala' ? sessioniSala : sessions).set(r.token, Number(r.scade_at));
   }
