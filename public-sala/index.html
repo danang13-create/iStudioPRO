@@ -318,6 +318,25 @@
     border: 1px solid #b8933f; background: #fff; color: #5a4212; border-radius: 8px;
     padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer; min-height: 44px;
   }
+  /* ⚠️ L'avviso di una prenotazione nuova NON è un toast. Il toast durava 2,6
+     secondi, in basso, e su un bancone dove nessuno sta guardando è come non
+     esserci: si mancava del tutto. Questo resta finché qualcuno lo tocca, sta
+     in alto dove l'occhio cade tornando al tablet, ed è grande abbastanza da
+     leggersi da un passo di distanza. Chi torna dopo cinque minuti lo trova
+     ancora lì. */
+  #arrivate[hidden] { display: none; }
+  #arrivate {
+    position: fixed; left: 50%; transform: translateX(-50%); top: 12px; z-index: 120;
+    background: var(--verde); color: #fff; border-radius: 14px;
+    border: 3px solid #fff;
+    padding: 14px 20px; min-width: 260px; max-width: calc(100vw - 24px);
+    box-shadow: 0 8px 26px rgba(0,0,0,.32); cursor: pointer;
+    font-size: 1.05rem; text-align: center; line-height: 1.45;
+  }
+  #arrivate b { font-weight: 700; }
+  #arrivate .chi { display: block; font-size: .95rem; opacity: .95; margin-top: 3px; }
+  #arrivate .via { display: block; font-size: .8rem; opacity: .85; margin-top: 7px; }
+  @media (max-width: 520px) { #arrivate { left: 12px; right: 12px; transform: none; min-width: 0; } }
   #toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
            background: var(--testo); color: #fff; padding: 12px 20px; border-radius: 9px;
            opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 90; }
@@ -331,6 +350,9 @@
      E ci si ricarica da soli, ma solo quando non si porta via niente a
      nessuno — pannello chiuso e nessuno che stia scrivendo. Il conto alla
      rovescia si vede, così non è mai una sorpresa. -->
+<!-- Prenotazioni arrivate mentre nessuno guardava. Si tocca per farlo sparire. -->
+<div id="arrivate" hidden role="status"></div>
+
 <div id="pagina-vecchia" hidden>
   <span>Questa pagina è di una versione precedente.</span>
   <span id="pagina-fra"></span>
@@ -490,7 +512,7 @@ function opzioniPlanning() {
     // In sala si ragiona per settimane intere, lunedì → domenica: la griglia
     // resta ferma su quella e i giorni stanno sempre nella stessa colonna.
     settimanaIntera: true,
-    alGiorno: (data) => { $('#giorno').value = data; caricaGiorno(); },
+    alGiorno: (data) => { idVisti = null; $('#giorno').value = data; caricaGiorno(); },
   };
 }
 
@@ -519,6 +541,13 @@ function soldiDi(r) {
 }
 
 let quantePrima = null;   // quante prenotazioni ha il giorno che si sta guardando
+// ⚠️ Gli id già visti, per poter dire CHI è arrivato e non solo quanti. «null»
+// vuol dire «primo caricamento»: lì non è arrivato niente, si sta solo aprendo
+// la pagina, e annunciare venti prenotazioni all'apertura sarebbe rumore.
+// Cambiando giorno si riparte da null, sennò tutte le righe dell'altro giorno
+// sembrerebbero appena arrivate.
+let idVisti = null;
+let appenaArrivate = [];
 
 async function caricaGiorno() {
   const d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent($('#giorno').value))).json();
@@ -536,6 +565,8 @@ async function caricaGiorno() {
   // Quante ce n'erano, per accorgersi che ne è arrivata una nuova: una riga
   // annullata resta in elenco, quindi questo numero sale solo per gli arrivi.
   quantePrima = vive.length;
+  appenaArrivate = idVisti ? vive.filter((p) => !idVisti.has(p.id)) : [];
+  idVisti = new Set(vive.map((p) => p.id));
   if (!vive.length) {
     $('#righe').innerHTML = '<p class="vuoto">Nessuna prenotazione per questo giorno.</p>';
     return;
@@ -1036,7 +1067,7 @@ async function salvaDavvero() {
 $('#sett-indietro').addEventListener('click', () => Planning.sposta(-7, opzioniPlanning()));
 $('#sett-avanti').addEventListener('click', () => Planning.sposta(7, opzioniPlanning()));
 $('#sett-oggi').addEventListener('click', () => Planning.daOggi(opzioniPlanning()));
-$('#giorno').addEventListener('change', caricaGiorno);
+$('#giorno').addEventListener('change', () => { idVisti = null; caricaGiorno(); });
 // Cambiando giorno cambiano i turni: pranzo, cena, giorni di chiusura.
 $('#p-data').addEventListener('change', () => {
   Turni.riempi('#p-ora', $('#p-data').value, '');
@@ -1085,11 +1116,33 @@ async function ricaricaTutto({ dillo } = {}) {
   // Si avvisa solo se sono ARRIVATE prenotazioni: un elenco che si riordina da
   // solo non merita un messaggio, una prenotazione nuova sì — è l'unica cosa
   // per cui vale la pena alzare gli occhi dal lavoro.
-  if (dillo && prima !== null && quantePrima > prima) {
-    const nuove = quantePrima - prima;
-    toast(nuove === 1 ? '🆕 Una prenotazione nuova' : `🆕 ${nuove} prenotazioni nuove`);
-  }
+  if (dillo && prima !== null && appenaArrivate.length) annunciaArrivi(appenaArrivate);
 }
+
+// ⚠️ Dice CHI è arrivato, non solo quanti. «Una prenotazione nuova» costringe a
+// cercarla nell'elenco; «Rossi · 4 pers. · 20:30» si legge e si è già capito.
+// E resta lì finché non lo si tocca: su un bancone il momento in cui compare
+// non è quasi mai il momento in cui qualcuno sta guardando.
+function annunciaArrivi(nuove) {
+  const cartello = $('#arrivate');
+  if (!cartello) return;
+  const titolo = nuove.length === 1 ? '🆕 Prenotazione nuova' : `🆕 ${nuove.length} prenotazioni nuove`;
+  const righe = nuove.slice(0, 3).map((p) => {
+    const nome = `${p.nome || ''} ${p.cognome || ''}`.trim() || 'senza nome';
+    return `${nome} · ${p.persone} pers. · ${p.ora}`;
+  });
+  if (nuove.length > righe.length) righe.push(`e altre ${nuove.length - righe.length}`);
+  cartello.innerHTML = `<b>${titolo}</b>`
+    + righe.map((r) => `<span class="chi">${r.replace(/[<>&]/g, '')}</span>`).join('')
+    + '<span class="via">tocca per togliere l\'avviso</span>';
+  cartello.hidden = false;
+}
+
+// Si toglie toccandolo, o toccando qualunque altra cosa: chi ha alzato gli
+// occhi lo ha già letto, e lasciarlo lì coprirebbe l'elenco.
+function togliArrivi() { const c = $('#arrivate'); if (c && !c.hidden) c.hidden = true; }
+$('#arrivate').addEventListener('click', togliArrivi);
+document.addEventListener('pointerdown', togliArrivi);
 
 // Torna tutte e due le cose che quella richiesta porta: il contatore delle
 // prenotazioni e il numero di versione del programma. Sono due domande diverse
