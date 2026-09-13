@@ -564,9 +564,11 @@ const PREDEFINITI = {
   // cosa sta facendo, non trovata già aperta.
   bot_sala_attiva: 'false',
   bot_sala_password: '',
-  // Come si vede il tablet: 'chiaro', 'scuro' oppure 'auto' (segue il tablet,
-  // che di sera passa allo scuro da solo). La sera uno schermo bianco acceso
+  // Come si vede il tablet: 'chiaro', 'scuro' oppure 'auto' — che vuol dire
+  // scura dalle 19:00 alle 6:00, a orologio. La sera uno schermo bianco acceso
   // sul bancone dà fastidio a chi sta in sala e si vede dal tavolo accanto.
+  // ⚠️ È la scelta di PARTENZA: in sala c'è un tasto che la cambia per quel
+  // tablet, e da lì in poi vince quello.
   bot_sala_tema: 'chiaro',
 
   // Recensioni
