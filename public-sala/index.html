@@ -51,6 +51,7 @@
     /* Il cartello «prenotazione nuova»: chiaro, non un blocco di verde pieno. */
     --arrivo-fondo: #eafff2; --arrivo-testo: #0b3d2c; --arrivo-bordo: #128c7e;
     --testata-btn-fondo: #ffffff; --testata-btn-testo: #0f7a6d;
+    --pie-agg: #0f7a6d;
     /* Le usa anche «comune/planning.css», che è condiviso con la piattaforma:
        là non sono definite e valgono i valori di prima. */
     --meter-fondo: #cdeedd; --quasi: #ffb300;
@@ -68,6 +69,7 @@
     --toast-fondo: #e6edf3; --toast-testo: #10171c;
     --arrivo-fondo: #12332a; --arrivo-testo: #d7f5e4; --arrivo-bordo: #2bd66b;
     --testata-btn-fondo: #1f2c33; --testata-btn-testo: #5ce68f;
+    --pie-agg: #6fe3a0;
     --meter-fondo: #22403a; --quasi: #d99400;
     --allarme: #f0a33a; --allarme-fondo: #3a2d18;
   }
@@ -211,6 +213,15 @@
   .vuoto { color: var(--grigio); padding: 14px 0; }
   /* Il numero di versione, come in piattaforma: in sala serve a rispondere alla
      domanda «ma questo tablet è aggiornato?» senza chiamare nessuno. */
+  /* ⚠️ Discreto di proposito. In sala, durante il servizio, un cartello che
+     copre l'elenco per una cosa su cui nessuno lì può agire è solo un
+     ostacolo: l'aggiornamento arriva da solo. Sta accanto al numero di
+     versione, che è il posto dove uno va a guardare quando se lo chiede. */
+  #pie-aggiornamento[hidden] { display: none; }
+  #pie-aggiornamento {
+    text-align: center; color: var(--pie-agg); font-size: .78rem;
+    padding: 0 16px 22px; letter-spacing: .3px;
+  }
   #pie-versione {
     text-align: center; color: var(--grigio); font-size: .78rem;
     padding: 4px 16px 26px; letter-spacing: .3px;
@@ -510,6 +521,7 @@ window.TemaSala = (function () {
 <!-- Numero di versione: la stessa scritta della piattaforma, nello stesso posto.
      Serve a capire al volo se il tablet sta guardando la copia aggiornata. -->
 <footer id="pie-versione"></footer>
+<div id="pie-aggiornamento" hidden></div>
 
 <!-- IL PANNELLO: nuova prenotazione e modifica sono la stessa cosa, con la
      stessa disposizione della piattaforma. Chi impara qui sa usare anche l'altra. -->
@@ -942,6 +954,16 @@ function mostraVersione(versioneServer) {
   const piede = document.getElementById('pie-versione');
   if (piede && versioneServer) piede.textContent = 'iStudio — versione ' + versioneServer;
   guardaSeVecchia(versioneServer);
+}
+
+// «È uscita una versione nuova». In sala è solo un'informazione: da qui non si
+// installa niente, e non si deve. Perciò si dice anche QUANDO arriverà da sola,
+// sennò resta lì un numero che sembra chiedere qualcosa a qualcuno.
+function mostraAggiornamento(agg) {
+  const riga = document.getElementById('pie-aggiornamento');
+  if (!riga) return;
+  riga.hidden = !agg;
+  if (agg) riga.textContent = `🆙 È disponibile la versione ${agg.versione} — ${agg.quando}`;
 }
 
 function guardaSeVecchia(versioneServer) {
@@ -1381,6 +1403,7 @@ setInterval(async () => {
     const s = await (await fetch('/api/sala/stato')).json();
     mostraVersione(s.versione);
     applicaTemaDiPartenza(s.tema);   // cambiato dalla piattaforma, se qui nessuno ha scelto
+    mostraAggiornamento(s.aggiornamento);
   } catch {}
 }, 5 * 60 * 1000);
 // Il tablet che si risveglia deve mostrare la situazione di ADESSO, non quella
@@ -1394,6 +1417,7 @@ window.addEventListener('focus', guardaSeCambiato);
     const s = await (await fetch('/api/sala/stato')).json();
     $('#quale-locale').textContent = s.locale || '';
     applicaTemaDiPartenza(s.tema);
+    mostraAggiornamento(s.aggiornamento);
     mostraVersione(s.versione);
   } catch {}
   await caricaGiorno();

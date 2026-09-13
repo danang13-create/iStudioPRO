@@ -6490,8 +6490,14 @@ sala.use(express.static(path.join(__dirname, 'public-sala')));
 // Chi sta guardando deve sapere di quale locale sono queste prenotazioni: le
 // copie di prova e quella vera sono identiche a vedersi.
 sala.get('/api/sala/stato', (req, res) => {
+  // ⚠️ Anche la sala sa se è uscita una versione nuova. Non perché possa
+  // installarla — da lì non si comanda niente — ma perché è l'unica pagina che
+  // qualcuno guarda tutte le sere: se un mini-PC resta indietro, è lì che si
+  // vede. Il «quando» lo decide il server, che sa su che macchina gira: alle 5
+  // sul mini-PC, al prossimo avvio sul Mac.
   res.json({ locale: bot.leggi(db, 'bot_locale') || '', versione: versioneInstallata(),
-             tema: bot.leggi(db, 'bot_sala_tema') || 'chiaro' });
+             tema: bot.leggi(db, 'bot_sala_tema') || 'chiaro',
+             aggiornamento: aggiornamentoDisponibile() });
 });
 
 // ⚠️ Qui sotto ci sono SOLO le prenotazioni, e sono ESATTAMENTE gli stessi
