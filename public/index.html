@@ -170,17 +170,30 @@
   [data-guscio="nuovo"] #guscio > main {
     grid-column: 2; width: 100%; max-width: 1080px; margin: 26px auto;
   }
-  [data-guscio="nuovo"] .colonna-testa { display: flex; align-items: center; gap: 12px; padding: 18px 16px 20px; }
-  [data-guscio="nuovo"] .marchio-quadro {
-    width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0;
-    background: var(--verde-scuro); color: #fff; font-weight: 700; font-size: 1.1rem;
-    display: flex; align-items: center; justify-content: center;
+  [data-guscio="nuovo"] .colonna-testa { padding: 20px 18px 18px; }
+  [data-guscio="nuovo"] .colonna-testa .marchio {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
   }
-  [data-guscio="nuovo"] .colonna-testa .marchio { display: block; min-width: 0; }
-  [data-guscio="nuovo"] .colonna-testa .marchio h1 { font-size: 1.02rem; }
+  [data-guscio="nuovo"] .colonna-testa .marchio h1 { font-size: 1.08rem; }
+  /* ⚠️ Il nome del locale su una RIGA SUA, sotto «iStudio»: le copie sono
+     identiche a vedersi, e questa è l'unica riga che dice di chi è la pagina
+     che si ha davanti. Nella colonna ha 248 pixel tutti per sé; nella barra in
+     alto si sarebbe messo in concorrenza con ☰, Profilo e il tasto del tema —
+     ed è il guasto già fatto due volte sulla testata della sala.
+     ⚠️ «flex-basis: 100%» e non «display: block»: dentro a un contenitore
+     flessibile, «block» non manda a capo. */
   [data-guscio="nuovo"] .colonna-testa .marchio-locale {
-    display: block; font-size: .82rem; color: var(--grigio); margin: 1px 0 0;
+    flex-basis: 100%; min-width: 0; font-size: .84rem; color: var(--grigio);
+    margin: 2px 0 0; padding: 0; border-left: none; max-width: none;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* Il piede della colonna: si attacca in basso e ci resta anche quando le voci
+     sono poche. */
+  [data-guscio="nuovo"] #colonna-piede {
+    margin-top: auto; padding: 14px 18px 16px; border-top: 1px solid var(--bordo);
+  }
+  [data-guscio="nuovo"] #colonna-piede #pie-versione {
+    text-align: left; padding: 0; font-size: .76rem;
   }
   /* ⚠️ Vince sulla vecchia regola «nav { … }», che qui lascerebbe un bordo
      sotto, uno sfondo bianco e lo scorrimento di lato: tre cose da striscia
@@ -843,6 +856,12 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42vw;
   }
   .marchio-locale[hidden] { display: none; }
+  /* Scritta che sta nel programma ma non sullo schermo: la leggono i lettori
+     di schermo, e non ruba un pixel a nessuno. */
+  .solo-per-chi-ascolta {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
 </style>
 <link rel="stylesheet" href="/comune/planning.css">
 <script src="/comune/planning.js"></script>
@@ -889,10 +908,16 @@
          account, e in alto resta una pillola sola.
          Profilo compare se c'è un abbonamento OPPURE se c'è una password: in
          quest'ultimo caso è l'unico modo di uscire, e non deve poter sparire. -->
-    <button class="badge" id="badge-profilo" title="Il tuo abbonamento e l'uscita" style="display:none">
+    <!-- ⚠️ La parola «Profilo» c'è ancora, ma come TITOLO e come etichetta
+         parlata, non scritta accanto all'icona: sparisce dagli occhi, non dal
+         programma. Sul telefono non c'è il passaggio del mouse, quindi resta
+         solo il disegno — e l'omino è il simbolo più universale che ci sia per
+         «il mio account». Chi usa un lettore di schermo sente «Profilo». -->
+    <button class="badge badge-tondo" id="badge-profilo" title="Profilo — il tuo abbonamento e l'uscita"
+            aria-label="Profilo — il tuo abbonamento e l'uscita" style="display:none">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="#fff" aria-hidden="true">
         <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z"/>
-      </svg><span>Profilo</span>
+      </svg><span class="solo-per-chi-ascolta">Profilo</span>
     </button>
     <!-- Chiaro / scuro / automatico. Stesso tasto della sala e stessa regola
          (il file sta in «comune»): un tocco, tre modi, e «automatico» vuol dire
@@ -2359,10 +2384,20 @@ function costruisciGuscio() {
   colonna.id = 'colonna';
   const testa = document.createElement('div');
   testa.className = 'colonna-testa';
-  testa.innerHTML = '<div class="marchio-quadro" aria-hidden="true">i</div>';
+  // ⚠️ Niente quadratino con l'iniziale: iStudio ha già un nome scritto, e un
+  // riquadro colorato con dentro una «i» accanto alla parola «iStudio» ripete
+  // la stessa cosa due volte occupando spazio.
   testa.appendChild(testata.querySelector('.marchio'));
   colonna.appendChild(testa);
   colonna.appendChild(menu);
+  // ⚠️ Il numero di versione in FONDO alla colonna, non in fondo alla pagina:
+  // là era sotto a tutto e non lo guardava nessuno, e per vederlo bisognava
+  // scorrere fino alla fine di una scheda lunga. Il piede vecchio si nasconde:
+  // lo stesso numero in due posti è il doppione che questo progetto paga caro.
+  const piede = document.createElement('div');
+  piede.id = 'colonna-piede';
+  piede.appendChild(document.getElementById('pie-versione'));
+  colonna.appendChild(piede);
 
   testata.id = 'barra';
   testata.insertAdjacentHTML('afterbegin',
@@ -5579,7 +5614,10 @@ const SEGNAPOSTO = '__' + 'VERSIONE__';
 // dimenticherebbero l'una dell'altra. La sala ha la stessa identica funzione.
 function mostraVersione(versioneServer) {
   const piede = document.getElementById('pie-versione');
-  if (piede && versioneServer) piede.textContent = 'iStudio — versione ' + versioneServer;
+  const nellaColonna = document.documentElement.dataset.guscio === 'nuovo';
+  if (piede && versioneServer) {
+    piede.textContent = (nellaColonna ? 'versione ' : 'iStudio — versione ') + versioneServer;
+  }
   guardaSeVecchia(versioneServer);
 }
 
