@@ -3,7 +3,13 @@
 #
 #  ⚠️ Questo file è un MODELLO: l'installatore ci sostituisce @@UTENTE@@ e
 #     @@CARTELLA@@ e lo copia in /etc/systemd/system/istudio.service.
-#     Modificarlo qui non cambia niente su una macchina già installata.
+#     Modificarlo qui NON cambia niente su una macchina già installata:
+#     l'aggiornamento notturno porta il modello nuovo dentro ~/iStudio/Linux,
+#     ma non può scrivere in /etc (e non deve: il permesso senza password è
+#     ristretto a start/stop/restart/reload di questo servizio, e allargarlo
+#     sarebbe root pieno). Per portarcelo c'è un comando apposta, che chiede la
+#     password una volta:  bash ~/iStudio/Linux/"Aggiorna il servizio.sh"
+#     «Diagnostica.sh» dice se quello installato è rimasto indietro.
 #
 #  Perché un servizio e non un file da cliccare: se avviare iStudio
 #  richiedesse un click, dopo un blackout alle 3 di notte non la avvierebbe
@@ -21,6 +27,20 @@ Documentation=https://github.com/danang13-create/iStudioPRO
 After=network-online.target
 Wants=network-online.target
 
+# Se il browser si pianta, un riavvio ogni 10 secondi riempirebbe il disco di
+# registri in una notte. Cinque tentativi in cinque minuti, poi si ferma: a quel
+# punto il guasto è vero e va guardato, non ritentato all'infinito.
+#
+# ⚠️ VANNO IN [Unit], NON IN [Service]. Stavano sotto [Service] e systemd le
+# IGNORAVA: «systemd-analyze verify» lo dice a chiare lettere — «Unknown key
+# name 'StartLimitIntervalSec' in section 'Service', ignoring». Restava in
+# piedi il valore di sistema, dieci secondi, che con RestartSec=10 non scatta
+# mai: iStudio avrebbe riprovato all'infinito, cioè esattamente quello che il
+# commento diceva di voler evitare. Un commento che descrive una protezione che
+# non c'è è peggio di nessun commento.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
 [Service]
 Type=simple
 User=@@UTENTE@@
@@ -32,12 +52,6 @@ ExecStart=@@NODE@@ @@CARTELLA@@/server.js
 # spenta senza che nessuno se ne accorga fino alla sera.
 Restart=always
 RestartSec=10
-
-# Se il browser si pianta, un riavvio ogni 10 secondi riempirebbe il disco di
-# registri in una notte. Cinque tentativi in cinque minuti, poi si ferma: a quel
-# punto il guasto è vero e va guardato, non ritentato all'infinito.
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 # Il registro va nel giornale di sistema: si legge con «Diagnostica.sh», e
 # ruota da solo senza riempire il disco.

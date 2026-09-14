@@ -38,6 +38,30 @@ else
 fi
 echo
 
+# ⚠️ Il file che comanda sta in /etc e lo scrive solo l'installatore: una
+# correzione al modello arriva dentro ~/iStudio/Linux con l'aggiornamento
+# notturno e lì RESTA, senza che nessuno se ne accorga. Qui si dice.
+MODELLO="$CARTELLA/Linux/istudio.service"
+INSTALLATO=/etc/systemd/system/istudio.service
+if [ -f "$MODELLO" ] && [ -f "$INSTALLATO" ]; then
+  # Si confrontano le righe che CONTANO, non il file intero: quello installato
+  # ha i valori veri al posto dei segnaposto e una riga in più per la password.
+  righe_vere() { grep -vE '^\s*#|^\s*$|^EnvironmentFile=|@@|^User=|^WorkingDirectory=|^ExecStart=' "$1"; }
+  if diff <(righe_vere "$MODELLO") <(righe_vere "$INSTALLATO") >/dev/null 2>&1; then
+    echo "   ✅ il servizio installato è quello di questa versione"
+  else
+    echo "   ⚠️  il servizio installato è rimasto INDIETRO rispetto al modello."
+    echo "      Quello in /etc comanda ancora come prima. Per portarcelo:"
+    echo "      bash \"$CARTELLA/Linux/Aggiorna il servizio.sh\""
+  fi
+fi
+# systemd avvisa quando il file è cambiato sotto e lui usa ancora il vecchio.
+if systemctl show istudio -p NeedDaemonReload --value 2>/dev/null | grep -q yes; then
+  echo "   ⚠️  systemd usa ancora la versione di PRIMA del servizio."
+  echo "      Rimedio:  sudo systemctl daemon-reload && sudo systemctl restart istudio"
+fi
+echo
+
 # --- 2. Risponde davvero? ---
 # ⚠️ «Il servizio è attivo» non vuol dire «la pagina si apre»: node può essere
 # vivo con dentro un errore. L'unica prova che conta è chiedere una pagina.
