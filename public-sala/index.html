@@ -86,8 +86,14 @@
          background: var(--sfondo); color: var(--testo); }
   header { background: var(--verde-scuro); color: #fff; padding: 14px 20px;
            display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  header h1 { font-size: 1.1rem; font-weight: 600; }
-  header .quale { font-size: .82rem; opacity: .85; }
+  header h1 { font-size: 1.1rem; font-weight: 600; white-space: nowrap; }
+  /* ⚠️ Si accorcia coi puntini a OGNI larghezza, non solo sul telefono. È
+     l'unica cosa in testata che si può accorciare senza perdere un comando: se
+     non lo fa, un nome lungo spinge i tasti a capo. Con «Nuova prenotazione»
+     (159 pixel invece di 67) succedeva già a 600, e il quadratino del tema
+     finiva di nuovo su una riga tutta sua. */
+  header .quale { font-size: .82rem; opacity: .85; flex: 1; min-width: 0;
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   main { max-width: 1000px; margin: 0 auto;
          padding: 18px 16px calc(60px + env(safe-area-inset-bottom)); }
   header { padding-top: calc(14px + env(safe-area-inset-top)); }
@@ -354,10 +360,8 @@
        alta 48, che si prende col pollice senza guardare. */
     header { row-gap: 10px; }
     header h1 { font-size: 1.05rem; }
-    /* Prende lo spazio che avanza e si accorcia: «Omakase Sant'Anna dei Lombardi»
-       non deve mandare a capo niente. */
-    header .quale { flex: 1; min-width: 0; overflow: hidden;
-                    text-overflow: ellipsis; white-space: nowrap; }
+    /* Il nome si accorcia già da sé (regola qui sopra); qui sparisce solo lo
+       spaziatore, che su due righe non serve più. */
     header .spazio { display: none; }
     /* Qui «Nuova» sta su un'altra riga: il quadratino non deve più stargli
        pari, e da solo accanto al titolo può essere un bersaglio pieno. */
@@ -484,7 +488,7 @@
   <h1>Prenotazioni</h1>
   <span class="quale" id="quale-locale"></span>
   <span class="spazio"></span>
-  <button class="btn btn-piccolo" id="nuova">Nuova</button>
+  <button class="btn btn-piccolo" id="nuova">Nuova prenotazione</button>
   <!-- Il tema, a portata di pollice. Sta in sala e non solo in «Impostazioni»
        perché chi si accorge che lo schermo dà fastidio è chi è lì alle nove di
        sera, non chi apre la piattaforma la mattina dopo. Un tocco, tre modi. -->
