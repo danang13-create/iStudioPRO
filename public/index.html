@@ -157,10 +157,13 @@
     display: flex; align-items: center; gap: 7px; cursor: pointer; border: none; color: #fff; font-family: inherit;
   }
   .badge:hover { background: rgba(255,255,255,.28); }
-  /* Tondo e largo come è alto: è un'icona sola, e allargarlo lo farebbe
-     sembrare una seconda voce di menu. 34 sul computer, 40 sotto il dito. */
-  .badge-tondo { width: 34px; height: 34px; padding: 0; justify-content: center; font-size: 1.05rem; line-height: 1; }
-  .badge-tondo .lettera { font-weight: 700; font-size: .95rem; }
+  /* Quadrato col bordo, largo come è alto: il tema è un comando fra i comandi,
+     non una decorazione. 34 sul computer, 40 sotto il dito. */
+  .badge-tondo { width: 34px; height: 34px; padding: 0; justify-content: center;
+                 background: none; border: 1px solid rgba(255,255,255,.35); border-radius: 10px; }
+  .badge-tondo:hover { background: rgba(255,255,255,.18); }
+  .badge-tondo svg { width: 18px; height: 18px; }
+  .badge-tondo .lettera { font-weight: 700; font-size: .95rem; line-height: 1; }
   .badge .pallino { width: 10px; height: 10px; border-radius: 50%; background: var(--avviso-forte); display: inline-block; flex-shrink: 0; }
   .badge.verde .pallino { background: var(--spia-ok); box-shadow: 0 0 6px var(--spia-ok); }
   .badge.giallo .pallino { background: var(--avviso-forte); box-shadow: 0 0 6px var(--avviso-forte); }
@@ -265,6 +268,22 @@
                   letter-spacing: .06em; color: var(--verde-testo);
                   margin: 26px 0 2px; padding-top: 14px; border-top: 1px solid var(--bordo); }
   .gruppo-frasi:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+  .barra-frasi { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .barra-frasi input { flex: 1; min-width: 200px; width: auto; }
+  .gruppo { border-top: 1px solid var(--bordo); }
+  .gruppo:last-child { border-bottom: 1px solid var(--bordo); }
+  .gruppo > summary { display: flex; align-items: center; gap: 10px; cursor: pointer;
+                      padding: 13px 4px; list-style: none; }
+  .gruppo > summary::-webkit-details-marker { display: none; }
+  /* La freccia la disegno io: quella di sistema cambia da browser a browser. */
+  .gruppo > summary::before { content: '›'; font-size: 1.1rem; color: var(--grigio-2);
+                              transition: transform .15s; display: inline-block; width: 12px; }
+  .gruppo[open] > summary::before { transform: rotate(90deg); }
+  .gruppo > summary:hover { background: var(--carta-2); }
+  .gruppo .gruppo-frasi { flex: 1; margin: 0; padding: 0; border: none; }
+  .gruppo .quante { font-size: .78rem; color: var(--grigio-2); background: var(--carta-2);
+                    border-radius: 999px; padding: 2px 9px; }
+  .gruppo-corpo { padding: 4px 4px 18px; display: flex; flex-direction: column; gap: 16px; }
   #cfg-bot_email_html { font-size: .85rem; }
   .token-inserisci {
     background: none; border: none; padding: 0 2px; margin: 0; font: inherit;
@@ -1777,7 +1796,7 @@
             <option value="scuro">Scura</option>
             <option value="auto">Automatica (scura dalle 19 alle 6)</option>
           </select>
-          <span class="conteggio" style="margin:0">La sera uno schermo bianco acceso sul bancone dà fastidio, e si vede dal tavolo accanto. <b>Automatica</b> vuol dire scura <b>dalle 19:00 alle 6:00</b>, a orologio. Questa è la scelta di partenza per i tablet del locale: in sala c'è un tasto (☀️ 🌙 A) che la cambia per quel tablet, e da lì in poi vince quello.</span>
+          <span class="conteggio" style="margin:0">La sera uno schermo bianco acceso sul bancone dà fastidio, e si vede dal tavolo accanto. <b>Automatica</b> vuol dire scura <b>dalle 19:00 alle 6:00</b>, a orologio. Questa è la scelta di partenza per i tablet del locale: in sala c'è un tasto (sole, luna, A) che la cambia per quel tablet, e da lì in poi vince quello.</span>
         </label>
         <p class="conteggio" style="margin:8px 0 0" id="sala-indirizzo"></p>
         <p class="conteggio" style="margin:4px 0 0">
@@ -2174,8 +2193,10 @@ const $ = (sel) => document.querySelector(sel);
 //  che sta in Impostazioni e dice come partono i tablet del locale: sono due
 //  cose diverse e devono restare tali, sennò chi abbassa lo schermo del proprio
 //  portatile la sera lo abbassa anche a tutta la sala.
-const ICONE_TEMA = { chiaro: '☀️', scuro: '🌙', auto: '<span class="lettera">A</span>' };
-const NOMI_TEMA = { chiaro: 'Chiara', scuro: 'Scura', auto: 'Automatica (scura dalle 19 alle 6)' };
+// Le icone e i nomi stanno in «comune/tema.js», come la regola: il tasto è lo
+// stesso della sala e deve avere lo stesso disegno.
+const ICONE_TEMA = Tema.ICONE;
+const NOMI_TEMA = Tema.NOMI;
 
 function disegnaTastoTema(modo) {
   const t = $('#tema');
@@ -5693,20 +5714,73 @@ async function caricaConfigBot() {
     <label style="display:flex;align-items:center;gap:6px;font-weight:400">
       <input type="checkbox" data-giorno="${i}"${aperti.includes(String(i)) ? ' checked' : ''}> ${n}
     </label>`).join('');
+  // ⚠️ SESSANTADUE CASELLE IN FILA SONO TREDICIMILA PIXEL. Misurato in un
+  // browser vero: questa card da sola faceva il 93% della pagina, e per
+  // arrivare all'ultima frase ci volevano quindici schermate. I quattordici
+  // gruppi c'erano già, ma servivano solo a LEGGERE. Adesso ognuno è una
+  // sezione che si apre: chiuse tutte, la card è 952 pixel — una schermata.
+  // ⚠️ «<details>» e non «display: none»: una sezione chiusa TIENE le sue
+  // caselle nel documento, quindi «Salva le frasi» le legge lo stesso. Con un
+  // contenitore nascosto e ricostruito, chi salva perderebbe quello che ha
+  // scritto in un gruppo poi richiuso — e non se ne accorgerebbe.
   let numeroFrase = 0;
-  $('#pren-testi').innerHTML = TESTI_BOT.map(([chiave, titolo, aiuto]) => {
-    // Una voce senza chiave è un titolo di gruppo: niente casella, niente numero.
-    if (!chiave) return `<h3 class="gruppo-frasi">${testoSicuro(titolo)}</h3>`;
+  const gruppi = [];
+  for (const [chiave, titolo, aiuto] of TESTI_BOT) {
+    if (!chiave) { gruppi.push({ titolo, voci: [] }); continue; }
+    if (!gruppi.length) gruppi.push({ titolo: 'Frasi', voci: [] });
     numeroFrase += 1;
-    return `
-    <label style="display:block">
-      <span style="font-weight:600;font-size:.92rem">${numeroFrase}. ${titolo}</span>
-      ${aiuto ? `<br><span class="conteggio" style="margin:0">${aiuto}</span>` : ''}
-      <textarea id="txt-${chiave}" autocomplete="off" rows="${chiave === 'bot_t_benvenuto' ? 4 : 3}"
-        class="frase-testo" style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;resize:vertical">${testoSicuro(d.impostazioni[chiave] || '')}</textarea>
-      <button class="btn btn-secondario" data-ripristina="${chiave}" style="padding:3px 9px;font-size:.78rem;margin-top:4px">Riporta com'era</button>
-    </label>`;
-  }).join('');
+    // ⚠️ Nel testo su cui si cerca entra anche il TITOLO DEL GRUPPO. Chi scrive
+    // «attesa» cerca l'ARGOMENTO, non la parola: senza il titolo ne trovava sei
+    // su nove, perché «Si è liberato un posto» la parola non ce l'ha.
+    const daCercare = (gruppi[gruppi.length - 1].titolo + ' ' + titolo + ' '
+      + (aiuto || '') + ' ' + (d.impostazioni[chiave] || '')).toLowerCase();
+    gruppi[gruppi.length - 1].voci.push(`
+      <label style="display:block" data-frase="${chiave}" data-cerca="${testoSicuro(daCercare)}">
+        <span style="font-weight:600;font-size:.92rem">${numeroFrase}. ${titolo}</span>
+        ${aiuto ? `<br><span class="conteggio" style="margin:0">${aiuto}</span>` : ''}
+        <textarea id="txt-${chiave}" autocomplete="off" rows="${chiave === 'bot_t_benvenuto' ? 4 : 3}"
+          class="frase-testo" style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;resize:vertical">${testoSicuro(d.impostazioni[chiave] || '')}</textarea>
+        <button class="btn btn-secondario" data-ripristina="${chiave}" style="padding:3px 9px;font-size:.78rem;margin-top:4px">Riporta com'era</button>
+      </label>`);
+  }
+  $('#pren-testi').innerHTML = `
+    <div class="barra-frasi">
+      <input id="cerca-frasi" type="search" autocomplete="off" placeholder="Cerca fra le frasi — una parola basta">
+      <button class="btn btn-secondario btn-piccolo" id="apri-tutte" type="button">Apri tutte</button>
+      <span class="conteggio" id="conto-frasi" style="margin:0"></span>
+    </div>` + gruppi.map((g) => `
+    <details class="gruppo">
+      <summary><span class="gruppo-frasi">${testoSicuro(g.titolo)}</span><span class="quante">${g.voci.length}</span></summary>
+      <div class="gruppo-corpo">${g.voci.join('')}</div>
+    </details>`).join('');
+
+  // ⚠️ Cercando, il gruppo che contiene la frase trovata si APRE da solo:
+  // trovarla e non vederla, perché il suo gruppo è chiuso, è peggio che non
+  // trovarla — uno pensa che la ricerca non funzioni.
+  const cercaFrasi = () => {
+    const q = $('#cerca-frasi').value.trim().toLowerCase();
+    let trovate = 0;
+    $('#pren-testi').querySelectorAll('details.gruppo').forEach((g) => {
+      let quante = 0;
+      g.querySelectorAll('[data-frase]').forEach((l) => {
+        const sì = !q || l.dataset.cerca.includes(q);
+        l.style.display = sì ? '' : 'none';
+        if (sì) quante += 1;
+      });
+      g.style.display = quante ? '' : 'none';
+      if (q) g.open = quante > 0;
+      trovate += quante;
+    });
+    $('#conto-frasi').textContent = q
+      ? (trovate === 1 ? '1 frase trovata' : `${trovate} frasi trovate`) : '';
+  };
+  $('#cerca-frasi').addEventListener('input', cercaFrasi);
+  $('#apri-tutte').addEventListener('click', () => {
+    const gruppiTutti = [...$('#pren-testi').querySelectorAll('details.gruppo')];
+    const apri = gruppiTutti.some((g) => !g.open);
+    gruppiTutti.forEach((g) => { g.open = apri; });
+    $('#apri-tutte').textContent = apri ? 'Chiudi tutte' : 'Apri tutte';
+  });
   $('#pren-testi').querySelectorAll('[data-ripristina]').forEach((b) => {
     b.addEventListener('click', async (ev) => {
       ev.preventDefault();

@@ -47,6 +47,30 @@ window.Tema = (function () {
     try { localStorage.setItem(chiave(), pulisci(modo)); } catch (e) {}
   }
 
+  // ⚠️ LE ICONE STANNO QUI, non nelle due pagine. Erano scritte in tutti e due
+  // i posti: la sala e la piattaforma hanno lo stesso tasto e devono avere lo
+  // stesso disegno, sennò prima o poi uno cambia e l'altro no.
+  // ⚠️ E sono DISEGNI, non emoji. Un'emoji la disegna il sistema operativo:
+  // ☀️ è una cosa su Windows, un'altra su Mac, un'altra su Android — e accanto
+  // a un'icona a tratto sembra un adesivo appiccicato sopra. Un disegno nostro
+  // è uguale ovunque e prende il colore del testo che lo circonda.
+  // ⚠️ Per «automatica» resta una «A», non un monitor. Il monitor, negli altri
+  // programmi, vuol dire «segui il sistema operativo»: qui NON è quello che
+  // succede — automatica vuol dire scuro dalle 19 alle 6, a orologio. Un'icona
+  // che promette una cosa diversa da quella che il programma fa è peggio di
+  // nessuna icona.
+  var disegno = function (dentro) {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"'
+      + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + dentro + '</svg>';
+  };
+  var ICONE = {
+    chiaro: disegno('<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.5 1.5'
+      + 'M17.9 17.9l1.5 1.5M2.5 12h2M19.5 12h2M4.6 19.4l1.5-1.5M17.9 6.1l1.5-1.5"/>'),
+    scuro: disegno('<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>'),
+    auto: '<span class="lettera">A</span>',
+  };
+  var NOMI = { chiaro: 'Chiara', scuro: 'Scura', auto: 'Automatica (scura dalle 19 alle 6)' };
+
   applica(scelto() || 'chiaro');
 
   // Alle 19 lo schermo deve abbassarsi da solo: la pagina è aperta da ore, e
@@ -56,5 +80,5 @@ window.Tema = (function () {
   }, 60 * 1000);
 
   return { MODI: MODI, DA: DA, A: A, orarioScuro: orarioScuro, risolvi: risolvi,
-           applica: applica, scelto: scelto, ricorda: ricorda };
+           applica: applica, scelto: scelto, ricorda: ricorda, ICONE: ICONE, NOMI: NOMI };
 })();

@@ -139,6 +139,7 @@
      non dà la larghezza: veniva 12 pixel per 30. Misurato. */
   #tema { order: 5; height: 30px; width: auto; aspect-ratio: 1;
           padding: 0; font-size: 1.05rem; line-height: 1; }
+  #tema svg { width: 18px; height: 18px; }
   #tema .lettera { font-weight: 700; font-size: 1rem; }
   header .btn:hover { background: var(--oggi); color: var(--verde-scuro); }
   /* Chi usa la tastiera — o un tablet con tastiera — deve vedere dov'è. */
@@ -953,8 +954,10 @@ const SEGNAPOSTO = '__' + 'VERSIONE__';
 //  ⚠️ Perciò il valore che arriva dalla piattaforma NON sovrascrive una scelta
 //  fatta sul tablet: sennò cinque minuti dopo il tasto tornerebbe indietro da
 //  solo, e sembrerebbe rotto.
-const ICONE = { chiaro: '☀️', scuro: '🌙', auto: '<span class="lettera">A</span>' };
-const NOMI_TEMA = { chiaro: 'Chiara', scuro: 'Scura', auto: 'Automatica (scura dalle 19 alle 6)' };
+// Le icone e i nomi stanno in «comune/tema.js»: stesso tasto della piattaforma,
+// stesso disegno. Scritti in due posti, prima o poi uno cambia e l'altro no.
+const ICONE = Tema.ICONE;
+const NOMI_TEMA = Tema.NOMI;
 
 function disegnaTastoTema(modo) {
   const t = $('#tema');
