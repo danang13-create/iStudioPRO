@@ -1312,7 +1312,13 @@ async function salvaDavvero() {
   chiudiPannello();
   // ⚠️ Un avviso non partito va detto: «Salvata» e basta lascia credere che il
   // cliente sappia del cambiamento, e quello si presenta all'ora vecchia.
-  if (d.avvisoFallito) toast('Salvata, ma il cliente NON è stato avvisato');
+  // ⚠️ Il MOTIVO arriva dal server e prima veniva buttato via: restava
+  // «non è stato avvisato» e basta, cioè la metà dell'informazione. Le cause
+  // sono diverse e si risolvono in modi diversi — WhatsApp scollegato si
+  // riattacca in dieci secondi, un numero sbagliato si corregge — e senza il
+  // motivo si finisce a guardare la prenotazione invece del collegamento.
+  // La piattaforma lo diceva già: era solo la sala a tacere.
+  if (d.avvisoFallito) toast('Salvata, ma il cliente NON è stato avvisato: ' + d.avvisoFallito);
   else toast(d.avvisato ? 'Salvata, cliente avvisato' : 'Salvata');
   // ⚠️ Soldi già incassati su una prenotazione che si sta annullando: non è un
   // avviso che può scorrere via in tre secondi, è una cosa da fare. In sala si

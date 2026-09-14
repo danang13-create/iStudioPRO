@@ -3068,6 +3068,57 @@ function annota(evento, dettaglio) {
   console.log(`Bot [${evento}] ${dettaglio || ''}`);
 }
 
+// ---------------------------------------------------------------------------
+//  I lavori automatici che si fermano
+// ---------------------------------------------------------------------------
+//  ⚠️ IL GUASTO. Promemoria, recensioni, lista d'attesa e risposte arretrate
+//  cominciavano tutti con la stessa riga — «se WhatsApp non è collegato,
+//  torna» — e non scrivevano NIENTE da nessuna parte. Un mini-PC con WhatsApp
+//  staccato smetteva di ricordare i tavoli e nel registro non restava una
+//  riga: zero messaggi, zero errori, zero tracce. Chi guardava vedeva le
+//  impostazioni accese e credeva che stesse funzionando.
+//
+//  E non è un danno che si recupera: il promemoria di una serata lo si manda
+//  il giorno prima o mai più.
+function motivoPerCuiNonSiManda() {
+  if (!botDisponibile()) return 'il motore del bot non è caricato';
+  if (!botConcesso()) return "il bot non è compreso in questo abbonamento, o l'abbonamento è scaduto";
+  if (!bot.boolDi(bot.leggi(db, 'bot_attivo'))) return 'il bot è spento';
+  // ⚠️ L'avvio NON è un guasto. Nei primi secondi dopo un riavvio WhatsApp è
+  // sempre «in inizializzazione»: dirlo vorrebbe dire un falso allarme nel
+  // registro a ogni accensione, e un registro che grida al lupo non lo legge
+  // più nessuno. Ferma i lavori, ma in silenzio.
+  if (state.status === 'inizializzazione') return 'avvio';
+  if (state.status !== 'connesso') return 'WhatsApp non è collegato';
+  return '';
+}
+
+// Si dice UNA VOLTA, non ogni minuto: sessanta righe uguali all'ora
+// cancellerebbero dal registro tutto il resto.
+let motivoGiaDetto = '';
+function lavoriFermi(motivo) {
+  if (motivo === 'avvio' || motivo === motivoGiaDetto) return;
+  motivoGiaDetto = motivo;
+  annota('fermi', `i lavori automatici non partono: ${motivo}. `
+    + "Promemoria, recensioni, lista d'attesa e risposte arretrate restano indietro");
+}
+function lavoriRipartiti() {
+  if (!motivoGiaDetto) return;
+  motivoGiaDetto = '';
+  annota('fermi', 'i lavori automatici sono ripartiti');
+}
+
+// ⚠️ E i giri automatici avevano tutti «.catch(() => {})»: se uno scoppiava,
+// l'errore spariva per sempre, ogni minuto, in silenzio. Questo lo scrive —
+// una volta sola, che è quello che serve per capire.
+const giroFallito = (quale) => (e) => {
+  const m = String((e && e.message) || e);
+  console.error(`Bot [${quale}]`, m);
+  if (motivoGiaDetto === m) return;
+  motivoGiaDetto = m;
+  annota('errore', `${quale}: il giro automatico è scoppiato (${m})`);
+};
+
 function giaVisto(id) {
   if (!id) return false;
   const esiste = db.prepare('SELECT id FROM bot_visti WHERE id = ?').get(id);
@@ -3825,7 +3876,9 @@ async function avvisaPrenotazione(p, tipo, opzioni = {}) {
 // quella promessa va mantenuta da sola, senza che nessuno si ricordi di
 // andare a guardare.
 async function consegnaArretrate() {
-  if (!botDisponibile() || !botAcceso() || state.status !== 'connesso') return;
+  const perche = motivoPerCuiNonSiManda();
+  if (perche) { lavoriFermi(perche); return; }
+  lavoriRipartiti();
   const cfg = bot.config(db);
   if (!bot.eOrarioAvvisi(cfg, new Date())) return;
   const arretrate = db.prepare(
@@ -3855,7 +3908,7 @@ async function consegnaArretrate() {
 // Un giro al minuto, come già fa `controllaRiprese()` per gli invii: costa
 // niente e non richiede di indovinare in anticipo quando serve guardare.
 if (botDisponibile()) {
-  setInterval(() => { consegnaArretrate().catch(() => {}); }, 60 * 1000);
+  setInterval(() => { consegnaArretrate().catch(giroFallito('arretrate')); }, 60 * 1000);
 }
 
 // Chi chiede di non ricevere più messaggi va escluso SUBITO, non «appena
@@ -3921,7 +3974,13 @@ function promemoriaDaMandare(cfg, adesso) {
   // Quanto prima. Uno è il giorno prima; zero è lo stesso giorno, che per un
   // locale a pranzo ha senso quanto il giorno prima per uno che fa solo cena.
   const giorni = Math.min(Math.max(bot.num(cfg.bot_promemoria_giorni, 1), 0), 7);
-  const quando = bot.comeData(new Date(adesso.getTime() + giorni * 86400000));
+  // ⚠️ I giorni si contano con «piuGiorni», che sposta la DATA. Con
+  // «adesso + giorni × 86400000» si spostano i MILLISECONDI, e nelle due notti
+  // all'anno in cui l'orologio cambia quel conto scivola di un'ora: con l'ora
+  // del promemoria dopo le 23 si salta un giorno intero, e quei tavoli non
+  // vengono ricordati a nessuno. Due volte l'anno, senza lasciare traccia.
+  const oggiStr = bot.comeData(adesso);
+  const quando = bot.comeData(bot.piuGiorni(adesso, giorni));
   // ⚠️ Non a chi ha appena prenotato. Chi scrive alle 18 per domani sera si
   // vedeva arrivare «ti ricordiamo la tua prenotazione» un minuto dopo averla
   // fatta: non è un promemoria, è un bot che non si accorge di aver appena
@@ -3929,30 +3988,57 @@ function promemoriaDaMandare(cfg, adesso) {
   // togliere il promemoria a chi ha prenotato stamattina.
   const nonAppena = new Date(adesso.getTime() - 3 * 3600000)
     .toLocaleString('sv-SE').replace('T', ' ');
+  // ⚠️ Non si guarda più SOLO il giorno esatto. Se WhatsApp era scollegato nel
+  // giorno in cui il promemoria andava mandato, prima quel tavolo era perso per
+  // sempre: il giorno dopo non era nemmeno più candidato, e nessuno lo sapeva.
+  // Adesso si prende tutta la finestra da oggi al giorno giusto, e più sotto si
+  // decide chi è nei tempi e chi è da recuperare.
   const righe = db.prepare(
-    "SELECT * FROM prenotazioni WHERE data = ? AND stato = 'confermata' AND promemoria_at IS NULL "
-    + 'AND creata_at <= ? ORDER BY ora, id'
-  ).all(quando, nonAppena);
+    "SELECT * FROM prenotazioni WHERE data >= ? AND data <= ? AND stato = 'confermata' "
+    + "AND promemoria_at IS NULL AND creata_at <= ? ORDER BY data, ora, id"
+  ).all(oggiStr, quando, nonAppena);
   if (!righe.length) return [];
 
   // ⚠️ Con «lo stesso giorno» il promemoria rischia di arrivare quando il
   // tavolo è già cominciato — o dieci minuti prima, che è peggio di niente:
   // il cliente è già in macchina. Sotto l'ora di anticipo non si manda.
   const ANTICIPO_MINIMO = 60;
+  // ⚠️ Un promemoria recuperato ha bisogno di più aria di uno puntuale: arriva
+  // quando il cliente si sta già preparando. Sotto le due ore non serve più a
+  // niente — chi doveva ricordarsene se n'è ricordato — e somiglia solo a un
+  // messaggio partito per sbaglio.
+  const ANTICIPO_RECUPERO = 120;
   const adessoMin = adesso.getHours() * 60 + adesso.getMinutes();
 
   const scelte = [];
   const gia = new Set();
   for (const r of righe) {
-    if (giorni === 0 && bot.inMinuti(r.ora) - adessoMin < ANTICIPO_MINIMO) continue;
+    // Il giorno in cui quel promemoria SAREBBE dovuto partire.
+    const dovuto = bot.comeData(bot.piuGiorni(new Date(r.data + 'T12:00:00'), -giorni));
+    const inRitardo = dovuto < oggiStr;
+    if (inRitardo) {
+      // ⚠️ Si recupera solo quello che è stato DAVVERO saltato: la prenotazione
+      // doveva esistere già il giorno in cui il promemoria andava mandato. Chi
+      // prenota stamattina per stasera non ha «perso» nessun promemoria — non
+      // gliene spettava uno — e ricevere «ti ricordiamo la tua prenotazione»
+      // tre ore dopo averla fatta è la cosa da cui questo codice si guarda già.
+      if (String(r.creata_at || '').slice(0, 10) > dovuto) continue;
+      if (r.data === oggiStr && bot.inMinuti(r.ora) - adessoMin < ANTICIPO_RECUPERO) continue;
+      r.inRitardo = true;
+    } else if (giorni === 0 && bot.inMinuti(r.ora) - adessoMin < ANTICIPO_MINIMO) continue;
     // Senza un indirizzo non si manda niente: è una prenotazione presa al
     // banco senza numero. Non è un guasto, ma va detto — vedi mandaPromemoria.
     if (!r.chat_id && !r.telefono && !r.telefono_contatto) continue;
     if (bot.haDettoBasta(db, r.chat_id || r.telefono, r.telefono_contatto || r.telefono)) continue;
-    // Lo stesso numero alla stessa ora è una prenotazione doppia, non due
-    // tavoli: un messaggio solo. Due tavoli a ore diverse invece sono due cose
-    // diverse, e ognuna ha il suo orario da ricordare.
-    const chiave = `${normalizePhone(r.telefono_contatto || r.telefono || r.chat_id)}@${r.ora}`;
+    // Lo stesso numero alla stessa ora dello stesso giorno è una prenotazione
+    // doppia, non due tavoli: un messaggio solo. Due tavoli a ore diverse — o
+    // in giorni diversi — sono due cose diverse, e ognuna ha il suo da ricordare.
+    // ⚠️ Il GIORNO nella chiave è arrivato con il recupero dei promemoria in
+    // ritardo. Finché si guardava una data sola era superfluo; adesso la
+    // finestra copre più giorni, e senza il giorno la cena di domani dello
+    // stesso cliente veniva scambiata per un doppione di quella di stasera —
+    // e il suo promemoria non partiva. Trovato da una prova, non da un cliente.
+    const chiave = `${normalizePhone(r.telefono_contatto || r.telefono || r.chat_id)}@${r.data}@${r.ora}`;
     if (gia.has(chiave)) continue;
     gia.add(chiave);
     scelte.push(r);
@@ -3961,7 +4047,9 @@ function promemoriaDaMandare(cfg, adesso) {
 }
 
 async function mandaPromemoria(adesso = new Date()) {
-  if (!botDisponibile() || !botAcceso() || state.status !== 'connesso') return 0;
+  const perche = motivoPerCuiNonSiManda();
+  if (perche) { lavoriFermi(perche); return 0; }
+  lavoriRipartiti();
   const cfg = bot.config(db);
   const scelte = promemoriaDaMandare(cfg, adesso);
   if (!scelte.length) return 0;
@@ -3973,6 +4061,7 @@ async function mandaPromemoria(adesso = new Date()) {
   const segna = db.prepare("UPDATE prenotazioni SET promemoria_at = datetime('now','localtime') WHERE id = ?");
   let mandati = 0;
   let falliti = 0;
+  let recuperati = 0;
   for (const r of scelte) {
     const testo = bot.riempi(cfg.bot_t_promemoria, {
       nome: r.nome || '', cognome: r.cognome || '',
@@ -3985,6 +4074,7 @@ async function mandaPromemoria(adesso = new Date()) {
       // perdere per sempre il promemoria di chi non l'ha mai ricevuto.
       segna.run(r.id);
       mandati++;
+      if (r.inRitardo) recuperati++;
     } catch (e) { falliti++; console.error('Bot:', e.message); }
   }
   // ⚠️ Quelli che non sono partiti vanno DETTI. Un promemoria che non arriva è
@@ -3995,12 +4085,19 @@ async function mandaPromemoria(adesso = new Date()) {
     const per = giorni === 0 ? 'oggi' : giorni === 1 ? 'domani' : `fra ${giorni} giorni`;
     annota('promemoria', `ricordato il tavolo a ${mandati} client${mandati === 1 ? 'e' : 'i'} per ${per}`);
   }
+  // ⚠️ I recuperati si dicono a parte: non sono una buona notizia, sono la
+  // prova che qualcosa era rimasto fermo. Chi legge il registro deve poter
+  // risalire al periodo in cui il bot non ha lavorato.
+  if (recuperati) {
+    annota('promemoria', `${recuperati} in ritardo, recuperat${recuperati === 1 ? 'o' : 'i'} adesso: `
+      + 'quel giorno il promemoria non era partito');
+  }
   if (falliti) annota('errore', `${falliti} promemoria non partiti: quei tavoli non sono stati avvisati`);
   return mandati;
 }
 
 if (botDisponibile()) {
-  setInterval(() => { mandaPromemoria().catch(() => {}); }, 60 * 1000);
+  setInterval(() => { mandaPromemoria().catch(giroFallito('promemoria')); }, 60 * 1000);
 }
 
 // ---------------------------------------------------------------------------
@@ -4355,7 +4452,9 @@ async function riprovaICollegamenti(adesso = new Date()) {
 // non parte rimette la persona in coda: non deve perdere il posto per un
 // guasto nostro.
 async function avvisaLaListaDAttesa(adesso = new Date()) {
-  if (!botDisponibile() || !botAcceso() || state.status !== 'connesso') return 0;
+  const perche = motivoPerCuiNonSiManda();
+  if (perche) { lavoriFermi(perche); return 0; }
+  lavoriRipartiti();
   const cfg = bot.config(db);
 
   // Prima si fa la pulizia — chi non ha risposto in tempo torna in coda — e
@@ -4418,7 +4517,7 @@ async function giroDelMinuto() {
 }
 
 if (botDisponibile()) {
-  setInterval(() => { giroDelMinuto().catch(() => {}); }, 60 * 1000);
+  setInterval(() => { giroDelMinuto().catch(giroFallito('giro del minuto')); }, 60 * 1000);
 }
 
 // ---------- «C'è una versione più nuova» ----------
@@ -4431,8 +4530,9 @@ if (botDisponibile()) {
 // richiesta è un file di 43 byte, e una volta all'ora non è rumore per nessuno.
 // L'installazione vera resta alle 5 del mattino: questo è solo il cartello.
 if (depositoAggiornamenti()) {
-  setTimeout(() => { guardaSeCePiuNuova().catch(() => {}); }, 20 * 1000).unref?.();
-  setInterval(() => { guardaSeCePiuNuova().catch(() => {}); }, 60 * 60 * 1000);
+  const controlloFallito = (e) => console.error('Aggiornamenti:', (e && e.message) || e);
+  setTimeout(() => { guardaSeCePiuNuova().catch(controlloFallito); }, 20 * 1000).unref?.();
+  setInterval(() => { guardaSeCePiuNuova().catch(controlloFallito); }, 60 * 60 * 1000);
 }
 
 // ---------- L'email di riepilogo ----------
@@ -4731,7 +4831,7 @@ async function guardaChiHaPagato() {
 }
 
 if (botDisponibile()) {
-  setInterval(() => { guardaChiHaPagato().catch(() => {}); }, 15 * 1000);
+  setInterval(() => { guardaChiHaPagato().catch(giroFallito('pagamenti')); }, 15 * 1000);
 }
 
 // ---------- La richiesta di recensione ----------
@@ -4815,7 +4915,9 @@ function recensioniDaMandare(cfg, adesso) {
 }
 
 async function mandaRecensioni(adesso = new Date()) {
-  if (!botDisponibile() || !botAcceso() || state.status !== 'connesso') return 0;
+  const perche = motivoPerCuiNonSiManda();
+  if (perche) { lavoriFermi(perche); return 0; }
+  lavoriRipartiti();
   const cfg = bot.config(db);
   const scelte = recensioniDaMandare(cfg, adesso);
   if (!scelte.length) return 0;
@@ -4844,7 +4946,7 @@ async function mandaRecensioni(adesso = new Date()) {
 }
 
 if (botDisponibile()) {
-  setInterval(() => { mandaRecensioni().catch(() => {}); }, 60 * 1000);
+  setInterval(() => { mandaRecensioni().catch(giroFallito('recensioni')); }, 60 * 1000);
 }
 
 // ---------- API della pagina ----------

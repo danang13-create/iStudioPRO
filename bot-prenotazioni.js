@@ -3886,6 +3886,7 @@ module.exports = {
   haDettoBasta,
   dividiNome,
   comeData,
+  piuGiorni,
   dataItaliana,
   dataBreve,
   turniDelGiorno,
