@@ -258,6 +258,13 @@
   /* I corpi dei riquadri di testo stanno qui e non in linea: uno stile in
      linea non si batte dalla regola del telefono qui sotto. */
   .frase-testo { font-size: .9rem; }
+  /* Il titolo di un gruppo di frasi: deve staccare dalla frase che lo precede
+     molto più di quanto stacchi da quella che introduce, sennò non si capisce
+     a quale delle due appartiene. */
+  .gruppo-frasi { font-size: .82rem; font-weight: 700; text-transform: uppercase;
+                  letter-spacing: .06em; color: var(--verde-testo);
+                  margin: 26px 0 2px; padding-top: 14px; border-top: 1px solid var(--bordo); }
+  .gruppo-frasi:first-child { margin-top: 0; padding-top: 0; border-top: none; }
   #cfg-bot_email_html { font-size: .85rem; }
   .token-inserisci {
     background: none; border: none; padding: 0 2px; margin: 0; font: inherit;
@@ -4136,62 +4143,84 @@ function numeroPulito(valore) {
 // Le frasi del bot, in ORDINE DI CONVERSAZIONE e non in ordine alfabetico:
 // chi le rilegge sta ripercorrendo mentalmente una chiacchierata col cliente,
 // e trovarle nell'ordine sbagliato costringe a cercare ogni volta.
+//
+// ⚠️ E DIVISE A GRUPPI. Erano sessanta voci di fila, senza un titolo: chi
+// cercava «cosa legge uno che resta in coda» non lo trovava, e quelle frasi
+// c'erano già — sono la quattordicesima e le sei dopo. Sessanta cose in fila
+// non sono un elenco, sono un muro.
+// Una voce con la chiave `null` è un TITOLO DI GRUPPO, non una frase: non ha
+// una casella, non prende un numero, e chi salva la salta.
 const TESTI_BOT = [
+  [null, 'Chi scrive per la prima volta'],
   ['bot_t_benvenuto', 'Il primo messaggio', 'Quello che vede chi ti scrive per la prima volta. È il più importante di tutti.'],
   ['bot_t_primo_no', 'Primo messaggio non capito', 'Quello che si sente dire chi apre la conversazione con una parola storta («cioa») o con una domanda che il bot non conosce. Serve a non chiamare una persona per un errore di battitura: nomina sempre OPERATORE, altrimenti chi voleva chiedere altro resta senza via d\'uscita.'],
   ['bot_t_quante', 'Chiede le persone a chi conosce già', 'Sostituisce il primo messaggio quando la conversazione è già aperta: chi scrive NUOVA, o chi ha già un tavolo da te. Non ci si ripresenta a chi ha appena letto un nostro messaggio.'],
   ['bot_t_persone_no', 'Non ha capito quante persone', ''],
+  [null, 'Il giorno'],
   ['bot_t_giorno', 'Chiede il giorno', ''],
   ['bot_t_giorno_no', 'Non ha capito il giorno', ''],
   ['bot_t_chiuso', 'Quel giorno è chiuso', ''],
   ['bot_t_troppo_lontano', 'Chiede un giorno troppo lontano', 'Oltre un anno il bot non prenota da solo: passa la richiesta a una persona, che è chi può dire se a quella data il locale ci sarà ancora e con che orari.'],
+  [null, 'L\'orario'],
   ['bot_t_ora', 'Propone gli orari liberi', ''],
   ['bot_t_ora_no', 'Non ha capito l\'orario', ''],
   ['bot_t_ora_piena', 'Ha chiesto un orario pieno', 'Quando il cliente chiede un orario che il locale fa, ma che è già al completo. Sotto arrivano da soli gli orari ancora liberi.'],
   ['bot_t_ora_tardi', 'Ha chiesto un orario troppo vicino', 'Quando l\'orario chiesto è già passato o è troppo a ridosso, secondo il preavviso che hai impostato.'],
   ['bot_t_completo', 'È tutto pieno', ''],
+  [null, 'La lista d\'attesa: chi trova pieno e resta in coda'],
   ['bot_t_attesa_proposta', 'Propone la lista d\'attesa', 'Arriva in coda a «è pieno», quando la lista d\'attesa è accesa. Segnaposto: {quando} («per sabato 12 settembre alle 20:00», o senza l\'ora), {data}, {ora}.'],
   ['bot_t_attesa_segnata', 'Conferma di essere in lista', 'Segnaposto: {quando} {persone} {minuti}.'],
   ['bot_t_attesa_gia', 'Era già in lista', 'A chi dice «sì» una seconda volta per lo stesso giorno.'],
   ['bot_t_attesa_libero', 'Si è liberato un posto', 'Lo manda il bot da solo, quando un posto si libera. Deve chiedere chiaramente un SÌ: è così che il cliente lo prende. Segnaposto: {quando} {persone} {minuti} {nome}.'],
   ['bot_t_attesa_rinuncia', 'Non lo vuole più', 'Quando risponde NO a un posto liberato.'],
   ['bot_t_attesa_ripieno', 'Il posto è stato ripreso', 'Ha detto SÌ, ma fra la proposta e la risposta qualcun altro ha prenotato. Resta in lista.'],
+  ['bot_t_attesa_scaduta', 'Non ha risposto in tempo', 'Lo manda il bot da solo quando scadono i minuti per rispondere a un posto liberato: il posto passa a chi viene dopo, ma la persona RESTA in lista. Senza questo messaggio restava in silenzio, dopo aver letto «rispondi entro trenta minuti». Segnaposto: {quando} {persone} {data} {ora}.'],
   ['bot_t_attesa_tolta', 'Ha scritto CANCELLA stando in lista', 'Chi non ha prenotazioni ma sta in lista d\'attesa e scrive CANCELLA: è la lista che vuole lasciare.'],
+  [null, 'Nome, telefono, allergie'],
   ['bot_t_nome', 'Chiede il nome', 'Compare solo se hai lasciato attiva la domanda sul nome.'],
   ['bot_t_telefono', 'Chiede il numero di telefono', 'Compare solo se hai attivato la domanda sul telefono. Capita spesso che uno prenoti per la moglie o per il capo: qui si chiede il numero a cui richiamare davvero.'],
   ['bot_t_telefono_no', 'Non ha capito il numero', ''],
   ['bot_t_note', 'Chiede allergie e richieste', 'Compare solo se hai attivato la domanda sulle note.'],
+  [null, 'Il riepilogo, prima di confermare'],
   ['bot_t_riepilogo', 'Riepilogo prima di confermare', 'La riga del telefono sparisce da sola quando il cliente non lo lascia: non serve toglierla a mano.'],
   ['bot_t_daccordo', 'Quando il cliente dice solo «ok»', 'La risposta a un cenno del capo — «ok», «va bene», «perfetto» — da chi ha già una prenotazione. Deve restare CORTA: ripetere l\'elenco delle cose da fare sarebbe un muro, e il cliente lo ha appena letto.'],
   ['bot_t_email', 'Riepilogo che chiede l\'email', 'Sostituisce il riepilogo qui sopra quando la domanda dell\'email è accesa: il cliente conferma scrivendo il suo indirizzo invece di «SÌ», e l\'indirizzo resta sulla prenotazione. Valgono gli stessi segnaposto.'],
   ['bot_t_email_no', 'Email non capita', 'Vale sia per chi ha battuto male l\'indirizzo sia per chi scrive «SÌ» per abitudine: la frase deve andar bene a tutti e due.'],
+  [null, 'Il pagamento'],
   ['bot_t_pagamento', 'Chiede il pagamento', 'Sostituisce la conferma quando il pagamento è OBBLIGATORIO. ⚠️ Non deve mai contenere la parola «confermata»: chi la legge capisce di avere un tavolo e sabato sera si presenta. Tieni la riga che dice di tornare in chat: dopo aver pagato il cliente atterra sulla pagina di ritorno, che della sua prenotazione non sa niente, e la conferma gliela scriviamo qui. I segnaposto: {importo}, {resto}, {link}, {scadenza}.'],
   ['bot_t_pagamento_lento', 'Il collegamento non è pronto', 'Solo quando Stripe non risponde: il posto resta tenuto ed è il collegamento che manca. Non dire «riprova»: non c\'è niente che il cliente possa riprovare.'],
   ['bot_t_pagata', 'Pagamento ricevuto', 'Quello che arriva quando il pagamento risulta incassato. Qui «confermata» ci vuole, ed è il momento in cui il tavolo è davvero suo.'],
   ['bot_t_caparra', 'Acconto facoltativo: prenotazione confermata', 'Con il pagamento FACOLTATIVO. Il tavolo è già suo: dirlo per primo è tutto il messaggio, perché chi non versa niente non deve restare col dubbio. Segnaposto: {nome} {data} {ora} {persone} {importo} {link} {resto}.'],
   ['bot_t_caparra_ricevuta', 'Acconto facoltativo: ricevuto', 'Quando la caparra facoltativa arriva. Qui NON si dice «prenotazione confermata»: lo era già, e ridirlo fa credere che prima non lo fosse.'],
   ['bot_t_pagamento_scaduto', 'Tempo per pagare scaduto', 'Il posto è tornato libero. La riga «non ti è stato addebitato niente» sembra ovvia ma non lo è: senza, qualcuno telefona preoccupato.'],
+  [null, 'Confermata — o lasciata a metà'],
   ['bot_t_conferma', 'Prenotazione confermata', ''],
   ['bot_t_rinuncia', 'Il cliente ha rinunciato mentre prenotava', 'Quando dice NO al riepilogo: non è stata segnata nessuna prenotazione.'],
   ['bot_t_lasciato', 'Ci ha ripensato: non si tocca niente', '⚠️ Quando dice NO a «la sposto?» o a «la annullo?». La sua prenotazione È ANCORA VIVA: qui non si deve scrivere che è stata cancellata, o il cliente non si presenta e il tavolo resta vuoto.'],
   ['bot_t_ricominciamo', 'Quando ridomanda la stessa cosa', 'Va in fondo alla domanda ripetuta: dice al cliente come uscirne invece di lasciarlo davanti a un muro. Lascia vuoto per ripetere solo la domanda.'],
   ['bot_t_ricominciato', 'Il cliente ha scritto RICOMINCIA', ''],
+  [null, 'Chi ha già prenotato e riscrive'],
   ['bot_t_gia_prenotato', 'Riscrive chi ha già una prenotazione', 'Quello che si sente dire chi ti scrive di nuovo e ha già un tavolo. CAMBIA e CANCELLA sono le due parole che il bot capisce: se riscrivi la frase, lasciale scritte così, altrimenti il cliente non ha più niente da rispondere.'],
   ['bot_t_gia_prenotate', 'Riscrive chi ha PIÙ prenotazioni', 'Quando i tavoli attivi sono più di uno si dicono tutti: mostrarne uno solo fa credere al cliente che gli altri non siano stati registrati, e lo porta a prenotare di nuovo. {elenco} è l\'elenco numerato, {quante} il totale.'],
+  [null, 'Annullare'],
   ['bot_t_annulla_quale', 'Chiede conferma per annullare', ''],
   ['bot_t_annullata', 'Prenotazione annullata', ''],
   ['bot_t_annulla_niente', 'Vuole annullare ma non ha prenotazioni', ''],
   ['bot_t_quale_annulla', 'Ha più tavoli e vuole cancellarne uno', 'Compare solo a chi ha più di una prenotazione attiva. Il segnaposto {elenco} è l\'elenco numerato: se lo togli, l\'elenco finisce in fondo da solo.'],
+  [null, 'Spostare'],
   ['bot_t_quale_sposta', 'Ha più tavoli e vuole cambiarne uno', 'Come sopra, ma per lo spostamento.'],
   ['bot_t_sposta_quale', 'Vuole spostare: chiede il giorno nuovo', ''],
   ['bot_t_sposta_conferma', 'Chiede conferma prima di spostare', ''],
   ['bot_t_spostata', 'Prenotazione spostata', ''],
   ['bot_t_sposta_pieno', 'Il posto nuovo non c\'è più', 'Importante: dice al cliente che la prenotazione vecchia NON è stata toccata. Puoi usare {vecchiaData} e {vecchiaOra}.'],
+  [null, 'Quando siete VOI a muovere qualcosa'],
   ['bot_t_annullata_locale', 'Il locale ha annullato una sua prenotazione', 'Parte quando chi è in sala cancella con CANCELLA PRENOTAZIONE, non quando è il cliente a disdire da solo.'],
   ['bot_t_manuale', 'Conferma di una prenotazione fatta da voi', 'Parte solo se scegli di avvisare il cliente quando la prenotazione la inserisci tu, dalla piattaforma o con NUOVA.'],
   ['bot_t_modificata', 'Avete cambiato una prenotazione', 'Parte quando modifichi data, ora o coperti dalla piattaforma.'],
+  [null, 'Dopo la prenotazione'],
   ['bot_t_promemoria', 'Promemoria della prenotazione', 'Parte quanti giorni prima e a che ora lo decidi tu, in <b>Recensioni</b>, e solo per le prenotazioni ancora confermate. È il messaggio che taglia i no-show. ⚠️ Usa <b>{data}</b> e non la parola «domani»: con un anticipo diverso da un giorno sarebbe una bugia. Segnaposto: {nome}, {data}, {ora}, {persone}, {locale}.'],
   ['bot_t_recensione', 'Richiesta di recensione', 'Parte qualche giorno dopo la visita, solo verso chi risulta venuto. Il collegamento arriva da solo al posto di {link}: lo imposti nella scheda Recensioni. Il collegamento va a tutti, senza filtri — mandarlo solo a chi si è detto contento è vietato dalle regole di Google.'],
+  [null, 'Quando il bot non capisce'],
   ['bot_t_nonho_aperto', 'Non ha capito — locale aperto', 'Qui non promettere tempi che non puoi mantenere.'],
   ['bot_t_nonho_chiuso', 'Non ha capito — locale chiuso', ''],
   ['bot_t_operatore', 'Il cliente ha chiesto una persona', ''],
@@ -5646,14 +5675,20 @@ async function caricaConfigBot() {
     <label style="display:flex;align-items:center;gap:6px;font-weight:400">
       <input type="checkbox" data-giorno="${i}"${aperti.includes(String(i)) ? ' checked' : ''}> ${n}
     </label>`).join('');
-  $('#pren-testi').innerHTML = TESTI_BOT.map(([chiave, titolo, aiuto], i) => `
+  let numeroFrase = 0;
+  $('#pren-testi').innerHTML = TESTI_BOT.map(([chiave, titolo, aiuto]) => {
+    // Una voce senza chiave è un titolo di gruppo: niente casella, niente numero.
+    if (!chiave) return `<h3 class="gruppo-frasi">${testoSicuro(titolo)}</h3>`;
+    numeroFrase += 1;
+    return `
     <label style="display:block">
-      <span style="font-weight:600;font-size:.92rem">${i + 1}. ${titolo}</span>
+      <span style="font-weight:600;font-size:.92rem">${numeroFrase}. ${titolo}</span>
       ${aiuto ? `<br><span class="conteggio" style="margin:0">${aiuto}</span>` : ''}
       <textarea id="txt-${chiave}" autocomplete="off" rows="${chiave === 'bot_t_benvenuto' ? 4 : 3}"
         class="frase-testo" style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;resize:vertical">${testoSicuro(d.impostazioni[chiave] || '')}</textarea>
       <button class="btn btn-secondario" data-ripristina="${chiave}" style="padding:3px 9px;font-size:.78rem;margin-top:4px">Riporta com'era</button>
-    </label>`).join('');
+    </label>`;
+  }).join('');
   $('#pren-testi').querySelectorAll('[data-ripristina]').forEach((b) => {
     b.addEventListener('click', async (ev) => {
       ev.preventDefault();

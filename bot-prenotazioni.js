@@ -628,6 +628,7 @@ const PREDEFINITI = {
   bot_t_attesa_libero: '🎉 Si è liberato un posto {quando} per {persone} persone!\n\nLo vuoi? Rispondi SÌ entro {minuti} minuti, altrimenti lo propongo a chi è in lista dopo di te.',
   bot_t_attesa_rinuncia: 'Va bene, ti ho tolto dalla lista d\'attesa. Se vuoi prenotare un altro giorno, dimmi per quante persone.',
   bot_t_attesa_ripieno: 'Mi dispiace, nel frattempo quel posto è stato preso. 😔\nResti in lista: ti riscrivo se si libera di nuovo.',
+  bot_t_attesa_scaduta: 'Non ho ricevuto la tua risposta in tempo, così il posto {quando} è tornato libero per gli altri in lista. 😔\n\nResti in lista: se se ne libera un altro ti riscrivo qui.',
   bot_t_attesa_tolta: 'Ti ho tolto dalla lista d\'attesa. Se vuoi prenotare, dimmi per quante persone.',
   bot_t_nome: 'A che nome e cognome segno la prenotazione?\n',
   bot_t_note: 'Prima di completare la prenotazione, c’è qualche allergia, intolleranza o esigenza particolare che dovremmo conoscere?\n\nSe non hai nulla da segnalare, scrivi semplicemente NO.',
@@ -1888,15 +1889,37 @@ function turnoLiberoPer(db, cfg, r, adesso) {
 // scrivere, e il messaggio lo manda il server — che è l'unico a sapere se
 // WhatsApp è collegato. Le righe vengono segnate «avvisata» qui, prima
 // dell'invio: se l'invio poi fallisce, il server le rimette in coda.
-function chiDaAvvisareInAttesa(db, cfg, adesso = new Date()) {
+// La pulizia, e chi va avvisato che il suo tempo è finito.
+// ⚠️ Chi non risponde in tempo tornava in coda IN SILENZIO: aveva letto «si è
+// liberato un posto, rispondi SÌ entro trenta minuti», e poi più niente. Se
+// rispondeva al minuto trentacinque si sentiva dire «il posto è stato preso»,
+// che per giunta è un'altra cosa — lì il posto l'ha preso qualcun altro, qui è
+// il tempo a essere finito. Adesso glielo si dice, e si dice anche che resta
+// in lista: è la differenza fra una porta chiusa e una coda.
+// ⚠️ NON avvisa chi scade perché il turno è passato (serata finita): «non si è
+// liberato niente» a cose fatte è una notizia che non serve a nessuno.
+// Come per le proposte, qui non si manda niente: si dice a chi scrivere, e il
+// messaggio lo manda il server, che è l'unico a sapere se WhatsApp è collegato.
+function scadenzeDellaAttesa(db, cfg, adesso = new Date()) {
   const adessoStr = quandoLeggibile(adesso);
   const aperte = db.prepare('SELECT * FROM bot_attese WHERE stato IN ' + dentro(ATTESE_APERTE)
     + ' ORDER BY creata_at, id').all();
-
+  const tornati = [];
   for (const r of aperte) {
     if (turnoPassato(cfg, r, adesso)) togliDallaAttesa(db, r.id, 'scaduta');
-    else if (r.stato === 'avvisata' && r.scade_at && r.scade_at < adessoStr) rimettiInAttesa(db, r.id, adesso);
+    else if (r.stato === 'avvisata' && r.scade_at && r.scade_at < adessoStr) {
+      // L'ora da nominare è quella PROPOSTA, che «rimettiInAttesa» sta per
+      // cancellare: si legge prima.
+      const ora = r.avvisata_ora || r.ora || '';
+      if (rimettiInAttesa(db, r.id, adesso)) tornati.push({ ...r, ora });
+    }
   }
+  return tornati;
+}
+
+function chiDaAvvisareInAttesa(db, cfg, adesso = new Date()) {
+  const adessoStr = quandoLeggibile(adesso);
+  scadenzeDellaAttesa(db, cfg, adesso);
 
   const minuti = Math.max(num(cfg.bot_attesa_minuti, 30), 5);
   const scadenza = quandoLeggibile(new Date(adesso.getTime() + minuti * 60 * 1000));
@@ -3816,7 +3839,7 @@ function eOrarioAvvisi(cfg, adesso) {
 
 module.exports = {
   mettiInAttesa, listaDAttesa, togliDallaAttesa, toglieDaTutteLeAttese, rimettiInAttesa,
-  chiDaAvvisareInAttesa, ATTESE_APERTE,
+  chiDaAvvisareInAttesa, scadenzeDellaAttesa, ATTESE_APERTE,
   preparaDatabase,
   PREDEFINITI,
   TESTI_SUPERATI,

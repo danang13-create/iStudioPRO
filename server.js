@@ -4326,7 +4326,37 @@ async function riprovaICollegamenti(adesso = new Date()) {
 async function avvisaLaListaDAttesa(adesso = new Date()) {
   if (!botDisponibile() || !botAcceso() || state.status !== 'connesso') return 0;
   const cfg = bot.config(db);
+
+  // Prima si fa la pulizia — chi non ha risposto in tempo torna in coda — e
+  // poi si decide a chi proporre i posti. Nessuna delle due manda niente: qui
+  // si sa chi avvisare, e si scrive in un ordine scelto apposta.
+  const scaduti = bot.scadenzeDellaAttesa(db, cfg, adesso);
   const proposte = bot.chiDaAvvisareInAttesa(db, cfg, adesso);
+
+  // ⚠️ A chi ha finito il tempo si scrive PRIMA che il posto vada a un altro:
+  // scoprirlo dopo — o non scoprirlo affatto — è il modo peggiore.
+  // ⚠️ Ma NON a chi, in questo stesso giro, si è visto riproporre il posto:
+  // capita quando in coda non c'è nessun altro, e si ritroverebbe due messaggi
+  // di fila, «è andato a un altro» e «si è liberato un posto». Non ha perso
+  // niente: non gli si dice che ha perso qualcosa.
+  const riproposti = new Set(proposte.map((x) => x.telefono));
+  for (const r of scaduti) {
+    if (riproposti.has(r.telefono)) continue;
+    const quando = r.ora ? `delle ${r.ora} ${bot.dataItaliana(r.data)}` : bot.dataItaliana(r.data);
+    try {
+      await rispondiConRitmo(r.telefono, bot.riempi(cfg.bot_t_attesa_scaduta, {
+        locale: cfg.bot_locale || 'noi', assistente: cfg.bot_assistente || '',
+        nome: r.nome || '', cognome: r.cognome || '',
+        quando, data: bot.dataItaliana(r.data), ora: r.ora || '', persone: r.persone,
+      }));
+      annota('lista d\'attesa', `tempo scaduto per ${bot.nomeInSala(r)}: torna in coda`);
+    } catch (e) {
+      // Il messaggio è una cortesia: se non parte, la persona resta comunque
+      // in coda (lo ha già fatto il bot) e il giro non si ferma qui.
+      annota('errore', `lista d'attesa: non riesco ad avvisare ${bot.nomeInSala(r)}: ${e.message}`);
+    }
+  }
+
   let mandate = 0;
   for (const r of proposte) {
     const quando = `per ${bot.dataItaliana(r.data)} alle ${r.ora}`;
