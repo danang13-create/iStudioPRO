@@ -117,7 +117,11 @@
   header .btn { background: var(--testata-btn-fondo); color: var(--testata-btn-testo); }
   /* Quadrato, e largo come è alto: è un'icona sola, e allargarlo lo farebbe
      sembrare un secondo «Nuova prenotazione». */
-  #tema { min-width: 44px; width: 44px; height: 44px; padding: 0; font-size: 1.15rem; line-height: 1; }
+  header .spazio { flex: 1; }
+  /* L'ordine è scritto a mano perché sul telefono cambia: lì il quadratino del
+     tema resta in alto a destra e «+ Nuova» scende su una riga tutta sua. */
+  header #nuova { order: 4; }
+  #tema { order: 5; min-width: 44px; width: 44px; height: 44px; padding: 0; font-size: 1.15rem; line-height: 1; }
   #tema .lettera { font-weight: 700; font-size: 1rem; }
   header .btn:hover { background: var(--oggi); color: var(--verde-scuro); }
   /* Chi usa la tastiera — o un tablet con tastiera — deve vedere dov'è. */
@@ -325,12 +329,27 @@
   .avviso { background: var(--avviso-fondo); border: 1px solid var(--avviso-bordo); border-radius: 9px;
             padding: 10px 12px; font-size: .88rem; }
   @media (max-width: 520px) {
-    /* Il tasto che si usa di più prende tutta la riga: in sala si preme col
-       pollice, spesso con l'altra mano occupata. */
-    /* ⚠️ «width: 100%» mandava il tasto del tema su una riga tutta sua, sotto,
-       sbilanciando l'intestazione. Con «flex: 1» il tasto grande prende tutto
-       lo spazio che avanza e il quadratino gli sta accanto. */
-    header #nuova { flex: 1; padding: 13px; }
+    /* ⚠️ LA TESTATA SUL TELEFONO. Ha sbagliato due volte prima di stare così.
+       Con «width: 100%» il quadratino del tema finiva da solo su una terza
+       riga. Con «flex: 1» i due tasti si dividevano la riga con il titolo, e
+       «+ Nuova» restava largo quanto una parola e alto due righe: «+» sopra e
+       «Nuova» sotto — visto in una foto dalla sala.
+       Adesso le righe sono due, e ognuna ha un mestiere:
+         riga 1   «Prenotazioni»  «VERO Omakase»  ·  [A]
+         riga 2   [         + Nuova, tutta larga         ]
+       Il nome del locale si accorcia con i puntini invece di spingere fuori il
+       quadratino; il tasto che si preme cento volte a sera è una barra intera,
+       alta 48, che si prende col pollice senza guardare. */
+    header { row-gap: 10px; }
+    header h1 { font-size: 1.05rem; }
+    /* Prende lo spazio che avanza e si accorcia: «Omakase Sant'Anna dei Lombardi»
+       non deve mandare a capo niente. */
+    header .quale { flex: 1; min-width: 0; overflow: hidden;
+                    text-overflow: ellipsis; white-space: nowrap; }
+    header .spazio { display: none; }
+    #tema { order: 4; }
+    header #nuova { order: 5; flex: 0 0 100%; width: 100%;
+                    min-height: 48px; padding: 13px; font-size: 1rem; }
     /* La striscia della settimana sul telefono sta in comune/planning.css:
        vale per la sala e per la piattaforma, che avevano lo stesso problema. */
     /* Meno cornice, più contenuto: 18px di imbottitura per lato su 390 di
@@ -425,51 +444,12 @@
            opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 90; }
   #toast.visibile { opacity: 1; }
 </style>
-<script>
-// ⚠️ Questo pezzo sta QUI, prima del corpo della pagina, e non in fondo con
-// tutto il resto: se il tema si applicasse dopo, un tablet in sala di sera
-// sparerebbe mezzo secondo di schermo bianco a ogni apertura. Che è esattamente
-// il fastidio da cui nasce questa impostazione.
-//
-// ⚠️ La regola sta QUI E BASTA, e il resto della pagina la chiama. Scritta in
-// due posti, prima o poi uno dei due dice le 19 e l'altro le 20.
-window.TemaSala = (function () {
-  var MODI = ['chiaro', 'scuro', 'auto'];
-  var DA = 19, A = 6;          // scuro dalle 19:00 alle 6:00
-
-  // «Automatica» va a OROLOGIO, non a quello che dice il tablet.
-  // Il tablet di un ristorante spesso non ha mai avuto il tema scuro
-  // configurato, o è fisso su chiaro: «segui il sistema» lì non succede mai, e
-  // l'impostazione sembrerebbe rotta. E quando il sistema ce l'ha, segue
-  // l'alba e il tramonto del posto, non l'orario del locale. Un orario fisso è
-  // prevedibile: alle 19 si abbassa, la mattina torna su, sempre, ovunque.
-  function orarioScuro(adesso) {
-    var h = (adesso || new Date()).getHours();
-    return h >= DA || h < A;
-  }
-  function risolvi(modo, adesso) {
-    if (modo === 'scuro') return 'scuro';
-    if (modo === 'chiaro') return 'chiaro';
-    return orarioScuro(adesso) ? 'scuro' : 'chiaro';
-  }
-  function pulisci(modo) { return MODI.indexOf(modo) >= 0 ? modo : 'chiaro'; }
-  function applica(modo) {
-    var m = pulisci(modo);
-    document.documentElement.dataset.modo = m;
-    document.documentElement.dataset.tema = risolvi(m);
-    return m;
-  }
-  function scelto() {
-    try { return localStorage.getItem('istudio_tema'); } catch (e) { return null; }
-  }
-  function ricorda(modo) {
-    try { localStorage.setItem('istudio_tema', pulisci(modo)); } catch (e) {}
-  }
-  applica(scelto() || 'chiaro');
-  return { MODI: MODI, DA: DA, A: A, orarioScuro: orarioScuro, risolvi: risolvi,
-           applica: applica, scelto: scelto, ricorda: ricorda };
-})();
-</script>
+<!-- ⚠️ Nella TESTA e senza «defer»: deve girare prima che la pagina si
+     disegni, sennò ogni apertura è mezzo secondo di schermo bianco. E sta in
+     «comune» perché la regola è la stessa della piattaforma: scritta in due
+     posti, prima o poi una dice le 19 e l'altra le 20. -->
+<script>window.TEMA_DOVE = 'sala';</script>
+<script src="/comune/tema.js"></script>
 </head>
 <body>
 <!-- ⚠️ In sala non basta avvisare. Il tablet sta sul bancone, chi passa ha le
@@ -489,7 +469,7 @@ window.TemaSala = (function () {
 <header>
   <h1>Prenotazioni</h1>
   <span class="quale" id="quale-locale"></span>
-  <span style="flex:1"></span>
+  <span class="spazio"></span>
   <button class="btn btn-piccolo" id="nuova">+ Nuova</button>
   <!-- Il tema, a portata di pollice. Sta in sala e non solo in «Impostazioni»
        perché chi si accorge che lo schermo dà fastidio è chi è lì alle nove di
@@ -965,27 +945,23 @@ function disegnaTastoTema(modo) {
 }
 
 function applicaTema(modo) {
-  disegnaTastoTema(TemaSala.applica(modo));
+  disegnaTastoTema(Tema.applica(modo));
 }
 
 // Il modo che arriva dalla piattaforma vale solo se qui nessuno ha scelto.
 function applicaTemaDiPartenza(modo) {
-  if (TemaSala.scelto()) return;
+  if (Tema.scelto()) return;
   applicaTema(modo);
 }
 
 $('#tema').addEventListener('click', () => {
   const ora = document.documentElement.dataset.modo || 'chiaro';
-  const dopo = TemaSala.MODI[(TemaSala.MODI.indexOf(ora) + 1) % TemaSala.MODI.length];
-  TemaSala.ricorda(dopo);
+  const dopo = Tema.MODI[(Tema.MODI.indexOf(ora) + 1) % Tema.MODI.length];
+  Tema.ricorda(dopo);
   applicaTema(dopo);
   toast('Come si vede: ' + NOMI_TEMA[dopo]);
 });
 
-// ⚠️ Alle 19 lo schermo deve abbassarsi da solo, senza che nessuno tocchi
-// niente: col modo automatico l'ora cambia mentre la pagina è già aperta da
-// ore. Si ricontrolla ogni minuto — costa un confronto fra due stringhe.
-setInterval(() => { applicaTema(document.documentElement.dataset.modo || 'chiaro'); }, 60 * 1000);
 disegnaTastoTema(document.documentElement.dataset.modo || 'chiaro');
 
 function mostraVersione(versioneServer) {

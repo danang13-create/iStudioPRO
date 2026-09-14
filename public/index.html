@@ -8,21 +8,131 @@
      riconosce la sua da quella, non dal titolo tagliato a metà. -->
 <link rel="icon" href="/comune/icona.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/comune/apple-touch-icon.png">
+<!-- ⚠️ Nella TESTA e senza «defer»: deve girare prima che la pagina si disegni,
+     sennò ogni apertura è mezzo secondo di schermo bianco. La regola sta in
+     «comune» ed è la STESSA della sala. -->
+<script>window.TEMA_DOVE = 'piattaforma';</script>
+<script src="/comune/tema.js"></script>
 <style>
+  /* ------------------------------------------------------------------
+     I due temi
+     ------------------------------------------------------------------
+     ⚠️ TUTTI i colori passano da qui. Un colore scritto a mano dentro una
+     regola resta chiaro col tema scuro, e si vede subito: è un rettangolo
+     bianco in mezzo a una pagina nera. Una prova toglie questi blocchi e
+     pretende che non ne resti nessuno — tranne il bianco, che è scritta su
+     verde ed è giusta in tutti e due i temi.
+     ⚠️ E i nomi dicono il MESTIERE, non il colore: «--carta» è la superficie
+     di una scheda, che col tema chiaro è bianca e con lo scuro no. */
   :root {
     --verde: #25d366;
     --verde-scuro: #128c7e;
+    --verde-premuto: #0f7a6d;
     --sfondo: #f0f2f5;
-    --bianco: #ffffff;
+    --bianco: #ffffff;          /* resta per le vecchie regole; la superficie è --carta */
+    --carta: #ffffff;
+    --carta-2: #f7f8fa;         /* riquadri dentro una scheda: registri, riepiloghi */
     --testo: #111b21;
     --grigio: #667781;
+    --grigio-2: #8696a0;        /* più tenue del grigio: spie, etichette secondarie */
     --rosso: #ea4335;
     --bordo: #e0e4e8;
+    --bordo-2: #ccd0d5;         /* bordi di cose spente o disabilitate */
 
-    /* Quello che il cliente ha comunicato: allergie, compleanni, seggioloni.
-       Non è un dettaglio grigio come gli altri — si deve vedere. */
-    --avviso-testo: #8a4b00;
+    /* Le tre famiglie di messaggi: va bene, attenzione, guasto. */
+    --ok-fondo: #e7f7ee; --ok-testo: #1c7c4b; --ok-bordo: #b9ddc8;
+    --avviso-fondo: #fff4d6; --avviso-testo: #8a4b00; --avviso-bordo: #e6d3a3;
+    --avviso-forte: #ffb300;    /* la spia e la barra «quasi pieno» */
+    --male-fondo: #fdecea; --male-testo: #a3261c; --male-bordo: #f5c6c0;
+
+    /* La chat, che imita WhatsApp: carta da parati, fumetto mio, spunte blu. */
+    --chat-sfondo: #efeae2; --chat-mio: #d9fdd3; --chat-spunte: #53bdeb;
+
+    /* Il cartello «pagina vecchia» e quello «è uscita una versione». */
+    --nota-fondo: #fff4d6; --nota-testo: #5a4212; --nota-bordo: #e6d3a3;
+    --nuova-fondo: #e7f5ec; --nuova-testo: #14502f; --nuova-bordo: #b9ddc8;
+
+    --toast-fondo: #111b21; --toast-testo: #ffffff;
+    --ombra: rgba(0,0,0,.18);
+
+    /* Le spie tonde: sono pallini, non scritte — stesso colore nei due temi. */
+    --spia-ok: #4ade80; --spia-male: #ff6b5e;
+    --spento: #b7c0c6;          /* un pulsante che non si puo premere */
+    --pausa-fondo: #eef2ff; --pausa-testo: #3f4bb8;
+    --saltato-fondo: #fff1e6; --saltato-testo: #a35a12;
+    --senza-fondo: #fdf4ef; --senza-testo: #8a5a3b;
+    --male-premuto: #f8d6d1;    /* il tasto rosso mentre ci sta il dito sopra */
+    --nota-bordo-forte: #b8933f;
+    --stima-fondo: #eef6f1; --stima-testo: #1c5c40;
+    --chat-altro: #ffffff; --chat-data: rgba(255,255,255,.8);
+    --avatar-gruppo: #6b7c93;
+    --velo: rgba(0,0,0,.35);
+    --ombra-bassa: rgba(0,0,0,.08);
+    --ombra-alta: rgba(0,0,0,.2);
+    /* ⚠️ IL VERDE SCRITTO NON È IL VERDE DIPINTO. «--verde-scuro» è una
+       SUPERFICIE (la barra in alto, i tasti pieni) e col tema scuro si scurisce
+       ancora; usato come INCHIOSTRO su una scheda scura faceva 2,5:1 — il «42»
+       dei coperti quasi invisibile, misurato, non a occhio. «--verde» è il
+       verde del marchio e su bianco fa 1,9:1: i nomi dei clienti erano già
+       così, col tema chiaro. Questo terzo verde serve solo per SCRIVERE, ed è
+       l'unico dei tre che nei due temi passa 4,5:1. */
+    --verde-testo: #0f7a6d;
+    /* Quelle che servono a «comune/planning.css» — la striscia della settimana
+       è la STESSA della sala, e finché qui non erano definite restava chiara
+       dentro una pagina scura: numeri bianchi su verde pallido, 1,1:1. */
+    --oggi: #eafff2;
+    --meter-fondo: #cdeedd; --quasi: #ffb300;
+    --allarme: #b26a00; --allarme-fondo: #fff8e6;
   }
+  :root[data-tema="scuro"] {
+    --verde: #2bd66b;
+    --verde-scuro: #0e6b61;
+    --verde-premuto: #0a554d;
+    --sfondo: #10171c;
+    --bianco: #1a232a;
+    --carta: #1a232a;
+    --carta-2: #141d23;
+    --testo: #e6edf3;
+    --grigio: #9bacb8;
+    --grigio-2: #7d90a0;
+    --rosso: #ff6b5e;
+    --bordo: #2b3740;
+    --bordo-2: #3a4852;
+
+    --ok-fondo: #12332a; --ok-testo: #7fe0a8; --ok-bordo: #2a5a44;
+    --avviso-fondo: #3a2d18; --avviso-testo: #ffc978; --avviso-bordo: #6b5a24;
+    --avviso-forte: #e0a00a;
+    --male-fondo: #3a1f1d; --male-testo: #ff9a90; --male-bordo: #6b3430;
+
+    --chat-sfondo: #10191f; --chat-mio: #16482f; --chat-spunte: #53bdeb;
+
+    --nota-fondo: #3a2f14; --nota-testo: #f0dfb0; --nota-bordo: #6b5a24;
+    --nuova-fondo: #12332a; --nuova-testo: #a8e8c4; --nuova-bordo: #2a5a44;
+
+    --toast-fondo: #e6edf3; --toast-testo: #10171c;
+    --ombra: rgba(0,0,0,.6);
+
+    --spia-ok: #4ade80; --spia-male: #ff6b5e;
+    --spento: #3a4852;
+    --pausa-fondo: #1d2340; --pausa-testo: #aeb8ff;
+    --saltato-fondo: #3a2a1b; --saltato-testo: #f0b57a;
+    --senza-fondo: #241c18; --senza-testo: #d3ab8e;
+    --male-premuto: #4a2523;
+    --nota-bordo-forte: #8a7330;
+    --stima-fondo: #15291f; --stima-testo: #9ad9b4;
+    --chat-altro: #202c33; --chat-data: rgba(20,29,35,.85);
+    --avatar-gruppo: #56667c;
+    --velo: rgba(0,0,0,.6);
+    --ombra-bassa: rgba(0,0,0,.5);
+    --ombra-alta: rgba(0,0,0,.7);
+    --verde-testo: #4fd8a0;
+    --oggi: #12332a;
+    --meter-fondo: #22403a; --quasi: #d99400;
+    --allarme: #f0a33a; --allarme-fondo: #3a2d18;
+  }
+  /* Perché campi, tendine e barre di scorrimento del browser seguano. */
+  :root[data-tema="scuro"] { color-scheme: dark; }
+  :root[data-tema="chiaro"] { color-scheme: light; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   /* Il doppio tocco su un pulsante, su un telefono, ingrandisce la pagina: si
      tocca due volte di fretta e ci si ritrova la pagina zoomata storta. Su ciò
@@ -47,10 +157,14 @@
     display: flex; align-items: center; gap: 7px; cursor: pointer; border: none; color: #fff; font-family: inherit;
   }
   .badge:hover { background: rgba(255,255,255,.28); }
-  .badge .pallino { width: 10px; height: 10px; border-radius: 50%; background: #ffb300; display: inline-block; flex-shrink: 0; }
-  .badge.verde .pallino { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
-  .badge.giallo .pallino { background: #ffb300; box-shadow: 0 0 6px #ffb300; }
-  .badge.rosso .pallino { background: #ff6b5e; box-shadow: 0 0 6px #ff6b5e; }
+  /* Tondo e largo come è alto: è un'icona sola, e allargarlo lo farebbe
+     sembrare una seconda voce di menu. 34 sul computer, 40 sotto il dito. */
+  .badge-tondo { width: 34px; height: 34px; padding: 0; justify-content: center; font-size: 1.05rem; line-height: 1; }
+  .badge-tondo .lettera { font-weight: 700; font-size: .95rem; }
+  .badge .pallino { width: 10px; height: 10px; border-radius: 50%; background: var(--avviso-forte); display: inline-block; flex-shrink: 0; }
+  .badge.verde .pallino { background: var(--spia-ok); box-shadow: 0 0 6px var(--spia-ok); }
+  .badge.giallo .pallino { background: var(--avviso-forte); box-shadow: 0 0 6px var(--avviso-forte); }
+  .badge.rosso .pallino { background: var(--spia-male); box-shadow: 0 0 6px var(--spia-male); }
   /* La barra resta ferma in cima mentre la pagina scorre: le impostazioni
      sono lunghe duemila pixel, e per cambiare scheda si tornava su a mano.
      Sotto l'avviso «pagina vecchia» (z 200), che quando c'è deve coprirla.
@@ -70,8 +184,8 @@
     background-image:
       linear-gradient(to right, var(--bianco) 40%, rgba(255,255,255,0)),
       linear-gradient(to left, var(--bianco) 40%, rgba(255,255,255,0)),
-      radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.18), transparent),
-      radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.18), transparent);
+      radial-gradient(farthest-side at 0 50%, var(--ombra), transparent),
+      radial-gradient(farthest-side at 100% 50%, var(--ombra), transparent);
     background-position: 0 0, 100% 0, 0 0, 100% 0;
     background-repeat: no-repeat;
     background-size: 48px 100%, 48px 100%, 16px 100%, 16px 100%;
@@ -82,17 +196,17 @@
     background: none; border: none; padding: 13px 18px; font-size: .95rem; cursor: pointer;
     color: var(--grigio); border-bottom: 3px solid transparent; white-space: nowrap;
   }
-  nav button.attiva { color: var(--verde-scuro); border-bottom-color: var(--verde); font-weight: 600; }
+  nav button.attiva { color: var(--verde-testo); border-bottom-color: var(--verde); font-weight: 600; }
   main { max-width: 900px; margin: 24px auto; padding: 0 16px; }
   .scheda { display: none; }
   .scheda.attiva { display: block; }
   .card { background: var(--bianco); border: 1px solid var(--bordo); border-radius: 12px; padding: 20px; margin-bottom: 18px; }
   .card h2 { font-size: 1.05rem; margin-bottom: 12px; }
-  .avviso { background: #fff8e1; border: 1px solid #ffe082; border-radius: 10px; padding: 12px 14px; font-size: .88rem; color: #7a5c00; margin-bottom: 18px; }
+  .avviso { background: var(--avviso-fondo); border: 1px solid var(--avviso-bordo); border-radius: 10px; padding: 12px 14px; font-size: .88rem; color: var(--avviso-testo); margin-bottom: 18px; }
   label { display: block; font-size: .85rem; color: var(--grigio); margin-bottom: 4px; }
   input, textarea, select {
     width: 100%; padding: 10px 12px; border: 1px solid var(--bordo); border-radius: 8px;
-    font-size: .95rem; font-family: inherit; background: #fff; color: var(--testo);
+    font-size: .95rem; font-family: inherit; background: var(--carta); color: var(--testo);
     /* Un'altezza di riga scritta, invece di «normal»: il campo della data porta
        con sé il pulsantino del calendario ed era due pixel più alto di tutti
        gli altri. Due pixel non si notano da soli — si notano quando due campi
@@ -129,17 +243,17 @@
     background: var(--verde-scuro); color: #fff; border: none; padding: 10px 20px; border-radius: 8px;
     font-size: .95rem; font-weight: 600; cursor: pointer;
   }
-  .btn:hover { background: #0f7a6d; }
+  .btn:hover { background: var(--verde-premuto); }
   /* Chi usa la tastiera deve vedere dove sta: i campi ce l'avevano, i
      pulsanti no. Solo :focus-visible, così il clic col mouse non lascia un
      anello intorno al pulsante appena premuto. */
   button:focus-visible, .btn:focus-visible { outline: 2px solid var(--verde); outline-offset: 2px; }
-  .btn:disabled { background: #b7c0c6; cursor: not-allowed; }
-  .btn-secondario { background: #fff; color: var(--testo); border: 1px solid var(--bordo); }
+  .btn:disabled { background: var(--spento); cursor: not-allowed; }
+  .btn-secondario { background: var(--carta); color: var(--testo); border: 1px solid var(--bordo); }
   .btn-secondario:hover { background: var(--sfondo); }
   .btn-piccolo { padding: 5px 10px; font-size: .82rem; font-weight: 500; border-radius: 6px; }
-  .btn-rosso { background: #fdecea; color: var(--rosso); border: 1px solid #f5c6c0; }
-  .btn-rosso:hover { background: #f8d6d1; border-color: #eeb5ac; }
+  .btn-rosso { background: var(--male-fondo); color: var(--rosso); border: 1px solid var(--male-bordo); }
+  .btn-rosso:hover { background: var(--male-premuto); border-color: var(--male-bordo); }
   /* [nome] e [cognome] cliccabili nelle etichette: inseriscono il segnaposto nel testo */
   /* I corpi dei riquadri di testo stanno qui e non in linea: uno stile in
      linea non si batte dalla regola del telefono qui sotto. */
@@ -147,7 +261,7 @@
   #cfg-bot_email_html { font-size: .85rem; }
   .token-inserisci {
     background: none; border: none; padding: 0 2px; margin: 0; font: inherit;
-    color: var(--verde-scuro); font-weight: 600; text-decoration: underline dotted;
+    color: var(--verde-testo); font-weight: 600; text-decoration: underline dotted;
     text-underline-offset: 2px; cursor: pointer; border-radius: 3px;
   }
   .token-inserisci:hover { background: var(--sfondo); text-decoration-style: solid; }
@@ -162,17 +276,17 @@
   .barra > div { background: var(--verde); height: 100%; transition: width .4s; }
   .switch { position: relative; display: inline-block; width: 50px; height: 28px; flex-shrink: 0; }
   .switch input { opacity: 0; width: 0; height: 0; }
-  .switch .cursore { position: absolute; cursor: pointer; inset: 0; background: #ccd0d5; border-radius: 999px; transition: .25s; }
+  .switch .cursore { position: absolute; cursor: pointer; inset: 0; background: var(--bordo-2); border-radius: 999px; transition: .25s; }
   .switch .cursore::before { content: ""; position: absolute; height: 22px; width: 22px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: .25s; }
   .switch input:checked + .cursore { background: var(--verde); }
   .switch input:checked + .cursore::before { transform: translateX(22px); }
   .riga-opzione { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
   .dash-stato { display: flex; gap: 12px; flex-wrap: wrap; }
   .stato-pill { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-radius: 10px; background: var(--sfondo); font-size: .9rem; flex: 1; min-width: 200px; }
-  .stato-pill .p { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; background: #ccd0d5; }
-  .stato-pill.ok .p { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
-  .stato-pill.warn .p { background: #ffb300; box-shadow: 0 0 6px #ffb300; }
-  .stato-pill.no .p { background: #ff6b5e; box-shadow: 0 0 6px #ff6b5e; }
+  .stato-pill .p { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; background: var(--bordo-2); }
+  .stato-pill.ok .p { background: var(--spia-ok); box-shadow: 0 0 6px var(--spia-ok); }
+  .stato-pill.warn .p { background: var(--avviso-forte); box-shadow: 0 0 6px var(--avviso-forte); }
+  .stato-pill.no .p { background: var(--spia-male); box-shadow: 0 0 6px var(--spia-male); }
   .stato-pill b { display: block; font-size: .8rem; color: var(--grigio); font-weight: 600; }
   .dash-griglia { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 18px; }
   .dash-due { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 18px; }
@@ -183,14 +297,14 @@
   .rubrica-full { display: flex; gap: 30px; align-items: center; flex-wrap: wrap; }
   .rubrica-hero { min-width: 180px; }
   .rubrica-full .dettagli { flex: 1; min-width: 260px; margin: 0; }
-  .cifra-hero { font-size: 2.6rem; font-weight: 700; color: var(--verde-scuro); line-height: 1; }
+  .cifra-hero { font-size: 2.6rem; font-weight: 700; color: var(--verde-testo); line-height: 1; }
   .dettagli { margin: 16px 0; font-size: .88rem; }
   .dettagli .riga { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--bordo); }
   .dettagli .riga:last-child { border-bottom: none; }
   .dettagli .riga span { color: var(--grigio); }
   .stat-box { background: var(--bianco); border: 1px solid var(--bordo); border-radius: 12px; padding: 18px; cursor: pointer; transition: box-shadow .15s, transform .15s; }
-  .stat-box:hover { box-shadow: 0 4px 14px rgba(0,0,0,.08); transform: translateY(-2px); }
-  .stat-box .num { font-size: 1.9rem; font-weight: 700; color: var(--verde-scuro); line-height: 1.1; }
+  .stat-box:hover { box-shadow: 0 4px 14px var(--ombra-bassa); transform: translateY(-2px); }
+  .stat-box .num { font-size: 1.9rem; font-weight: 700; color: var(--verde-testo); line-height: 1.1; }
   .stat-box .lbl { font-size: .84rem; color: var(--grigio); margin-top: 4px; }
   .canale-riga { margin-bottom: 14px; }
   .canale-riga .testa { display: flex; justify-content: space-between; font-size: .88rem; margin-bottom: 5px; }
@@ -198,8 +312,8 @@
   .canale-barra > div { height: 100%; border-radius: 999px; transition: width .5s; }
   .voce-menu:hover { background: var(--sfondo); }
   th.ordinabile { cursor: pointer; user-select: none; }
-  th.ordinabile:hover { color: var(--verde-scuro); }
-  th.ordinabile .frecciaOrd { font-size: .75rem; color: var(--verde); }
+  th.ordinabile:hover { color: var(--verde-testo); }
+  th.ordinabile .frecciaOrd { font-size: .75rem; color: var(--verde-testo); }
   .freccia-chat {
     border: none; background: none; cursor: pointer; color: var(--grigio);
     font-size: .8rem; line-height: 1; padding: 3px 5px; border-radius: 5px;
@@ -208,20 +322,20 @@
   .filtro-canale.attivo { background: var(--verde); color: #fff; border-color: var(--verde); font-weight: 600; }
   .filtro-canale.attivo:hover { background: var(--verde-scuro); }
   .etichetta { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .76rem; font-weight: 600; }
-  .etichetta.inviato, .etichetta.completata { background: #e7f7ee; color: #1c7c4b; }
-  .etichetta.errore { background: #fdecea; color: var(--rosso); }
-  .etichetta.in_corso, .etichetta.in_attesa { background: #fff8e1; color: #9c6f00; }
-  .etichetta.interrotta { background: #fdecea; color: var(--rosso); }
-  .etichetta.in_pausa, .etichetta.in_riposo { background: #eef2ff; color: #3f4bb8; }
-  .etichetta.disiscritto, .etichetta.saltato { background: #fff1e6; color: #a35a12; }
+  .etichetta.inviato, .etichetta.completata { background: var(--ok-fondo); color: var(--ok-testo); }
+  .etichetta.errore { background: var(--male-fondo); color: var(--rosso); }
+  .etichetta.in_corso, .etichetta.in_attesa { background: var(--avviso-fondo); color: var(--avviso-testo); }
+  .etichetta.interrotta { background: var(--male-fondo); color: var(--rosso); }
+  .etichetta.in_pausa, .etichetta.in_riposo { background: var(--pausa-fondo); color: var(--pausa-testo); }
+  .etichetta.disiscritto, .etichetta.saltato { background: var(--saltato-fondo); color: var(--saltato-testo); }
   /* riga di chi ha consenso "No": sfondo appena diverso + piccolo segno accanto al nome */
-  tr.riga-no-consenso { background: #fdf4ef; }
-  tr.riga-no-consenso td { color: #8a5a3b; }
+  tr.riga-no-consenso { background: var(--senza-fondo); }
+  tr.riga-no-consenso td { color: var(--senza-testo); }
   .segno-no { cursor: help; font-size: .82rem; }
   /* stima del tempo di invio sotto il menu "Limite messaggi" */
   .stima-tempo {
     margin: 8px 0; padding: 9px 13px; border-radius: 9px; font-size: .9rem;
-    background: #eef6f1; color: #1c5c40; line-height: 1.4;
+    background: var(--stima-fondo); color: var(--stima-testo); line-height: 1.4;
   }
   .stima-tempo:empty { display: none; }
   /* campi del ritmo degli invii in Impostazioni */
@@ -236,22 +350,22 @@
   /* interruttore Consenso Sì / No nella scheda contatto */
   .toggle-consenso { display: inline-flex; border: 1px solid var(--bordo); border-radius: 10px; overflow: hidden; }
   .toggle-consenso button {
-    border: none; background: #fff; padding: 9px 16px; cursor: pointer; font-size: .92rem;
+    border: none; background: var(--carta); padding: 9px 16px; cursor: pointer; font-size: .92rem;
     font-weight: 600; color: var(--grigio);
   }
   .toggle-consenso button + button { border-left: 1px solid var(--bordo); }
-  .toggle-consenso button.attivo-si { background: #e7f7ee; color: #1c7c4b; }
-  .toggle-consenso button.attivo-no { background: #fdecea; color: var(--rosso); }
+  .toggle-consenso button.attivo-si { background: var(--ok-fondo); color: var(--ok-testo); }
+  .toggle-consenso button.attivo-no { background: var(--male-fondo); color: var(--rosso); }
   .motivo-pausa { display: block; margin-top: 4px; font-size: .78rem; color: var(--grigio); max-width: 320px; }
   /* finestrelle sopra la pagina (dettagli invio, scheda contatto) */
   #velo-dettagli, #velo-contatto {
-    position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 60;
+    position: fixed; inset: 0; background: var(--velo); z-index: 60;
     display: none; align-items: center; justify-content: center; padding: 20px;
   }
   #velo-dettagli.visibile, #velo-contatto.visibile { display: flex; }
   #riquadro-dettagli, #riquadro-contatto {
-    background: #fff; border-radius: 14px; padding: 22px; width: 100%; max-width: 640px;
-    max-height: 82vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,.2);
+    background: var(--carta); border-radius: 14px; padding: 22px; width: 100%; max-width: 640px;
+    max-height: 82vh; overflow-y: auto; box-shadow: 0 12px 40px var(--ombra-alta);
   }
   .riepilogo-dettagli { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
   .riepilogo-dettagli > div {
@@ -267,8 +381,8 @@
   #pagina-vecchia[hidden] { display: none; }
   #pagina-vecchia {
     position: sticky; top: 0; z-index: 200; display: flex; gap: 12px; align-items: center;
-    flex-wrap: wrap; justify-content: center; background: #fff4d6; color: #5a4212;
-    border-bottom: 1px solid #e6d3a3; padding: 10px 16px; font-size: .9rem;
+    flex-wrap: wrap; justify-content: center; background: var(--nota-fondo); color: var(--nota-testo);
+    border-bottom: 1px solid var(--nota-bordo); padding: 10px 16px; font-size: .9rem;
   }
   /* Il cartello «c'è una versione più nuova»: stessa forma di quello della
      pagina vecchia, colore diverso, perché dice una cosa diversa — lì è la
@@ -276,12 +390,12 @@
   #versione-nuova[hidden] { display: none; }
   #versione-nuova {
     position: sticky; top: 0; z-index: 199; display: flex; gap: 12px; align-items: center;
-    flex-wrap: wrap; justify-content: center; background: #e7f5ec; color: #14502f;
-    border-bottom: 1px solid #b9ddc8; padding: 10px 16px; font-size: .9rem;
+    flex-wrap: wrap; justify-content: center; background: var(--nuova-fondo); color: var(--nuova-testo);
+    border-bottom: 1px solid var(--nuova-bordo); padding: 10px 16px; font-size: .9rem;
   }
   #versione-nuova b { font-weight: 600; }
   #pagina-vecchia button {
-    border: 1px solid #b8933f; background: #fff; color: #5a4212; border-radius: 8px;
+    border: 1px solid var(--nota-bordo-forte); background: var(--carta); color: var(--nota-testo); border-radius: 8px;
     padding: 6px 14px; font: inherit; font-weight: 600; cursor: pointer; min-height: 36px;
   }
   #pie-versione {
@@ -290,7 +404,7 @@
   }
   #toast {
     position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
-    background: var(--testo); color: #fff; padding: 11px 20px; border-radius: 10px;
+    background: var(--toast-fondo); color: var(--toast-testo); padding: 11px 20px; border-radius: 10px;
     font-size: .9rem; opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 50;
   }
   #toast.visibile { opacity: 1; }
@@ -314,7 +428,7 @@
               border-radius: 999px; background: var(--sfondo); font-size: .84rem; }
   /* Quella che torna più volte è un fatto, non la nota di una sera: si vede
      che è diversa senza doverlo leggere. */
-  .sto-nota.torna { background: #fff4d6; }
+  .sto-nota.torna { background: var(--nota-fondo); }
   .sto-nota b { font-weight: 600; font-size: .76rem; color: var(--grigio); }
   /* Una prenotazione annullata resta visibile — è successa — ma non deve
      pesare quanto una serata vera. */
@@ -361,7 +475,7 @@
   .rep-serie { display: flex; align-items: flex-end; gap: 2px; height: 130px; margin-top: 0; }
   .rep-serie > div { flex: 1; background: var(--verde-scuro); border-radius: 4px 4px 0 0;
                      min-height: 2px; position: relative; }
-  .rep-serie > div:hover { background: #0f7a6d; }
+  .rep-serie > div:hover { background: var(--verde-premuto); }
   .rep-asse { display: flex; justify-content: space-between; font-size: .76rem;
               color: var(--grigio); margin-top: 5px; }
   /* Il riempimento: una quota contro un limite. Una barra sola, non una torta
@@ -381,11 +495,11 @@
     color: var(--grigio); border-bottom: 2px solid transparent; white-space: nowrap;
     display: flex; align-items: center; gap: 6px;
   }
-  .sotto-nav button:hover { color: var(--verde-scuro); }
-  .sotto-nav button.attiva { color: var(--verde-scuro); border-bottom-color: var(--verde); font-weight: 600; }
+  .sotto-nav button:hover { color: var(--verde-testo); }
+  .sotto-nav button.attiva { color: var(--verde-testo); border-bottom-color: var(--verde); font-weight: 600; }
   /* Il pallino non porta un numero: dice «qui c'e' qualcosa da guardare» e
      basta. Un conteggio inviterebbe a svuotarlo come una casella di posta. */
-  .sotto-nav .pallino { width: 7px; height: 7px; border-radius: 50%; background: #ffb300; }
+  .sotto-nav .pallino { width: 7px; height: 7px; border-radius: 50%; background: var(--avviso-forte); }
   /* Una riga sottile fra quello che si GUARDA (riepilogo, clienti, report),
      quello che si IMPOSTA, e la diagnostica: dieci voci in fila si leggono
      solo se hanno un ordine, e l'ordine va fatto vedere. */
@@ -423,7 +537,7 @@
   /* Il velo scuro dietro a un pannello. Stava scritto in linea, uguale, su
      ogni pannello: qui c'è una volta, e la versione da telefono qui sotto
      può cambiarlo senza «!important». */
-  .velo { position: fixed; inset: 0; background: rgba(17,27,33,.45);
+  .velo { position: fixed; inset: 0; background: var(--velo);
           align-items: center; justify-content: center; padding: 20px; }
   /* I tasti del pannello restano fermi in fondo mentre i campi scorrono:
      nel pannello della prenotazione, su telefono, «Salva» stava sotto lo
@@ -445,7 +559,7 @@
   .rub-tel, .rub-azioni { white-space: nowrap; }
   /* Il nome del cliente nella tabella del servizio: un pulsante vestito da
      testo. Sui dispositivi a tocco prende l'altezza di un dito (vedi sotto). */
-  .nome-cliente { border: none; background: none; padding: 0; font: inherit; color: var(--verde);
+  .nome-cliente { border: none; background: none; padding: 0; font: inherit; color: var(--verde-testo);
                   cursor: pointer; text-align: left; }
 
   /* La riga che apre un turno: si deve distinguere dalle prenotazioni sotto,
@@ -464,8 +578,8 @@
       background-image:
         linear-gradient(to right, var(--bianco) 40%, rgba(255,255,255,0)),
         linear-gradient(to left, var(--bianco) 40%, rgba(255,255,255,0)),
-        radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.16), transparent),
-        radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.16), transparent);
+        radial-gradient(farthest-side at 0 50%, var(--ombra), transparent),
+        radial-gradient(farthest-side at 100% 50%, var(--ombra), transparent);
       background-position: 0 0, 100% 0, 0 0, 100% 0;
       background-repeat: no-repeat;
       background-size: 36px 100%, 36px 100%, 12px 100%, 12px 100%;
@@ -519,6 +633,8 @@
   @media (pointer: coarse), (max-width: 900px) {
     .btn { min-height: 44px; }
     .btn-piccolo { min-height: 40px; padding: 8px 12px; }
+    /* Il quadratino del tema: 34 pixel bastano al mouse, non al dito. */
+    .badge-tondo { width: 40px; height: 40px; }
     /* I segnaposto «[nome]» «[cognome]» da inserire nel testo: erano alti
        quindici pixel, un dito ne copre tre. L'area del tocco cresce sopra e
        sotto senza far crescere la riga (margini negativi). */
@@ -571,8 +687,8 @@
     background-image:
       linear-gradient(to right, var(--bianco) 40%, rgba(255,255,255,0)),
       linear-gradient(to left, var(--bianco) 40%, rgba(255,255,255,0)),
-      radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.16), transparent),
-      radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.16), transparent);
+      radial-gradient(farthest-side at 0 50%, var(--ombra), transparent),
+      radial-gradient(farthest-side at 100% 50%, var(--ombra), transparent);
     background-position: 0 0, 100% 0, 0 0, 100% 0;
     background-repeat: no-repeat;
     background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%;
@@ -648,6 +764,11 @@
         <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z"/>
       </svg><span>Profilo</span>
     </button>
+    <!-- Chiaro / scuro / automatico. Stesso tasto della sala e stessa regola
+         (il file sta in «comune»): un tocco, tre modi, e «automatico» vuol dire
+         scuro dalle 19 alle 6. Qui è tondo come la pillola «Profilo» che gli sta
+         accanto — in sala è quadrato perché lì accanto c'è una barra. -->
+    <button class="badge badge-tondo" id="tema" type="button" aria-live="polite"></button>
   </div>
 </header>
 <nav id="nav-principale">
@@ -784,7 +905,7 @@
         Quanto attende iStudio tra un messaggio e l'altro. Sono la <b>difesa principale contro il blocco
         del numero</b>: più sono lunghi, più sei al sicuro. I valori consigliati sono già impostati.
       </p>
-      <div id="avviso-pause-disattivate" class="avviso" style="display:none;background:#fdecea;border-color:#f5c6c0;color:#a3261c;margin-bottom:14px">
+      <div id="avviso-pause-disattivate" class="avviso" style="display:none;background:var(--male-fondo);border-color:var(--male-bordo);color:var(--male-testo);margin-bottom:14px">
         ⚠️ Pause disattivate: i messaggi partono uno dopo l'altro quasi senza attesa.
         Il rischio di blocco del numero è alto. Riattiva l'interruttore qui sopra per tornare sicuri.
       </div>
@@ -813,7 +934,7 @@
             </div>
           </div>
         </div>
-        <div id="avviso-ritmo-wa" class="avviso" style="display:none;background:#fdecea;border-color:#f5c6c0;color:#a3261c;margin-top:12px"></div>
+        <div id="avviso-ritmo-wa" class="avviso" style="display:none;background:var(--male-fondo);border-color:var(--male-bordo);color:var(--male-testo);margin-top:12px"></div>
 
         <h3 style="font-size:1rem;margin:20px 0 8px">✉️ Newsletter (email)</h3>
         <div class="griglia-ritmo">
@@ -869,7 +990,7 @@
     </div>
 
     <!-- Azioni irreversibili -->
-    <div class="card" style="border-color:#f5c6c0">
+    <div class="card" style="border-color:var(--male-bordo)">
       <h2 style="color:var(--rosso)">Cancellazione dati</h2>
       <p class="conteggio" style="margin-top:0">
         Attenzione: queste operazioni <b>non si possono annullare</b>. I dati vengono eliminati definitivamente da iStudio.
@@ -890,7 +1011,7 @@
         <button class="btn btn-rosso" id="btn-svuota-cronologia">Cancella la cronologia</button>
       </div>
 
-      <div style="border-top:2px solid #f5c6c0;margin:20px 0 14px"></div>
+      <div style="border-top:2px solid var(--male-bordo);margin:20px 0 14px"></div>
       <div class="riga-opzione">
         <div>
           <b style="font-size:.95rem">Inizializza tutto in un colpo solo</b>
@@ -903,7 +1024,7 @@
   <!-- RUBRICA -->
   <section id="scheda-anagrafiche" class="scheda">
     <!-- Richieste di cancellazione riconosciute nelle risposte WhatsApp -->
-    <div class="card" id="card-cancellazioni" style="display:none;border-color:#f0c99a;background:#fffaf3">
+    <div class="card" id="card-cancellazioni" style="display:none;border-color:var(--avviso-bordo);background:var(--nota-fondo)">
       <div class="riga-strumenti" style="margin-bottom:6px">
         <h2 style="margin:0">🚫 <span id="canc-titolo"></span></h2>
         <button class="btn btn-secondario btn-piccolo" id="btn-canc-controlla">Controlla adesso</button>
@@ -1075,7 +1196,7 @@
 
   <!-- CHAT -->
   <section id="scheda-chat" class="scheda">
-    <div id="menu-chat-azioni" style="display:none;position:fixed;background:#fff;border:1px solid var(--bordo);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.18);min-width:215px;overflow:hidden;z-index:60">
+    <div id="menu-chat-azioni" style="display:none;position:fixed;background:var(--carta);border:1px solid var(--bordo);border-radius:10px;box-shadow:0 6px 20px var(--ombra);min-width:215px;overflow:hidden;z-index:60">
       <button class="voce-menu" id="azione-aggiungi-anagrafica" style="display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;border:none;background:none;font-size:.9rem;font-family:inherit;cursor:pointer;text-align:left">➕ Aggiungi in rubrica</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
@@ -1084,17 +1205,17 @@
           <p class="vuoto">Caricamento chat…</p>
         </div>
         <div id="chat-destra" style="flex:1;display:flex;flex-direction:column;min-width:0">
-          <div style="display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--bordo);background:#f7f8fa">
+          <div style="display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--bordo);background:var(--carta-2)">
             <div id="chat-intestazione" style="flex:1;min-width:0;font-weight:600">Seleziona una conversazione</div>
             <button class="freccia-chat" id="btn-azioni-chat" title="Azioni sulla conversazione" style="display:none;font-size:1rem;padding:5px 9px">▾</button>
           </div>
-          <div id="chat-messaggi" style="flex:1;overflow-y:auto;padding:14px;background:#efeae2">
+          <div id="chat-messaggi" style="flex:1;overflow-y:auto;padding:14px;background:var(--chat-sfondo)">
             <p class="vuoto">Le conversazioni arrivano direttamente dal tuo WhatsApp.</p>
           </div>
-          <div style="display:flex;gap:8px;padding:10px;border-top:1px solid var(--bordo);background:#f7f8fa;align-items:center">
+          <div style="display:flex;gap:8px;padding:10px;border-top:1px solid var(--bordo);background:var(--carta-2);align-items:center">
             <div style="position:relative;flex-shrink:0">
               <button class="btn btn-secondario" id="chat-allega" title="Allega" disabled style="padding:9px 12px;font-size:1.1rem;line-height:1">📎</button>
-              <div id="menu-allega" style="display:none;position:absolute;bottom:46px;left:0;background:#fff;border:1px solid var(--bordo);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);min-width:190px;overflow:hidden;z-index:30">
+              <div id="menu-allega" style="display:none;position:absolute;bottom:46px;left:0;background:var(--carta);border:1px solid var(--bordo);border-radius:10px;box-shadow:0 6px 20px var(--ombra);min-width:190px;overflow:hidden;z-index:30">
                 <button class="voce-menu" id="allega-immagine" style="display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;border:none;background:none;font-size:.9rem;font-family:inherit;cursor:pointer;text-align:left">🖼️ Allega immagine</button>
               </div>
               <input type="file" id="file-immagine" accept="image/*" style="display:none">
@@ -1122,7 +1243,7 @@
           <input type="checkbox" id="pren-attivo" autocomplete="off" style="width:18px;height:18px">
           Bot acceso
         </label>
-        <span id="pren-spia" class="beta-badge" style="background:#8696a0;border-color:transparent"></span>
+        <span id="pren-spia" class="beta-badge" style="background:var(--grigio-2);border-color:transparent"></span>
         <span id="pren-riassunto" class="conteggio" style="margin:0"></span>
         <span style="flex:1"></span>
         <button class="btn btn-secondario" id="pren-vai-impostazioni">Impostazioni del bot</button>
@@ -1502,7 +1623,7 @@
                scegliere fra «la foto del menù da 4 MB» e niente. -->
           <p style="margin:16px 0 6px;font-weight:600;font-size:.9rem">Il logo in testa all'email</p>
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <img id="email-logo-img" alt="" style="display:none;max-width:160px;max-height:80px;border:1px solid var(--bordo);border-radius:8px;padding:6px;background:#fff">
+            <img id="email-logo-img" alt="" style="display:none;max-width:160px;max-height:80px;border:1px solid var(--bordo);border-radius:8px;padding:6px;background:var(--carta)">
             <button class="btn btn-secondario btn-piccolo" id="email-logo-scegli" type="button">Scegli il logo…</button>
             <button class="btn btn-secondario btn-piccolo" id="email-logo-togli" type="button" style="display:none">Togli</button>
             <input type="file" id="email-logo-file" accept="image/*" style="display:none">
@@ -1712,7 +1833,7 @@
       </div>
 
       <!-- PANNELLO DI MODIFICA DI UNA PERSONA -->
-      <div id="pers-pannello" style="display:none;position:fixed;inset:0;background:rgba(17,27,33,.45);z-index:80;align-items:center;justify-content:center;padding:20px">
+      <div id="pers-pannello" style="display:none;position:fixed;inset:0;background:var(--velo);z-index:80;align-items:center;justify-content:center;padding:20px">
         <div class="card" style="width:420px;max-width:100%;max-height:90vh;overflow-y:auto;margin:0">
           <h2 style="font-size:1.05rem;margin:0 0 14px">Modifica</h2>
           <label>Nome<input id="pers-mod-nome" autocomplete="off"></label>
@@ -1755,7 +1876,7 @@
         <div id="pren-controlli" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:6px"></div>
         <p class="conteggio" id="pren-stripe" style="margin:10px 0 0"></p>
         <p style="margin:16px 0 6px;font-weight:600;font-size:.9rem">Ultime cose successe</p>
-        <div id="pren-registro" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem;background:#f7f8fa;border:1px solid var(--bordo);border-radius:8px;padding:10px;max-height:210px;overflow-y:auto"></div>
+        <div id="pren-registro" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem;background:var(--carta-2);border:1px solid var(--bordo);border-radius:8px;padding:10px;max-height:210px;overflow-y:auto"></div>
         <p class="conteggio" id="pren-mio"></p>
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--bordo)">
           <p style="margin:0 0 6px;font-weight:600;font-size:.9rem">Una conversazione è ferma?</p>
@@ -1769,7 +1890,7 @@
                    style="flex:1;min-width:180px">
             <button id="pren-sblocca-cerca" class="btn btn-secondario">Perché è ferma</button>
           </div>
-          <div id="pren-sblocca-esito" style="display:none;margin-top:10px;padding:10px;background:#f7f8fa;border:1px solid var(--bordo);border-radius:8px"></div>
+          <div id="pren-sblocca-esito" style="display:none;margin-top:10px;padding:10px;background:var(--carta-2);border:1px solid var(--bordo);border-radius:8px"></div>
         </div>
         <div id="pren-silenziate" style="display:none;margin-top:14px">
           <p style="margin:0 0 6px;font-weight:600;font-size:.9rem">Conversazioni su cui il bot tace</p>
@@ -1789,7 +1910,7 @@
           Scrivi qui come farebbe un cliente: risponde lo stesso motore, sugli stessi orari e sugli stessi coperti.
           Le prenotazioni di prova finiscono nel servizio del giorno e si cancellano con «Ricomincia».
         </p>
-        <div id="pren-sim" style="background:#efeae2;border-radius:10px;padding:12px;height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:7px">
+        <div id="pren-sim" style="background:var(--chat-sfondo);border-radius:10px;padding:12px;height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:7px">
           <p class="vuoto" style="margin:auto">Scrivi il primo messaggio, per esempio «vorrei prenotare un tavolo».</p>
         </div>
         <div style="display:flex;gap:8px;margin-top:10px">
@@ -1972,10 +2093,10 @@
           <small style="display:block;margin-top:6px;color:var(--grigio)">
             Con <b>No</b> il contatto resta in rubrica ma non riceve più nessun messaggio né newsletter.
           </small>
-          <div id="c-consenso-motivo" style="display:none;margin-top:6px;font-size:.82rem;color:#a35a12"></div>
+          <div id="c-consenso-motivo" style="display:none;margin-top:6px;font-size:.82rem;color:var(--saltato-testo)"></div>
         </div>
       </div>
-      <div id="errore-contatto" class="avviso" style="display:none;background:#fdecea;border-color:#f5c6c0;color:#a3261c"></div>
+      <div id="errore-contatto" class="avviso" style="display:none;background:var(--male-fondo);border-color:var(--male-bordo);color:var(--male-testo)"></div>
       <div style="display:flex;gap:8px;margin-top:6px">
         <button class="btn" type="submit" id="btn-salva">Aggiungi contatto</button>
         <button class="btn btn-secondario" type="button" id="btn-annulla">Annulla</button>
@@ -2019,6 +2140,42 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 const $ = (sel) => document.querySelector(sel);
+
+// ---------------------------------------------------------------------------
+//  Il tasto del tema in testata
+// ---------------------------------------------------------------------------
+//  La regola — quali sono i tre modi, e che «automatico» vuol dire scuro dalle
+//  19 alle 6 — sta in «comune/tema.js», ed è la STESSA della sala. Qui c'è solo
+//  il tasto: l'icona di adesso e il giro al tocco.
+//  ⚠️ La scelta fatta qui vale per QUESTO computer e basta (sta nell'archivio
+//  del browser, con una chiave sua). Non è l'impostazione «Tema della sala»,
+//  che sta in Impostazioni e dice come partono i tablet del locale: sono due
+//  cose diverse e devono restare tali, sennò chi abbassa lo schermo del proprio
+//  portatile la sera lo abbassa anche a tutta la sala.
+const ICONE_TEMA = { chiaro: '☀️', scuro: '🌙', auto: '<span class="lettera">A</span>' };
+const NOMI_TEMA = { chiaro: 'Chiara', scuro: 'Scura', auto: 'Automatica (scura dalle 19 alle 6)' };
+
+function disegnaTastoTema(modo) {
+  const t = $('#tema');
+  if (!t) return;
+  t.innerHTML = ICONE_TEMA[modo] || ICONE_TEMA.chiaro;
+  t.title = 'Come si vede: ' + (NOMI_TEMA[modo] || NOMI_TEMA.chiaro) + ' — clicca per cambiare';
+  t.setAttribute('aria-label', t.title);
+}
+
+if ($('#tema')) {
+  disegnaTastoTema(document.documentElement.dataset.modo || 'chiaro');
+  $('#tema').addEventListener('click', () => {
+    const ora = document.documentElement.dataset.modo || 'chiaro';
+    const dopo = Tema.MODI[(Tema.MODI.indexOf(ora) + 1) % Tema.MODI.length];
+    Tema.ricorda(dopo);
+    disegnaTastoTema(Tema.applica(dopo));
+  });
+  // Col modo automatico l'ora cambia sotto a una pagina aperta da ore: quando
+  // «comune/tema.js» la abbassa alle 19, l'icona deve seguirla.
+  setInterval(() => disegnaTastoTema(document.documentElement.dataset.modo || 'chiaro'), 60 * 1000);
+}
+
 let contatti = [];
 let selezionati = new Set();
 let emailSelezionati = new Set();
@@ -2077,7 +2234,7 @@ async function caricaPrenotazioniInDashboard() {
     document.getElementById('dash-pren-giorni').innerHTML = d.giorni.length
       ? d.giorni.map((g) => `
         <div class="riga">
-          <span>${testoSicuro(g.etichetta)}${g.oggi ? ' <b style="color:var(--verde-scuro)">· oggi</b>' : ''}</span>
+          <span>${testoSicuro(g.etichetta)}${g.oggi ? ' <b style="color:var(--verde-testo)">· oggi</b>' : ''}</span>
           <b>${g.coperti} coperti · ${g.righe.length} ${g.righe.length === 1 ? 'prenotazione' : 'prenotazioni'}</b>
         </div>`).join('')
       : '<div class="riga"><span>Nessuna prenotazione in arrivo.</span></div>';
@@ -2167,7 +2324,7 @@ function disegnaRiquadroCanale(idNumero, idDett, canale, parola) {
   const successo = tentativi ? Math.round((inviati / tentativi) * 100) : 0;
   $(idNumero).textContent = inviati;
   $(idDett).innerHTML = tentativi ? `
-    <div class="riga"><span>Consegnati correttamente</span><b style="color:#1c7c4b">${successo}%</b></div>
+    <div class="riga"><span>Consegnati correttamente</span><b style="color:var(--ok-testo)">${successo}%</b></div>
     <div class="riga"><span>Non riusciti</span><b style="color:${errori ? 'var(--rosso)' : 'inherit'}">${errori}</b></div>
     <div class="riga"><span>Invii effettuati</span><b>${canale.campagne || 0}</b></div>`
     : `<p class="vuoto" style="padding:10px 0">Nessun invio ${parola === 'inviate' ? 'via email' : 'WhatsApp'} finora.</p>`;
@@ -2247,7 +2404,7 @@ async function aggiornaProfilo() {
   try {
     const d = await (await fetch('/api/abbonamento/stato')).json();
     const g = d.giorniRimasti;
-    const colore = g == null ? 'var(--rosso)' : (g <= 7 ? '#a35a12' : '#1c7c4b');
+    const colore = g == null ? 'var(--rosso)' : (g <= 7 ? 'var(--saltato-testo)' : 'var(--ok-testo)');
     const stato = d.valido
       ? `<b style="color:${colore}">Attivo</b>`
       : '<b style="color:var(--rosso)">Non attivo</b>';
@@ -2289,7 +2446,7 @@ $('#btn-rinnova').addEventListener('click', async () => {
     });
     const d = await r.json();
     if (r.ok) {
-      esito.innerHTML = '<span style="color:#1c7c4b">✅ Abbonamento rinnovato fino al <b>' +
+      esito.innerHTML = '<span style="color:var(--ok-testo)">✅ Abbonamento rinnovato fino al <b>' +
         d.scadenza.split('-').reverse().join('/') + '</b>.</span>';
       campo.value = '';
       toast('Abbonamento rinnovato');
@@ -2327,7 +2484,7 @@ function mostraAvvisoAbbonamento(dati) {
   if (esistente) { esistente.innerHTML = html; return; }
   const d = document.createElement('div');
   d.id = 'fascia-abbonamento';
-  d.style.cssText = 'background:#fff8e6;border-bottom:1px solid #f0c36d;color:#7a5b12;' +
+  d.style.cssText = 'background:var(--avviso-fondo);border-bottom:1px solid var(--avviso-bordo);color:var(--avviso-testo);' +
     'padding:9px 16px;font-size:.88rem;text-align:center';
   d.innerHTML = html;
   document.body.insertBefore(d, document.body.firstChild);
@@ -2552,7 +2709,7 @@ function disegnaRichiesteCancellazione() {
     const abbinato = r.contact_id && r.c_nome != null;
     const quando = (r.rilevato_at || '').replace('T', ' ').slice(0, 16);
     return `
-    <div style="border:1px solid var(--bordo);border-radius:10px;padding:12px;margin-bottom:10px;background:#fff">
+    <div style="border:1px solid var(--bordo);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--carta)">
       <div style="font-weight:600">${esc(r.chat_nome)}</div>
       <div style="margin:4px 0 8px;color:var(--testo)">«${esc(r.testo)}»
         <span style="color:var(--grigio);font-size:.82rem">— rilevato il ${quando}</span></div>
@@ -2561,7 +2718,7 @@ function disegnaRichiesteCancellazione() {
           Corrisponde a <b>${esc(`${r.c_nome} ${r.c_cognome || ''}`.trim())}</b> (${esc(r.c_telefono)})
         </div>`
       : `
-        <div style="font-size:.86rem;color:#a35a12;margin-bottom:6px">
+        <div style="font-size:.86rem;color:var(--saltato-testo);margin-bottom:6px">
           Non sono riuscito a collegarlo a un contatto della rubrica: scegli tu chi è.
         </div>
         <input class="canc-cerca" data-id="${r.id}" placeholder="Cerca il contatto per nome o numero…"
@@ -3074,7 +3231,7 @@ function avatarHtml(c, dim) {
       onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'avatar-fallback',textContent:'${esc((c.nome || '?').trim().charAt(0).toUpperCase())}',style:'${base};background:var(--verde-scuro);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${Math.round(d / 2.4)}px'}))">`;
   }
   const iniziale = esc((c.nome || '?').trim().charAt(0).toUpperCase());
-  const sfondo = c.gruppo ? '#6b7c93' : 'var(--verde-scuro)';
+  const sfondo = c.gruppo ? 'var(--avatar-gruppo)' : 'var(--verde-scuro)';
   return `<div style="${base};background:${sfondo};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${Math.round(d / 2.4)}px">${c.gruppo ? '👥' : iniziale}</div>`;
 }
 
@@ -3085,7 +3242,7 @@ function spunteHtml(stato) {
     attesa:     { testo: 'in attesa',  colore: 'var(--grigio)', titolo: 'Non ancora inviato' },
     inviato:    { testo: 'inviato',    colore: 'var(--grigio)', titolo: 'Inviato, non ancora consegnato' },
     consegnato: { testo: 'non letto',  colore: 'var(--grigio)', titolo: 'Consegnato ma non ancora letto' },
-    letto:      { testo: 'letto',      colore: '#53bdeb',       titolo: 'Letto dal destinatario' },
+    letto:      { testo: 'letto',      colore: 'var(--chat-spunte)',       titolo: 'Letto dal destinatario' },
   };
   const s = stili[stato];
   if (!s) return '';
@@ -3106,13 +3263,13 @@ function renderMessaggi(messaggi, scorri) {
     if (m.data && m.data !== ultimaData) {
       ultimaData = m.data;
       sep = `<div style="text-align:center;margin:10px 0">
-        <span style="background:#ffffffcc;color:var(--grigio);font-size:.74rem;padding:3px 10px;border-radius:8px">${esc(m.data)}</span>
+        <span style="background:var(--chat-data);color:var(--grigio);font-size:.74rem;padding:3px 10px;border-radius:8px">${esc(m.data)}</span>
       </div>`;
     }
     const autore = m.mittente && !m.mio && chatCorrenteGruppo
-      ? `<div style="font-size:.75rem;font-weight:700;color:var(--verde-scuro)">${esc(m.mittente)}</div>` : '';
+      ? `<div style="font-size:.75rem;font-weight:700;color:var(--verde-testo)">${esc(m.mittente)}</div>` : '';
     const meta = `<div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;font-size:.68rem;color:var(--grigio);margin-top:2px"><span>${esc(m.ora)}</span>${m.mio ? spunteHtml(m.stato) : ''}</div>`;
-    const bolla = `<div style="max-width:78%;padding:6px 10px 4px;border-radius:10px;font-size:.9rem;line-height:1.4;background:${m.mio ? '#d9fdd3' : '#ffffff'};box-shadow:0 1px 1px rgba(0,0,0,.08);word-break:break-word">${autore}<span style="white-space:pre-wrap">${esc(m.testo)}</span>${meta}</div>`;
+    const bolla = `<div style="max-width:78%;padding:6px 10px 4px;border-radius:10px;font-size:.9rem;line-height:1.4;background:${m.mio ? 'var(--chat-mio)' : 'var(--chat-altro)'};box-shadow:0 1px 1px var(--ombra-bassa);word-break:break-word">${autore}<span style="white-space:pre-wrap">${esc(m.testo)}</span>${meta}</div>`;
     return sep + `<div style="display:flex;justify-content:${m.mio ? 'flex-end' : 'flex-start'};margin-bottom:6px">${bolla}</div>`;
   });
   box.innerHTML = righe.join('');
@@ -3135,7 +3292,7 @@ async function caricaChats() {
     }
     $('#chat-lista').innerHTML = chats.map((c) => `
       <div onclick="apriChat('${esc(c.nome).replace(/'/g, '&#39;')}', ${c.gruppo})"
-        style="padding:10px 12px;border-bottom:1px solid var(--bordo);cursor:pointer;display:flex;align-items:center;gap:10px;${c.nome === chatCorrente ? 'background:#e7f7ee' : ''}">
+        style="padding:10px 12px;border-bottom:1px solid var(--bordo);cursor:pointer;display:flex;align-items:center;gap:10px;${c.nome === chatCorrente ? 'background:var(--ok-fondo)' : ''}">
         ${avatarHtml(c)}
         <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
@@ -3337,8 +3494,8 @@ async function caricaImpostazioniEmail() {
   $('#smtp-from').value = s.from_name;
   $('#smtp-pass').placeholder = s.hasPassword ? 'salvata — lascia vuoto per non cambiarla' : 'inserisci la password';
   const st = $('#smtp-stato');
-  if (s.verified) { st.textContent = '✓ verificata e funzionante'; st.style.color = '#1c7c4b'; }
-  else if (s.hasPassword) { st.textContent = '⚠ da verificare: premi «Prova connessione»'; st.style.color = '#9c6f00'; }
+  if (s.verified) { st.textContent = '✓ verificata e funzionante'; st.style.color = 'var(--ok-testo)'; }
+  else if (s.hasPassword) { st.textContent = '⚠ da verificare: premi «Prova connessione»'; st.style.color = 'var(--avviso-testo)'; }
   else { st.textContent = 'non ancora configurata'; st.style.color = ''; }
 }
 
@@ -3378,7 +3535,7 @@ $('#btn-test-smtp').addEventListener('click', async () => {
   const res = await fetch('/api/email/test', { method: 'POST' });
   const data = await res.json();
   if (res.ok) {
-    st.textContent = '✓ connessione riuscita'; st.style.color = '#1c7c4b';
+    st.textContent = '✓ connessione riuscita'; st.style.color = 'var(--ok-testo)';
   } else {
     st.textContent = '✗ ' + (data.error || 'errore'); st.style.color = 'var(--rosso)';
   }
@@ -3591,10 +3748,10 @@ async function apriDettagli(id) {
 
   $('#dettagli-corpo').innerHTML = `
     <div class="riepilogo-dettagli">
-      <div><b style="color:#1c7c4b">${inviati.length}</b> ${viaEmail ? 'inviate' : 'consegnati'}</div>
+      <div><b style="color:var(--ok-testo)">${inviati.length}</b> ${viaEmail ? 'inviate' : 'consegnati'}</div>
       <div><b style="color:var(--rosso)">${errori.length}</b> non riusciti</div>
       <div><b>${attesa.length}</b> ancora da fare</div>
-      ${saltati.length ? `<div><b style="color:#a35a12">${saltati.length}</b> saltati</div>` : ''}
+      ${saltati.length ? `<div><b style="color:var(--saltato-testo)">${saltati.length}</b> saltati</div>` : ''}
       <div><b>${c.total}</b> totale</div>
     </div>
     ${saltati.length ? `
@@ -3608,7 +3765,7 @@ async function apriDettagli(id) {
       ⏱️ Limite impostato: <b>${c.daily_limit} al giorno</b>.</p>` : ''}
 
     ${c.riprovabili ? `
-      <div style="border:1px solid #f0c36d;background:#fff8e6;border-radius:10px;padding:12px;margin:14px 0">
+      <div style="border:1px solid var(--avviso-bordo);background:var(--avviso-fondo);border-radius:10px;padding:12px;margin:14px 0">
         <div style="font-size:.9rem;margin-bottom:10px">
           🔌 <b>${c.riprovabili} ${c.riprovabili === 1 ? 'destinatario risulta «non riuscito»' : 'destinatari risultano «non riusciti»'}
           per un problema di collegamento</b>, non per colpa loro: in quel momento WhatsApp si era
@@ -4085,7 +4242,7 @@ async function caricaPrenotazioni() {
   // rimettesse a ripristinare i moduli da solo, lo stato vero resta visibile.
   const spia = $('#pren-spia');
   spia.textContent = stato.attivo ? 'ACCESO' : 'SPENTO';
-  spia.style.background = stato.attivo ? 'var(--verde)' : '#8696a0';
+  spia.style.background = stato.attivo ? 'var(--verde)' : 'var(--grigio-2)';
   const pezzi = [`${stato.prenotazioni} prenotazioni oggi`, `${stato.coperti} coperti`];
   if (stato.inAttesa) pezzi.push(`${stato.inAttesa} in attesa di risposta`);
   if (stato.nonCapite) pezzi.push(`${stato.nonCapite} frasi non capite`);
@@ -4302,11 +4459,11 @@ async function caricaRegistroBot() {
           + 'dopo aver scritto l\'email resta ad aspettare il collegamento per pagare.</span>' : '');
     }
   }
-  const colori = { ricevuto: '#128c7e', risposto: '#1c7c4b', prenotato: '#1c7c4b',
-                   ignorato: '#8696a0', 'a una persona': '#b26a00', errore: '#ea4335' };
+  const colori = { ricevuto: 'var(--verde-scuro)', risposto: 'var(--ok-testo)', prenotato: 'var(--ok-testo)',
+                   ignorato: 'var(--grigio-2)', 'a una persona': 'var(--avviso-testo)', errore: 'var(--rosso)' };
   $('#pren-registro').innerHTML = d.registro.length
-    ? d.registro.map((r) => `<div><span style="color:#8696a0">${r.ora}</span> <b style="color:${colori[r.evento] || '#111b21'}">${r.evento}</b> ${r.dettaglio}</div>`).join('')
-    : '<span style="color:#8696a0">Nessun messaggio ricevuto da quando iStudio è stata avviata.</span>';
+    ? d.registro.map((r) => `<div><span style="color:var(--grigio-2)">${r.ora}</span> <b style="color:${colori[r.evento] || 'var(--testo)'}">${r.evento}</b> ${r.dettaglio}</div>`).join('')
+    : '<span style="color:var(--grigio-2)">Nessun messaggio ricevuto da quando iStudio è stata avviata.</span>';
   const note = [];
   if (d.zittite) {
     note.push('⚠️ Il bot tace su ' + d.zittite + (d.zittite === 1 ? ' conversazione' : ' conversazioni')
@@ -4322,7 +4479,7 @@ async function caricaRegistroBot() {
   const silenziate = d.silenziate || [];
   $('#pren-silenziate').style.display = silenziate.length ? '' : 'none';
   $('#pren-silenziate-righe').innerHTML = silenziate.map((s) => `
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 10px;background:#f7f8fa;border:1px solid var(--bordo);border-radius:8px">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 10px;background:var(--carta-2);border:1px solid var(--bordo);border-radius:8px">
       <span style="font-weight:600">${testoSicuro(s.nome) || 'Conversazione sconosciuta'}</span>
       ${s.telefono ? `<span class="conteggio" style="margin:0">+${testoSicuro(s.telefono)}</span>` : ''}
       <span class="conteggio" style="margin:0">tace fino a ${quandoFinisceIlSilenzio(s.finoA)}</span>
@@ -4715,12 +4872,12 @@ $('#pag-prova').addEventListener('click', async () => {
       body: JSON.stringify({ chiave: $('#cfg-bot_pagamento_chiave').value }),
     });
     const d = await r.json();
-    if (d.error) { esito.textContent = '❌ ' + d.error; esito.style.color = '#c62828'; return; }
+    if (d.error) { esito.textContent = '❌ ' + d.error; esito.style.color = 'var(--male-testo)'; return; }
     esito.textContent = `✅ Collegato a Stripe — ${d.nome}${d.prova ? ' (MODO PROVA)' : ''}`;
-    esito.style.color = d.prova ? '#b8860b' : '';
+    esito.style.color = d.prova ? 'var(--avviso-testo)' : '';
   } catch (e) {
     esito.textContent = '❌ Non riesco a contattare Stripe: ' + e.message;
-    esito.style.color = '#c62828';
+    esito.style.color = 'var(--male-testo)';
   }
 });
 
@@ -5350,7 +5507,7 @@ function aggiornaContoPagamento() {
   } else if (!/^(rk|sk)_(test|live)_[A-Za-z0-9]{8,}$/.test(k)) {
     spia.innerHTML = '⚠️ Non sembra una chiave di Stripe: cominciano con «rk_live_», «rk_test_» o «sk_».';
   } else if (/^(rk|sk)_test_/.test(k)) {
-    spia.innerHTML = '<b style="color:var(--rosso,#c0392b)">⚠️ MODO PROVA — i pagamenti non sono veri.</b>'
+    spia.innerHTML = '<b style="color:var(--rosso)">⚠️ MODO PROVA — i pagamenti non sono veri.</b>'
       + ' Va benissimo per provare, ma con questa chiave il ristorante non incassa niente.';
   } else {
     spia.innerHTML = '✅ Chiave vera (…' + k.slice(-4) + '): i pagamenti sono reali.';
@@ -5378,7 +5535,7 @@ function aggiornaStatoEmail() {
     return;
   }
   if (postaPronta === false) {
-    spia.innerHTML = '<b style="color:var(--rosso,#c0392b)">⚠️ La posta non è configurata:</b>'
+    spia.innerHTML = '<b style="color:var(--rosso)">⚠️ La posta non è configurata:</b>'
       + ' l\'email è accesa ma non partirà. Impostazioni → Email.';
     return;
   }
@@ -5518,7 +5675,7 @@ async function caricaConfigBot() {
       </div>
       <div style="flex:1;min-width:200px">${etichetteRuoli(p)}</div>
       ${p.chat_id
-        ? '<span class="conteggio" style="margin:0;color:var(--verde-scuro);flex:none">✅ telefono collegato</span>'
+        ? '<span class="conteggio" style="margin:0;color:var(--verde-testo);flex:none">✅ telefono collegato</span>'
         : `<button class="btn btn-secondario btn-piccolo" data-collega="${p.id}" style="flex:none">Collega il telefono</button>`}
       <button class="btn btn-secondario btn-piccolo" data-modifica-pers="${p.id}" style="flex:none">Modifica</button>
       <button class="btn btn-secondario btn-piccolo" data-elimina-pers="${p.id}" style="flex:none;color:var(--rosso)">Togli</button>
@@ -5616,7 +5773,7 @@ function bollaSim(testo, mia) {
   const d = document.createElement('div');
   d.textContent = testo;
   d.style.cssText = 'max-width:80%;padding:8px 11px;border-radius:10px;white-space:pre-wrap;font-size:.9rem;'
-    + (mia ? 'align-self:flex-end;background:#d9fdd3' : 'align-self:flex-start;background:#fff');
+    + (mia ? 'align-self:flex-end;background:var(--chat-mio)' : 'align-self:flex-start;background:var(--carta)');
   box.appendChild(d);
   box.scrollTop = box.scrollHeight;
 }
@@ -5735,7 +5892,7 @@ async function salvaConfigBot(doveDirlo) {
     // dei coperti del turno, e così il bot direbbe sempre «al completo»):
     // quella frase va mostrata, o l'unica cosa che resta è riprovare a caso.
     dove.textContent = r.ok ? 'Salvato' : (d.error || 'Non riesco a salvare');
-    dove.style.color = r.ok ? '' : '#c62828';
+    dove.style.color = r.ok ? '' : 'var(--male-testo)';
     setTimeout(() => { dove.textContent = ''; dove.style.color = ''; }, r.ok ? 2500 : 9000);
   }
   // Gli orari scritti male vengono tolti dal server: dirlo, e rimettere in
