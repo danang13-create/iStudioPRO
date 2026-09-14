@@ -13,6 +13,11 @@
      «comune» ed è la STESSA della sala. -->
 <script>window.TEMA_DOVE = 'piattaforma';</script>
 <script src="/comune/tema.js"></script>
+<!-- Il guscio nuovo si ricorda su questo computer, come il tema: la verità la
+     dice il server col primo stato, ma applicarlo solo allora vorrebbe dire
+     mezzo secondo di pagina vecchia a ogni apertura. -->
+<script>try { var g = localStorage.getItem('istudio_guscio');
+  if (g) document.documentElement.dataset.guscio = g; } catch (e) {}</script>
 <style>
   /* ------------------------------------------------------------------
      I due temi
@@ -80,6 +85,7 @@
     /* Quelle che servono a «comune/planning.css» — la striscia della settimana
        è la STESSA della sala, e finché qui non erano definite restava chiara
        dentro una pagina scura: numeri bianchi su verde pallido, 1,1:1. */
+    --colonna: #ffffff; --voce-scelta: #e7f5ec;
     --oggi: #eafff2;
     --meter-fondo: #cdeedd; --quasi: #ffb300;
     --allarme: #b26a00; --allarme-fondo: #fff8e6;
@@ -126,6 +132,7 @@
     --ombra-bassa: rgba(0,0,0,.5);
     --ombra-alta: rgba(0,0,0,.7);
     --verde-testo: #4fd8a0;
+    --colonna: #141d23; --voce-scelta: #16302a;
     --oggi: #12332a;
     --meter-fondo: #22403a; --quasi: #d99400;
     --allarme: #f0a33a; --allarme-fondo: #3a2d18;
@@ -133,6 +140,103 @@
   /* Perché campi, tendine e barre di scorrimento del browser seguano. */
   :root[data-tema="scuro"] { color-scheme: dark; }
   :root[data-tema="chiaro"] { color-scheme: light; }
+  /* ====================================================================
+     IL GUSCIO NUOVO — colonna, barra, contenuto
+     ====================================================================
+     ⚠️ Ogni regola qui dentro è sotto «[data-guscio="nuovo"]»: con la manopola
+     spenta la pagina è ESATTAMENTE quella di prima, e una prova lo pretende.
+     ⚠️ «minmax(0, 1fr)» e non «1fr»: «1fr» ha come minimo la larghezza MINIMA
+     del contenuto, e basta una tabella dentro perché la colonna sfondi lo
+     schermo. Misurato: a 390 pixel la pagina scorreva di lato. */
+  [data-guscio="nuovo"] #guscio {
+    display: grid; grid-template-columns: 248px minmax(0, 1fr);
+    grid-template-rows: 56px 1fr; min-height: 100vh;
+  }
+  [data-guscio="nuovo"] #colonna {
+    grid-row: 1 / 3; background: var(--colonna); border-right: 1px solid var(--bordo);
+    display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh;
+    overflow-y: auto;
+  }
+  [data-guscio="nuovo"] #barra {
+    grid-column: 2; background: var(--carta); color: var(--testo);
+    border-bottom: 1px solid var(--bordo); border-radius: 0;
+    display: flex; align-items: center; gap: 8px; padding: 0 18px;
+    position: sticky; top: 0; z-index: 90;
+  }
+  [data-guscio="nuovo"] .spazio-barra { flex: 1; }
+  /* ⚠️ «margin: 0 auto» su un elemento di griglia lo centra ma gli fa prendere
+     la larghezza del CONTENUTO, non il massimo: veniva 698 invece di 1080, e la
+     pagina sembrava spostata. Con «width: 100%» torna a comportarsi. */
+  [data-guscio="nuovo"] #guscio > main {
+    grid-column: 2; width: 100%; max-width: 1080px; margin: 26px auto;
+  }
+  [data-guscio="nuovo"] .colonna-testa { display: flex; align-items: center; gap: 12px; padding: 18px 16px 20px; }
+  [data-guscio="nuovo"] .marchio-quadro {
+    width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0;
+    background: var(--verde-scuro); color: #fff; font-weight: 700; font-size: 1.1rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  [data-guscio="nuovo"] .colonna-testa .marchio { display: block; min-width: 0; }
+  [data-guscio="nuovo"] .colonna-testa .marchio h1 { font-size: 1.02rem; }
+  [data-guscio="nuovo"] .colonna-testa .marchio-locale {
+    display: block; font-size: .82rem; color: var(--grigio); margin: 1px 0 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* ⚠️ Vince sulla vecchia regola «nav { … }», che qui lascerebbe un bordo
+     sotto, uno sfondo bianco e lo scorrimento di lato: tre cose da striscia
+     orizzontale, in mezzo a una colonna. */
+  [data-guscio="nuovo"] #nav-principale {
+    display: flex; flex-direction: column; gap: 2px; padding: 0 10px 18px;
+    background: none; border-bottom: none; overflow: visible; position: static;
+    background-image: none;
+  }
+  [data-guscio="nuovo"] #nav-principale button {
+    display: flex; align-items: center; gap: 12px; width: 100%;
+    padding: 10px 12px; border: none; border-bottom: none; background: none;
+    border-radius: 9px; font: inherit; font-size: .93rem; color: var(--grigio);
+    cursor: pointer; text-align: left;
+  }
+  [data-guscio="nuovo"] #nav-principale button svg { width: 20px; height: 20px; flex-shrink: 0; }
+  [data-guscio="nuovo"] #nav-principale button:hover { background: var(--carta-2); color: var(--testo); }
+  [data-guscio="nuovo"] #nav-principale button.attiva {
+    background: var(--voce-scelta); color: var(--verde-testo); font-weight: 600;
+  }
+  /* ⚠️ BIANCO SU BIANCO. La vecchia testata era verde piena, quindi le pillole
+     e il tasto del tema erano scritti in bianco col bordo bianco. La barra
+     nuova è chiara: erano lì, della misura giusta, e non si vedevano — il tasto
+     del tema e la targhetta MASTER, misurati in un browser vero. Su una barra
+     chiara i colori li devono dare i token. */
+  [data-guscio="nuovo"] .badge {
+    background: none; color: var(--testo); border: 1px solid var(--bordo);
+    border-radius: 10px;
+  }
+  [data-guscio="nuovo"] .badge:hover { background: var(--carta-2); }
+  [data-guscio="nuovo"] .badge svg { fill: currentColor; }
+  [data-guscio="nuovo"] .badge-tondo { border-color: var(--bordo); }
+  [data-guscio="nuovo"] .beta-badge {
+    background: var(--carta-2); color: var(--grigio); border-color: var(--bordo);
+  }
+
+  /* Il cassetto sul telefono: la colonna scompare e torna da sinistra. */
+  [data-guscio="nuovo"] #apri-colonna { display: none; }
+  [data-guscio="nuovo"] #velo-colonna { display: none; }
+  @media (max-width: 900px) {
+    [data-guscio="nuovo"] #guscio { grid-template-columns: minmax(0, 1fr); }
+    [data-guscio="nuovo"] #colonna {
+      position: fixed; left: 0; top: 0; width: 264px; z-index: 120;
+      transform: translateX(-100%); transition: transform .22s;
+    }
+    [data-guscio="nuovo"] #guscio.aperto #colonna { transform: none; }
+    [data-guscio="nuovo"] #barra, [data-guscio="nuovo"] #guscio > main { grid-column: 1; }
+    [data-guscio="nuovo"] #apri-colonna {
+      display: block; background: none; border: 1px solid var(--bordo);
+      border-radius: 9px; padding: 7px; color: var(--testo); cursor: pointer;
+    }
+    [data-guscio="nuovo"] #apri-colonna svg { width: 20px; height: 20px; display: block; }
+    [data-guscio="nuovo"] #guscio.aperto #velo-colonna {
+      display: block; position: fixed; inset: 0; background: var(--velo); z-index: 110;
+    }
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   /* Il doppio tocco su un pulsante, su un telefono, ingrandisce la pagina: si
      tocca due volte di fretta e ci si ritrova la pagina zoomata storta. Su ciò
@@ -913,6 +1017,22 @@
         </div>
         <label class="switch">
           <input type="checkbox" id="toggle-chat">
+          <span class="cursore"></span>
+        </label>
+      </div>
+      <!-- ⚠️ MANOPOLA A TEMPO. Nasce accesa sulla copia di lavoro e spenta su
+           quelle dei clienti. Serve a poterla provare dove è più delicata — il
+           telefono e il tablet — che sono copie cliente. Quando si decide, se ne
+           vanno INSIEME questa e il guscio vecchio: una prova lo pretende. -->
+      <div class="riga-opzione">
+        <div>
+          <b style="font-size:.95rem">Prova la grafica nuova</b>
+          <p class="conteggio" style="margin:2px 0 0">Il menu passa da una riga di schede in alto a una colonna
+            a sinistra, con le icone; sul telefono diventa un cassetto. Si accende e si spegne quando vuoi,
+            e vale per tutti i dispositivi di questa installazione.</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggle-guscio">
           <span class="cursore"></span>
         </label>
       </div>
@@ -2182,6 +2302,113 @@ window.addEventListener('unhandledrejection', (e) => {
 
 const $ = (sel) => document.querySelector(sel);
 
+// ===========================================================================
+//  IL GUSCIO NUOVO: colonna a sinistra invece delle schede in riga
+// ===========================================================================
+//  ⚠️ Le schede in riga erano OTTO, più dieci sotto-schede dentro Prenotazioni:
+//  diciotto destinazioni in due strisce che sul telefono scorrevano tutte e due
+//  di lato. Una colonna regge la nona voce; una riga no.
+//
+//  ⚠️ Non si riscrive l'elenco delle voci: si SPOSTA quello che c'è già. Scritto
+//  due volte, prima o poi una voce viene aggiunta di qua e non di là.
+//
+//  ⚠️ È dietro a una manopola, e la manopola va via insieme al guscio vecchio
+//  quando si decide. Una prova pretende che spariscano tutti e due.
+const ICONE_VOCI = {
+  dashboard: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  invio: '<path d="M21 3 10.5 13.5M21 3l-6.5 18-4-8.5L2 8.5 21 3Z"/>',
+  email: '<rect x="2.5" y="4.5" width="19" height="15" rx="2"/><path d="m3 6 9 6.5L21 6"/>',
+  storico: '<circle cx="12" cy="12" r="9"/><path d="M12 6.5V12l3.5 2.5"/>',
+  chat: '<path d="M21 11.5a8 8 0 0 1-11.5 7.2L3.5 20.5l1.8-6A8 8 0 1 1 21 11.5Z"/>',
+  prenotazioni: '<rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M8 2.5v4M16 2.5v4M3.5 10h17"/>',
+  anagrafiche: '<path d="M16 20v-1.5c0-2.2-2.7-3.5-6-3.5s-6 1.3-6 3.5V20"/><circle cx="10" cy="8" r="3.5"/><path d="M19.5 20v-1.5c0-1.7-1.2-2.8-3-3.3M16.5 5.2a3.5 3.5 0 0 1 0 6.1"/>',
+  impostazioni: '<circle cx="12" cy="12" r="3.2"/><path d="M19.4 14.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.6 1.6 0 0 0-1.5 1Z"/>',
+};
+
+function costruisciGuscio() {
+  if (document.querySelector('#guscio')) return;
+  const testata = document.querySelector('header');
+  const menu = $('#nav-principale');
+  const corpo = document.querySelector('main');
+  if (!testata || !menu || !corpo) return;
+
+  // ⚠️ L'etichetta va dentro a uno <span>. Il codice degli avvisi fa
+  // «voce.textContent = 'Rubrica (3)'», e textContent su un pulsante che
+  // contiene un'icona la CANCELLA: nel prototipo «Rubrica» era l'unica voce
+  // rimasta senza disegno.
+  menu.querySelectorAll('button[data-scheda]').forEach((b) => {
+    if (b.querySelector('span')) return;
+    const disegno = ICONE_VOCI[b.dataset.scheda];
+    const testo = b.textContent;
+    b.textContent = '';
+    if (disegno) {
+      b.insertAdjacentHTML('afterbegin', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+        + ' stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        + disegno + '</svg>');
+    }
+    const et = document.createElement('span');
+    et.textContent = testo;
+    b.appendChild(et);
+  });
+
+  const guscio = document.createElement('div');
+  guscio.id = 'guscio';
+  testata.parentNode.insertBefore(guscio, testata);
+
+  const colonna = document.createElement('aside');
+  colonna.id = 'colonna';
+  const testa = document.createElement('div');
+  testa.className = 'colonna-testa';
+  testa.innerHTML = '<div class="marchio-quadro" aria-hidden="true">i</div>';
+  testa.appendChild(testata.querySelector('.marchio'));
+  colonna.appendChild(testa);
+  colonna.appendChild(menu);
+
+  testata.id = 'barra';
+  testata.insertAdjacentHTML('afterbegin',
+    '<button id="apri-colonna" type="button" aria-label="Apri il menu">'
+    + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"'
+    + ' stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>'
+    + '<span class="spazio-barra"></span>');
+
+  guscio.appendChild(colonna);
+  guscio.appendChild(testata);
+  guscio.appendChild(corpo);
+  guscio.insertAdjacentHTML('beforeend', '<div id="velo-colonna"></div>');
+
+  // Il cassetto, sul telefono.
+  $('#apri-colonna').addEventListener('click', () => guscio.classList.toggle('aperto'));
+  $('#velo-colonna').addEventListener('click', () => guscio.classList.remove('aperto'));
+  // Scelta una voce il cassetto si chiude: restare aperto sopra la pagina che si
+  // è appena chiesta è il modo migliore per non vederla.
+  menu.querySelectorAll('button').forEach((b) =>
+    b.addEventListener('click', () => guscio.classList.remove('aperto')));
+}
+
+// La verità la dice il server; qui si ricorda per la volta dopo.
+function applicaGuscio(acceso) {
+  document.documentElement.dataset.guscio = acceso ? 'nuovo' : 'vecchio';
+  try { localStorage.setItem('istudio_guscio', acceso ? 'nuovo' : 'vecchio'); } catch (e) {}
+  if (acceso) costruisciGuscio();
+}
+if (document.documentElement.dataset.guscio === 'nuovo') costruisciGuscio();
+
+// ⚠️ La pagina si ricarica: il guscio si COSTRUISCE spostando quello che c'è,
+// e smontarlo a mano per tornare indietro vorrebbe dire una seconda strada da
+// tenere giusta. Ricaricare è una riga e non può sbagliare.
+document.addEventListener('DOMContentLoaded', () => {
+  const interruttore = $('#toggle-guscio');
+  if (!interruttore) return;
+  interruttore.addEventListener('change', async () => {
+    await fetch('/api/ui/guscio', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acceso: interruttore.checked }),
+    });
+    try { localStorage.setItem('istudio_guscio', interruttore.checked ? 'nuovo' : 'vecchio'); } catch (e) {}
+    location.reload();
+  });
+});
+
 // ---------------------------------------------------------------------------
 //  Il tasto del tema in testata
 // ---------------------------------------------------------------------------
@@ -2558,6 +2785,11 @@ async function aggiornaStato() {
     // percorso a parte per il primo caricamento.
     const ed = $('#marchio-edizione');
     if (ed && s.edizione) { ed.textContent = s.edizione; ed.hidden = false; }
+    if (typeof s.guscio === 'boolean') {
+      applicaGuscio(s.guscio);
+      const interruttore = $('#toggle-guscio');
+      if (interruttore) interruttore.checked = s.guscio;
+    }
     // Il nome del locale accanto al marchio: le copie sono identiche a vedersi,
     // e questa è l'unica riga che dice di chi è la pagina.
     const loc = $('#marchio-locale');
@@ -2741,7 +2973,10 @@ function disegnaRichiesteCancellazione() {
   card.style.display = n ? 'block' : 'none';
   // pallino di avviso sulla voce Rubrica del menu
   const voce = document.querySelector('#nav-principale button[data-scheda="anagrafiche"]');
-  if (voce) voce.textContent = n ? `Rubrica (${n})` : 'Rubrica';
+  // ⚠️ Col guscio nuovo il pulsante contiene un'icona, e «textContent» la
+  // cancellerebbe: si scrive nell'etichetta, che c'è in tutti e due i gusci.
+  const etichettaVoce = voce && (voce.querySelector('span') || voce);
+  if (etichettaVoce) etichettaVoce.textContent = n ? `Rubrica (${n})` : 'Rubrica';
   if (!n) return;
 
   $('#canc-titolo').textContent = n === 1

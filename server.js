@@ -156,6 +156,27 @@ function setSetting(key, value) {
   db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
 }
 
+// ---------- Il guscio nuovo: colonna a sinistra invece delle schede in riga ----------
+//
+// ⚠️ È UNA MANOPOLA A TEMPO, non un'impostazione del prodotto. Nasce ACCESA
+// sulla copia di lavoro (MASTER) e SPENTA su quelle dei clienti, così chi
+// sviluppa ce l'ha davanti tutti i giorni e nessun cliente se la trova addosso
+// senza volerlo. Ma resta una manopola vera, accendibile anche su una copia
+// cliente: il guscio nuovo è più delicato sul TELEFONO e sul TABLET che sul
+// computer, e il mini-PC in sala è una copia PRO — legandola solo all'edizione,
+// l'unico posto dove va provata sarebbe l'unico dove non si può provare.
+//
+// ⚠️ QUANDO SI DECIDE CHE VA BENE si tolgono INSIEME la manopola e il guscio
+// vecchio. Una prova pretende che spariscano tutti e due: una manopola
+// «temporanea» lasciata lì è il modo in cui questo progetto si era già
+// ritrovato la scheda delle frasi a metà.
+function guscioNuovo() {
+  const scelto = getSetting('ui_guscio');
+  if (scelto === 'true') return true;
+  if (scelto === 'false') return false;
+  return !modalitaAbbonamento;      // MASTER sì, copie dei clienti no
+}
+
 // ---------- WhatsApp client ----------
 const state = {
   status: 'inizializzazione', // inizializzazione | qr | connesso | disconnesso
@@ -1459,6 +1480,7 @@ app.get('/api/status', (req, res) => {
   // Mandarlo invece di riscriverlo nel frontend evita di avere lo stesso numero in due
   // posti: è già successo col ritmo delle pause, e la stima aveva cominciato a mentire.
   res.json({ ...state, authEnabled: Boolean(APP_PASSWORD), abbonamento: abb, edizione,
+             guscio: guscioNuovo(),
              tettoEmail: tettoEmailGiornaliero(), versione: versioneInstallata(),
              aggiornamento: aggiornamentoDisponibile(),
              // Il nome del locale, per l'intestazione: le copie di prova e quella
@@ -2160,6 +2182,14 @@ app.get('/api/ritmo', (req, res) => {
   res.json({ attuale, consigliato: RITMO_DEFAULT, disattivato: pauseDisattivate(),
              tettoEmail: tettoEmailGiornaliero(), tettiEmailAmmessi: TETTI_EMAIL_AMMESSI,
              tettoEmailConsigliato: TETTO_EMAIL_DEFAULT });
+});
+
+// Accendere e spegnere il guscio nuovo. Una rotta sua e non dentro alle
+// impostazioni del bot: è roba della piattaforma, e il bot può non esserci.
+app.post('/api/ui/guscio', (req, res) => {
+  const acceso = (req.body || {}).acceso === true;
+  setSetting('ui_guscio', acceso ? 'true' : 'false');
+  res.json({ ok: true, guscio: acceso });
 });
 
 app.post('/api/ritmo', (req, res) => {
