@@ -115,13 +115,24 @@
      prova, col tasto «+ Nuova prenotazione» quasi invisibile. Serve una coppia
      sua, che nei due temi va in direzioni diverse. */
   header .btn { background: var(--testata-btn-fondo); color: var(--testata-btn-testo); }
-  /* Quadrato, e largo come è alto: è un'icona sola, e allargarlo lo farebbe
-     sembrare un secondo «Nuova prenotazione». */
   header .spazio { flex: 1; }
   /* L'ordine è scritto a mano perché sul telefono cambia: lì il quadratino del
-     tema resta in alto a destra e «+ Nuova» scende su una riga tutta sua. */
+     tema resta in alto a destra e «Nuova» scende su una riga tutta sua. */
   header #nuova { order: 4; }
-  #tema { order: 5; min-width: 44px; width: 44px; height: 44px; padding: 0; font-size: 1.15rem; line-height: 1; }
+  /* Quadrato, e largo come è alto: è un'icona sola, e allargarlo lo farebbe
+     sembrare un secondo «Nuova».
+     ⚠️ E ALTO COME «Nuova», non di più. Con 44 fissi era il tasto più grande
+     della testata: 44 contro 40 sul tablet, 44 contro 30 sul computer — un
+     tasto di servizio più vistoso di quello principale si nota subito.
+     Adesso segue «.btn-piccolo» passo per passo: 30 col mouse, 40 sotto il
+     dito, 44 sul telefono dove «Nuova» sta su un'altra riga e questo resta
+     l'unico bersaglio della sua. Si scrive SOLO l'altezza; la larghezza la fa
+     «aspect-ratio», così non può uscire dal quadrato.
+     ⚠️ «align-self: stretch» sembrava la strada elegante — l'altezza la
+     prendeva davvero dalla riga — ma «aspect-ratio» senza un'altezza scritta
+     non dà la larghezza: veniva 12 pixel per 30. Misurato. */
+  #tema { order: 5; height: 30px; width: auto; aspect-ratio: 1;
+          padding: 0; font-size: 1.05rem; line-height: 1; }
   #tema .lettera { font-weight: 700; font-size: 1rem; }
   header .btn:hover { background: var(--oggi); color: var(--verde-scuro); }
   /* Chi usa la tastiera — o un tablet con tastiera — deve vedere dov'è. */
@@ -138,6 +149,7 @@
   @media (pointer: coarse), (max-width: 900px) {
     .btn { min-height: 44px; }
     .btn-piccolo { min-height: 40px; }
+    #tema { height: 40px; }
     [data-togli-attesa] { min-width: 40px; min-height: 40px; }
     /* Le frecce della settimana: un carattere solo, larghe trenta pixel. */
     #sett-indietro, #sett-avanti { min-width: 44px; }
@@ -347,7 +359,9 @@
     header .quale { flex: 1; min-width: 0; overflow: hidden;
                     text-overflow: ellipsis; white-space: nowrap; }
     header .spazio { display: none; }
-    #tema { order: 4; }
+    /* Qui «Nuova» sta su un'altra riga: il quadratino non deve più stargli
+       pari, e da solo accanto al titolo può essere un bersaglio pieno. */
+    #tema { order: 4; height: 44px; }
     header #nuova { order: 5; flex: 0 0 100%; width: 100%;
                     min-height: 48px; padding: 13px; font-size: 1rem; }
     /* La striscia della settimana sul telefono sta in comune/planning.css:
@@ -470,7 +484,7 @@
   <h1>Prenotazioni</h1>
   <span class="quale" id="quale-locale"></span>
   <span class="spazio"></span>
-  <button class="btn btn-piccolo" id="nuova">+ Nuova</button>
+  <button class="btn btn-piccolo" id="nuova">Nuova</button>
   <!-- Il tema, a portata di pollice. Sta in sala e non solo in «Impostazioni»
        perché chi si accorge che lo schermo dà fastidio è chi è lì alle nove di
        sera, non chi apre la piattaforma la mattina dopo. Un tocco, tre modi. -->

@@ -4361,13 +4361,17 @@ if (botDisponibile()) {
 }
 
 // ---------- «C'è una versione più nuova» ----------
-// Ogni sei ore, e una volta poco dopo l'accensione. Non serve di più: le
-// versioni escono qualche volta al mese, e chiedere a GitHub ogni minuto
-// sarebbe rumore per niente. Il primo controllo aspetta venti secondi per non
-// rallentare l'avvio, che è il momento in cui la macchina ha altro da fare.
+// Ogni ora, e una volta poco dopo l'accensione. Il primo controllo aspetta
+// venti secondi per non rallentare l'avvio, che è il momento in cui la
+// macchina ha altro da fare.
+// ⚠️ Era ogni SEI ore, «tanto le versioni escono qualche volta al mese». Poi
+// in un giorno ne sono uscite ventinove, e chi aveva appena pubblicato guardava
+// il mini-PC e non vedeva niente: il cartello poteva arrivare sei ore dopo. La
+// richiesta è un file di 43 byte, e una volta all'ora non è rumore per nessuno.
+// L'installazione vera resta alle 5 del mattino: questo è solo il cartello.
 if (depositoAggiornamenti()) {
   setTimeout(() => { guardaSeCePiuNuova().catch(() => {}); }, 20 * 1000).unref?.();
-  setInterval(() => { guardaSeCePiuNuova().catch(() => {}); }, 6 * 60 * 60 * 1000);
+  setInterval(() => { guardaSeCePiuNuova().catch(() => {}); }, 60 * 60 * 1000);
 }
 
 // ---------- L'email di riepilogo ----------
