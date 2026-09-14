@@ -4176,6 +4176,7 @@ const TESTI_BOT = [
   ['bot_t_attesa_ripieno', 'Il posto è stato ripreso', 'Ha detto SÌ, ma fra la proposta e la risposta qualcun altro ha prenotato. Resta in lista.'],
   ['bot_t_attesa_scaduta', 'Non ha risposto in tempo', 'Lo manda il bot da solo quando scadono i minuti per rispondere a un posto liberato: il posto passa a chi viene dopo, ma la persona RESTA in lista. Senza questo messaggio restava in silenzio, dopo aver letto «rispondi entro trenta minuti». Segnaposto: {quando} {persone} {data} {ora}.'],
   ['bot_t_attesa_tolta', 'Ha scritto CANCELLA stando in lista', 'Chi non ha prenotazioni ma sta in lista d\'attesa e scrive CANCELLA: è la lista che vuole lasciare.'],
+  ['bot_t_attesa_rimossa', 'L\'avete tolto voi dalla lista', 'Lo manda il bot quando togliete qualcuno dalla lista d\'attesa con la ✕, dalla piattaforma o dalla sala. Senza, quella persona aspetta tutta la sera un messaggio che non arriverà. ⚠️ Non scrivere PERCHÉ lo avete tolto: a volte è perché gli avete dato un tavolo al telefono, a volte perché ha detto che non viene più. Una frase che dichiara un motivo è sbagliata in tutti gli altri casi. Segnaposto: {quando} {persone} {data} {ora}.'],
   [null, 'Nome, telefono, allergie'],
   ['bot_t_nome', 'Chiede il nome', 'Compare solo se hai lasciato attiva la domanda sul nome.'],
   ['bot_t_telefono', 'Chiede il numero di telefono', 'Compare solo se hai attivato la domanda sul telefono. Capita spesso che uno prenoti per la moglie o per il capo: qui si chiede il numero a cui richiamare davvero.'],
@@ -5019,7 +5020,9 @@ function disegnaAttese(dove, attese, ricarica) {
     testoSicuro(a.nome || 'questa persona')} dalla lista d'attesa" style="padding:0 4px">✕</button></span>`).join(' · ');
   dove.querySelectorAll('[data-togli-attesa]').forEach((b) => {
     b.addEventListener('click', async () => {
-      if (!confirm('Togliere dalla lista d\'attesa? Non riceverà più l\'avviso se si libera un posto.')) return;
+      // Chi preme deve sapere che parte un messaggio: sennò lo scopre il
+      // cliente al posto suo, magari mentre gli sta parlando al telefono.
+      if (!confirm('Togliere dalla lista d\'attesa?\n\nGli scrivo su WhatsApp che l\'hai tolto, e non riceverà più l\'avviso se si libera un posto.')) return;
       const r = await fetch('/api/bot/attese/' + b.dataset.togliAttesa, { method: 'DELETE' });
       const d = await r.json().catch(() => ({}));
       if (d.error) { alert(d.error); return; }

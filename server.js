@@ -5200,11 +5200,35 @@ app.post('/api/bot/pieni', (req, res) => {
 // Togliere qualcuno dalla lista d'attesa, a mano. Chi ha ricevuto una
 // proposta e sta per rispondere viene riportato all'inizio della conversazione:
 // il suo «sì» non deve prenotare un posto che la sala ha appena dato a un altro.
-const rottaTogliAttesa = (req, res) => {
+const rottaTogliAttesa = async (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const r = bot.togliDallaAttesa(db, +req.params.id, 'tolta');
   if (!r) return res.status(404).json({ error: 'Non è in lista d\'attesa' });
   annota('lista d\'attesa', `${bot.nomeInSala(r)} tolto dalla lista per ${r.data}`);
+  // ⚠️ E glielo si DICE. Tolto in silenzio, quel cliente aspetta tutta la sera
+  // un messaggio che non arriverà, e nessuno se ne accorge — né lui né la sala.
+  // Il messaggio parte da solo: alle 20:30, col telefono in mano, alla sala non
+  // si fa rispondere a una domanda del programma.
+  // ⚠️ E NON dichiara un motivo. La sala toglie qualcuno dalla lista per
+  // ragioni diverse (gli ha dato un tavolo al telefono, quello ha detto che non
+  // viene più, sta facendo pulizia, sa che stasera non si libera niente): una
+  // frase che ne dichiara una sarebbe sbagliata in tutti gli altri casi.
+  const cfg = bot.config(db);
+  if (r.telefono && botAcceso() && state.status === 'connesso') {
+    try {
+      await rispondiConRitmo(r.telefono, bot.riempi(cfg.bot_t_attesa_rimossa, {
+        locale: cfg.bot_locale || 'noi', assistente: cfg.bot_assistente || '',
+        nome: r.nome || '', cognome: r.cognome || '',
+        quando: r.ora ? `delle ${r.ora} ${bot.dataItaliana(r.data)}` : `per ${bot.dataItaliana(r.data)}`,
+        data: bot.dataItaliana(r.data), ora: r.ora || '', persone: r.persone,
+      }));
+    } catch (e) {
+      // ⚠️ Se il messaggio non parte, la rimozione resta comunque fatta: la
+      // sala ha premuto, e un ✅ che non ha tolto niente sarebbe la bugia
+      // peggiore. Si annota, e chi legge il registro lo sa.
+      annota('errore', `lista d'attesa: tolto ${bot.nomeInSala(r)} ma non riesco ad avvisarlo: ${e.message}`);
+    }
+  }
   res.json({ ok: true });
 };
 app.delete('/api/bot/attese/:id', rottaTogliAttesa);
@@ -5922,6 +5946,10 @@ const rottaModificaPrenotazione = async (req, res) => {
     .run(nuovi.data, nuovi.ora, nuovi.persone, nuovi.nome, nuovi.cognome,
          nuovi.note, nuovi.telefono_contatto, nuovi.email, nuovi.tavolo, nuovi.stato, p.id);
 
+  // Spostata su un altro giorno: può essere finita proprio sul giorno per cui
+  // quel cliente era in lista d'attesa. Allora la lista non serve più.
+  bot.esceDallaLista(db, p.telefono, nuovi.data, p.id);
+
   // L'acconto facoltativo: il tavolo è confermato e nessuno ha ancora versato
   // niente. Qui le persone si possono cambiare — il tavolo è vero e la sala
   // deve poterlo correggere — ma il conto va rifatto, sennò resta scritto
@@ -6173,6 +6201,12 @@ const rottaNuovaPrenotazione = async (req, res) => {
          data, ora, persone, String(b.note || '').slice(0, 200), telefono, email,
          tavoloPulito(b.tavolo), 'manuale');
   const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(info.lastInsertRowid);
+  // ⚠️ Se quel cliente stava in lista d'attesa per quel giorno, adesso ha un
+  // tavolo: esce dalla lista. Senza, più tardi il bot gli scriveva «si è
+  // liberato un posto» per il tavolo che la sala gli aveva appena dato.
+  if (bot.esceDallaLista(db, p.telefono, p.data, p.id).length) {
+    annota('lista d\'attesa', `${bot.nomeInSala(p)} esce dalla lista: ha un tavolo per il ${p.data}`);
+  }
   annota('admin', `${p.data} ${p.ora}, ${p.persone} pers., ${bot.nomeInSala(p)}`);
   await avvisaPrenotazione(p, 'nuova');
 

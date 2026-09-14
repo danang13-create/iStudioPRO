@@ -811,7 +811,9 @@ function disegnaAttese(attese) {
     sicuro(a.nome || 'questa persona')} dalla lista d'attesa" style="padding:6px">✕</button></span>`).join(' · ');
   dove.querySelectorAll('[data-togli-attesa]').forEach((b) => {
     b.addEventListener('click', async () => {
-      if (!confirm('Togliere dalla lista d\'attesa? Non riceverà più l\'avviso se si libera un posto.')) return;
+      // Chi preme deve sapere che parte un messaggio: sennò lo scopre il
+      // cliente al posto suo, magari mentre gli sta parlando al telefono.
+      if (!confirm('Togliere dalla lista d\'attesa?\n\nGli scrivo su WhatsApp che l\'hai tolto, e non riceverà più l\'avviso se si libera un posto.')) return;
       const r = await fetch('/api/bot/attese/' + b.dataset.togliAttesa, { method: 'DELETE' });
       const d = await r.json().catch(() => ({}));
       if (d.error) { alert(d.error); return; }

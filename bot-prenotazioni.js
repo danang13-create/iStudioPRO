@@ -629,6 +629,7 @@ const PREDEFINITI = {
   bot_t_attesa_rinuncia: 'Va bene, ti ho tolto dalla lista d\'attesa. Se vuoi prenotare un altro giorno, dimmi per quante persone.',
   bot_t_attesa_ripieno: 'Mi dispiace, nel frattempo quel posto è stato preso. 😔\nResti in lista: ti riscrivo se si libera di nuovo.',
   bot_t_attesa_scaduta: 'Non ho ricevuto la tua risposta in tempo, così il posto {quando} è tornato libero per gli altri in lista. 😔\n\nResti in lista: se se ne libera un altro ti riscrivo qui.',
+  bot_t_attesa_rimossa: 'Ti ho tolto dalla lista d\'attesa {quando}: non ti scriverò più se si libera un posto.\n\nSe ti serve un tavolo, scrivimi pure quando vuoi.',
   bot_t_attesa_tolta: 'Ti ho tolto dalla lista d\'attesa. Se vuoi prenotare, dimmi per quante persone.',
   bot_t_nome: 'A che nome e cognome segno la prenotazione?\n',
   bot_t_note: 'Prima di completare la prenotazione, c’è qualche allergia, intolleranza o esigenza particolare che dovremmo conoscere?\n\nSe non hai nulla da segnalare, scrivi semplicemente NO.',
@@ -1846,6 +1847,29 @@ function togliDallaAttesa(db, id, stato = 'tolta') {
   return r;
 }
 
+// ⚠️ CHI HA UN TAVOLO NON ASPETTA PIÙ UN POSTO PER QUEL GIORNO.
+// Vale comunque sia nato il tavolo: dal bot, dalla sala, da una telefonata
+// segnata a mano. Prima valeva SOLO per chi prenotava dalla lista (`attesaId`),
+// e chi otteneva un tavolo per un'altra strada ci restava dentro: più tardi il
+// bot gli scriveva «🎉 Si è liberato un posto!» per un tavolo che aveva già in
+// mano, e quello chiamava il locale per capire se ne aveva uno o due.
+// Riprodotto, non immaginato.
+// ⚠️ Si chiama DOPO aver creato o spostato la prenotazione, e da tutte le
+// strade: una sistemata e le altre no è come non averlo fatto.
+function esceDallaLista(db, telefono, data, prenotazioneId = null) {
+  if (!telefono || !data) return [];
+  const righe = db.prepare('SELECT * FROM bot_attese WHERE telefono = ? AND data = ? AND stato IN '
+    + dentro(ATTESE_APERTE)).all(telefono, data);
+  for (const r of righe) {
+    db.prepare("UPDATE bot_attese SET stato = 'prenotata', prenotazione_id = ? WHERE id = ?")
+      .run(prenotazioneId, r.id);
+    // Se stava rispondendo a «si è liberato un posto», la sua conversazione
+    // torna all'inizio: il suo «sì» non deve prenotare una seconda volta.
+    azzeraSeAspettava(db, r.telefono);
+  }
+  return righe;
+}
+
 // CANCELLA da chi non ha prenotazioni ma sta in lista: è la lista che vuole lasciare.
 function toglieDaTutteLeAttese(db, telefono) {
   const aperte = db.prepare('SELECT id FROM bot_attese WHERE telefono = ? AND stato IN ' + dentro(ATTESE_APERTE)).all(telefono);
@@ -2884,6 +2908,8 @@ function elaboraMessaggioSala(db, chiave, testo, adesso = new Date()) {
           dati.persone, dati.note || '', dati.telefono || '');
     const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(info.lastInsertRowid);
     esito.prenotazione = p;
+    // Se quel cliente stava in lista per quel giorno, adesso ha un tavolo.
+    esceDallaLista(db, p.telefono, p.data, p.id);
 
     const occupati = copertiOccupati(db, cfg, p.data, p.ora);
     salvaStato(db, chiave, 'sala_fatta', { ultima: p.id });
@@ -3229,6 +3255,8 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     // guardando — è il cliente che sposta da solo — quindi si azzera, e
     // l'avviso al personale dice che ce n'è uno da riassegnare.
     db.prepare("UPDATE prenotazioni SET data = ?, ora = ?, tavolo = '' WHERE id = ?").run(dati.data, dati.ora, p.id);
+    // Spostandosi può essere finito proprio sul giorno per cui era in lista.
+    esceDallaLista(db, p.telefono, dati.data, p.id);
     // `prima` serve a chi legge l'avviso in sala: «spostata» senza sapere DA
     // dove non dice niente a chi ha il foglio del servizio in mano.
     esito.spostata = {
@@ -3775,10 +3803,10 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
           blocca ? scadenzaPagamento(cfg, adesso) : null);
     const nata = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(info.lastInsertRowid);
     esito.prenotazione = nata;
-    // Nata da un posto liberato: la riga in lista d'attesa è servita.
-    if (d.attesaId) {
-      db.prepare("UPDATE bot_attese SET stato = 'prenotata', prenotazione_id = ? WHERE id = ?").run(nata.id, d.attesaId);
-    }
+    // La riga in lista d'attesa è servita — sia che il tavolo venga da un posto
+    // liberato, sia che il cliente abbia prenotato per conto suo lo stesso
+    // giorno per cui stava aspettando.
+    esceDallaLista(db, telefono, nata.data, nata.id);
     if (daPagare) {
       // Il link non c'è ancora: lo mette chi sa parlare con Stripe (il server),
       // che è anche l'unico a sapere se ci è riuscito. Qui si prepara tutto il
@@ -3838,7 +3866,7 @@ function eOrarioAvvisi(cfg, adesso) {
 }
 
 module.exports = {
-  mettiInAttesa, listaDAttesa, togliDallaAttesa, toglieDaTutteLeAttese, rimettiInAttesa,
+  mettiInAttesa, listaDAttesa, togliDallaAttesa, toglieDaTutteLeAttese, rimettiInAttesa, esceDallaLista,
   chiDaAvvisareInAttesa, scadenzeDellaAttesa, ATTESE_APERTE,
   preparaDatabase,
   PREDEFINITI,
