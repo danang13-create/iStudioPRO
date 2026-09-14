@@ -4447,7 +4447,22 @@ function corpoEmailRiepilogo(cfg, valori, testo, conLogo) {
     : '';
   const modello = String(cfg.bot_email_html || '').trim();
   if (modello) {
-    return modello.replace(/\{(\w+)\}/g, (intero, chiave) => {
+    // ⚠️ I BLOCCHI CONDIZIONALI: «{?note} … {/note}» compare solo se quel
+    // segnaposto ha qualcosa dentro. Senza, un modello fatto a riquadri mostra
+    // un riquadro «quello che ci hai scritto» VUOTO a ogni prenotazione senza
+    // note — cioè quasi tutte — e uno «da pagare» vuoto quando non c'è niente
+    // da pagare. Con un modello a testo libero non si notava; con un modello
+    // disegnato si nota subito.
+    // Si risolvono PRIMA dei segnaposto normali: quello che resta dentro a un
+    // blocco tenuto viene riempito dopo, come tutto il resto.
+    const pieno = (chiave) => {
+      if (chiave === 'logo') return !!conLogo;
+      if (chiave === 'testo') return String(testo || '').trim() !== '';
+      return String(valori[chiave] == null ? '' : valori[chiave]).trim() !== '';
+    };
+    return modello.replace(/\{\?(\w+)\}([\s\S]*?)\{\/\1\}/g,
+      (intero, chiave, dentro) => (pieno(chiave) ? dentro : '')
+    ).replace(/\{(\w+)\}/g, (intero, chiave) => {
       if (chiave === 'logo') return logoHtml;
       if (chiave === 'testo') return testoInHtml(testo);
       if (chiave === 'pagamento') return testoInHtml(valori.pagamento || '');
