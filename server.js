@@ -158,13 +158,14 @@ function setSetting(key, value) {
 
 // ---------- Il guscio nuovo: colonna a sinistra invece delle schede in riga ----------
 //
-// ⚠️ È UNA MANOPOLA A TEMPO, non un'impostazione del prodotto. Nasce ACCESA
-// sulla copia di lavoro (MASTER) e SPENTA su quelle dei clienti, così chi
-// sviluppa ce l'ha davanti tutti i giorni e nessun cliente se la trova addosso
-// senza volerlo. Ma resta una manopola vera, accendibile anche su una copia
-// cliente: il guscio nuovo è più delicato sul TELEFONO e sul TABLET che sul
-// computer, e il mini-PC in sala è una copia PRO — legandola solo all'edizione,
-// l'unico posto dove va provata sarebbe l'unico dove non si può provare.
+// ⚠️ È UNA MANOPOLA A TEMPO, non un'impostazione del prodotto. Adesso il guscio
+// nuovo è ACCESO dappertutto, copie dei clienti comprese: la manopola non serve
+// più a provarlo, serve a TORNARE INDIETRO se su una macchina vera qualcosa non
+// va. È l'unica verifica che non si è potuta fare qui — il dito su un tablet
+// vero — e finché non arriva quella, la via di ritorno resta.
+//
+// ⚠️ Una scelta fatta a mano VINCE sul valore di partenza, e resta: chi ha
+// spento il guscio non se lo ritrova acceso al primo aggiornamento.
 //
 // ⚠️ QUANDO SI DECIDE CHE VA BENE si tolgono INSIEME la manopola e il guscio
 // vecchio. Una prova pretende che spariscano tutti e due: una manopola
@@ -174,7 +175,7 @@ function guscioNuovo() {
   const scelto = getSetting('ui_guscio');
   if (scelto === 'true') return true;
   if (scelto === 'false') return false;
-  return !modalitaAbbonamento;      // MASTER sì, copie dei clienti no
+  return true;                      // acceso per tutti: MASTER e copie dei clienti
 }
 
 // ---------- WhatsApp client ----------
