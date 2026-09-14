@@ -56,6 +56,11 @@
        là non sono definite e valgono i valori di prima. */
     --meter-fondo: #cdeedd; --quasi: #ffb300;
     --allarme: #b26a00; --allarme-fondo: #fff8e6;
+    /* ⚠️ La linea caduta NON usa il giallo della nota: in alto ci sono già due
+       barre gialle (pagina vecchia, tablet disconnesso) e tre avvisi dello
+       stesso colore si leggono come uno solo. Questa è rossa perché è l'unica
+       che dice «i numeri che stai leggendo potrebbero essere sbagliati». */
+    --giu-fondo: #fdecea; --giu-testo: #8a1c12; --giu-bordo: #f3b8b0;
   }
   /* Scuro scelto a mano. */
   :root[data-tema="scuro"] {
@@ -72,6 +77,7 @@
     --pie-agg: #6fe3a0;
     --meter-fondo: #22403a; --quasi: #d99400;
     --allarme: #f0a33a; --allarme-fondo: #3a2d18;
+    --giu-fondo: #3a1c18; --giu-testo: #ffb3a7; --giu-bordo: #7a332a;
   }
   /* Perché i campi, le tendine e le barre di scorrimento del browser seguano. */
   :root[data-tema="scuro"] { color-scheme: dark; }
@@ -439,6 +445,20 @@
     border: 1px solid var(--nota-bordo); background: var(--carta); color: var(--nota-testo); border-radius: 8px;
     padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer; min-height: 44px;
   }
+  /* La stessa forma della barra qui sopra — sta nello stesso posto e si legge
+     allo stesso modo — ma con i colori suoi: vedi il commento sui token. */
+  #sala-giu[hidden] { display: none; }
+  #sala-giu {
+    position: sticky; top: 0; z-index: 201; display: flex; gap: 12px; align-items: center;
+    flex-wrap: wrap; justify-content: center; background: var(--giu-fondo); color: var(--giu-testo);
+    border-bottom: 1px solid var(--giu-bordo); padding: 10px 14px; font-size: .88rem;
+    font-weight: 600;
+  }
+  #sala-giu button {
+    border: 1px solid var(--giu-bordo); background: var(--carta); color: var(--giu-testo); border-radius: 8px;
+    padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer; min-height: 44px;
+  }
+  #sala-giu button[disabled] { opacity: .6; cursor: default; }
   /* ⚠️ L'avviso di una prenotazione nuova NON è un toast. Il toast durava 2,6
      secondi, in basso, e su un bancone dove nessuno sta guardando è come non
      esserci: si mancava del tutto. Questo resta finché qualcuno lo tocca, sta
@@ -484,6 +504,17 @@
   <span>Questa pagina è di una versione precedente.</span>
   <span id="pagina-fra"></span>
   <button type="button" id="pagina-ricarica">Ricarica adesso</button>
+</div>
+<!-- ⚠️ Il computer del ristorante non risponde più: corrente andata via,
+     mini-PC spento, wi-fi caduto. Il danno vero non è il guasto — è credere
+     che l'elenco sotto gli occhi sia di adesso. Perciò questa barra dice
+     SEMPRE a che ora si è fermato, e l'elenco resta dov'è: vecchio o no, è
+     ancora la cosa più utile che c'è in sala per prendere il telefono e
+     chiamare. Niente pannello che copre, niente conto alla rovescia, e
+     soprattutto niente «ricarica la pagina» (vedi «aggiornaAdesso»). -->
+<div id="sala-giu" hidden role="alert">
+  <span id="sala-giu-testo"></span>
+  <button type="button" id="sala-giu-aggiorna">Aggiorna</button>
 </div>
 <header>
   <h1>Prenotazioni</h1>
@@ -705,7 +736,15 @@ let idVisti = null;
 let appenaArrivate = [];
 
 async function caricaGiorno() {
-  const d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent($('#giorno').value))).json();
+  // ⚠️ Senza questo «try», la rete caduta faceva scoppiare un'eccezione che
+  // finiva nel gestore in cima alla pagina e stampava «Qualcosa non ha
+  // funzionato. Ricarica la pagina.» — il consiglio esattamente sbagliato
+  // proprio nel momento in cui ricaricare butta via tutto. Adesso si tace e
+  // l'elenco di prima resta dov'è: ci pensa la barra a dire che è vecchio.
+  let d;
+  try {
+    d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent($('#giorno').value))).json();
+  } catch { return; }
   if (d.error) return;
   $('#turni').textContent = d.turni.length
     ? d.turni.map((t) => `${t.ora}: ${t.occupati}/${d.capienza}`).join('  ·  ')
@@ -1061,6 +1100,7 @@ function avviaRicaricaDaSola() {
 }
 
 $('#pagina-ricarica').addEventListener('click', () => location.reload());
+$('#sala-giu-aggiorna').addEventListener('click', aggiornaAdesso);
 
 // ---- La scheda di un cliente ----
 // Chi apparecchia si chiede «chi è questo che arriva stasera?»: è già stato
@@ -1244,12 +1284,26 @@ async function salvaDavvero() {
     $('#p-errore').style.display = '';
     return;
   }
-  const r = await fetch(idAperto ? '/api/bot/prenotazioni/' + idAperto : '/api/bot/prenotazioni', {
-    method: idAperto ? 'PATCH' : 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(corpo),
-  });
-  const d = await r.json();
+  // ⚠️ Questa è più pericolosa della barra in cima. Se la linea cade mentre si
+  // salva, prima usciva «Qualcosa non ha funzionato. Ricarica la pagina.»: chi
+  // legge chiude il pannello convinto di aver scritto una prenotazione che non
+  // esiste, e quel tavolo stasera lo perde. Deve dire le due cose che servono —
+  // di chi è la colpa, e che NON è stata registrata — e lasciare il pannello
+  // aperto, con dentro tutto quello che è stato battuto.
+  let d;
+  try {
+    const r = await fetch(idAperto ? '/api/bot/prenotazioni/' + idAperto : '/api/bot/prenotazioni', {
+      method: idAperto ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo),
+    });
+    d = await r.json();
+  } catch {
+    $('#p-errore').textContent = 'Il computer del ristorante non risponde: NON è stata salvata. '
+      + 'Non chiudere — riprova fra poco.';
+    $('#p-errore').style.display = '';
+    return;
+  }
   if (d.error) {
     $('#p-errore').textContent = d.error;
     $('#p-errore').style.display = '';
@@ -1360,6 +1414,12 @@ document.addEventListener('pointerdown', togliArrivi);
 async function leggiVersione() {
   try {
     const r = await fetch('/api/bot/prenotazioni/versione');
+    // ⚠️ QUALUNQUE risposta — anche un errore — vuol dire che il computer del
+    // ristorante è vivo e la rete c'è. È la differenza che tiene in piedi tutto
+    // l'avviso qui sotto: 503 (bot in pausa) NON è «connessione assente».
+    // Confonderli vorrebbe dire gridare al guasto ogni volta che il bot è
+    // fermo, e dopo due sere quella barra non la guarda più nessuno.
+    segnalaLineaViva();
     // ⚠️ 401 = questo tablet non è più dentro. Prima si tornava «null» e la
     // pagina taceva: restava lì con l'elenco di prima, fermo, e in sala vuol
     // dire leggere le prenotazioni di ieri credendo che siano di stasera.
@@ -1367,7 +1427,95 @@ async function leggiVersione() {
     if (r.status === 401) { sessioneFinita(); return null; }
     if (!r.ok) return null;               // bot fermo o sala spenta: si riproverà
     return await r.json();
-  } catch { return null; }                // rete che balla: si riproverà fra quattro secondi
+  } catch {
+    // Qui invece non ha risposto NESSUNO: è questo, e solo questo, il guasto
+    // che la barra racconta.
+    segnalaBuco();
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  La linea col computer del ristorante
+// ---------------------------------------------------------------------------
+//  Non serve un battito nuovo: la domanda dei quattro secondi qui sopra si fa
+//  già, e quando NON torna è esattamente l'informazione che serve.
+//
+//  ⚠️ Non si grida al primo buco. Tre tentativi di fila — dodici secondi — per
+//  un motivo concreto: ogni aggiornamento automatico (e quello delle cinque del
+//  mattino sul mini-PC) ferma e riavvia il server per un paio di secondi. Senza
+//  soglia, ogni aggiornamento accenderebbe l'allarme. E il conto non scorre a
+//  schermo spento, perché «guardaSeCambiato» torna subito quando la pagina è in
+//  secondo piano: al risveglio si riparte da una prova fresca.
+const BUCHI_PRIMA_DI_DIRLO = 3;
+let buchiDiFila = 0;
+let laLineaEGiu = false;
+let ultimaRisposta = null;     // quando è arrivata l'ultima risposta vera
+// ⚠️ Rientrando NON basta togliere la barra. Nel buio può essere cambiato
+// tutto — dalla piattaforma, da un altro tablet, dal bot stesso se a mancare
+// era solo la rete DI QUESTO tablet — e il contatore può essere tornato uguale.
+// Senza questo, la barra sparisce e i numeri restano vecchi: peggio di prima,
+// perché adesso sembra tutto a posto.
+let rientrato = false;
+
+function oraDi(d) {
+  try { return d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }); }
+  catch { return ''; }
+}
+
+function segnalaLineaViva() {
+  ultimaRisposta = new Date();
+  buchiDiFila = 0;
+  if (!laLineaEGiu) return;
+  laLineaEGiu = false;
+  rientrato = true;
+  const barra = $('#sala-giu');
+  if (barra) barra.hidden = true;
+}
+
+function segnalaBuco() {
+  if (laLineaEGiu) { scriviLineaGiu(); return; }   // l'ora ferma resta quella di prima
+  buchiDiFila++;
+  if (buchiDiFila < BUCHI_PRIMA_DI_DIRLO) return;
+  laLineaEGiu = true;
+  scriviLineaGiu();
+}
+
+function scriviLineaGiu() {
+  const barra = $('#sala-giu');
+  const testo = $('#sala-giu-testo');
+  if (!barra || !testo) return;
+  // ⚠️ «navigator.onLine» vale solo per scegliere le parole, mai per decidere.
+  // «false» è una certezza (questo tablet non ha rete); «true» non dice niente,
+  // perché il wi-fi verso un router morto resta «true» lo stesso.
+  const senzaRete = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const quando = ultimaRisposta ? ` Quello che vedi è fermo alle ${oraDi(ultimaRisposta)}.` : '';
+  testo.textContent = (senzaRete
+    ? '⚠️ Questo tablet non è collegato alla rete.'
+    : '⚠️ Non riesco a parlare col computer del ristorante.')
+    + quando + ' Potrebbero esserci prenotazioni che qui non compaiono.';
+  barra.hidden = false;
+}
+
+// Il tasto della barra. ⚠️ NON è «location.reload()»: ricaricare mentre il
+// computer non risponde è la cosa peggiore che questa pagina possa fare — il
+// browser butta via la pagina e al suo posto mostra il proprio errore, e
+// l'elenco della serata sparisce del tutto. Qui si rifà solo la domanda.
+async function aggiornaAdesso() {
+  const tasto = $('#sala-giu-aggiorna');
+  if (!tasto || tasto.disabled) return;
+  const scritta = tasto.textContent;
+  tasto.disabled = true;
+  tasto.textContent = 'Provo…';
+  try {
+    await guardaSeCambiato();
+  } finally {
+    tasto.disabled = false;
+    tasto.textContent = scritta;
+  }
+  // Un tasto che non dice se ha funzionato si ripreme all'infinito.
+  if (laLineaEGiu) toast('Il computer del ristorante non risponde ancora.');
+  else toast('Aggiornato.');
 }
 
 // La sessione è finita: si avvisa e si torna al cancello. Con le stesse
@@ -1400,8 +1548,12 @@ async function guardaSeCambiato() {
   // ⚠️ Il riferimento si fissa all'APERTURA, non al primo controllo: fissarlo
   // qui vorrebbe dire ingoiare tutto quello che è arrivato nei primi secondi —
   // e quella prenotazione non comparirebbe mai, senza che nessuno lo sappia.
-  if (versioneVista === null) { versioneVista = versione; return; }
-  if (versione === versioneVista) return;
+  if (versioneVista === null) { versioneVista = versione; rientrato = false; return; }
+  // Il «|| rientrato» è il rientro dal buio: si rilegge la giornata anche se il
+  // contatore non si è mosso, perché mentre non si sentiva niente non si può
+  // sapere che cosa è successo.
+  if (versione === versioneVista && !rientrato) return;
+  rientrato = false;
   versioneVista = versione;
   // ⚠️ Mentre uno sta scrivendo NON si tocca niente: ricaricare sotto le dita
   // gli farebbe perdere quello che ha appena battuto. Si aspetta che chiuda.
