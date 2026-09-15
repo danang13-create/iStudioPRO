@@ -3474,6 +3474,34 @@ async function messaggioDelPersonale(persona, testo, msg) {
     }
     const liberate = ridaiLaParola(rich.chat_id, rich.telefono);
     db.prepare("UPDATE bot_richieste SET stato = 'chiusa' WHERE id = ?").run(rich.id);
+    // ⚠️ Il cliente non riceveva NIENTE: stava parlando con una persona e al
+    // messaggio dopo gli rispondeva di nuovo il bot, senza che nessuno gli
+    // avesse detto che quella persona era andata via. Quattro paletti, e sono
+    // la parte che conta più del messaggio:
+    //  1. il nome è di chi ha RISPOSTO, non di chi scrive LIBERA: sono due
+    //     persone diverse più spesso di quanto sembri — Marco chiude la
+    //     conversazione che ha seguito Giulia, e il cliente ha parlato con lei;
+    //  2. se nessuno ha mai risposto non si manda niente: LIBERA si può
+    //     scrivere anche su una conversazione mai presa in carico, e dire
+    //     «Giulia ti saluta» a chi non ha mai parlato con Giulia è peggio del
+    //     silenzio;
+    //  3. solo negli orari in cui qualcuno legge: un LIBERA fatto la mattina
+    //     dopo non deve svegliare il cliente su una conversazione di ieri sera;
+    //  4. mai a chi ha scritto STOP.
+    // ⚠️ E SOLO qui, mai sulle chiusure automatiche (le ore di silenzio,
+    // chiudiConversazioniFinite): lì il messaggio arriverebbe ore dopo, di
+    // notte, per una conversazione che il cliente ha già dimenticato.
+    const dovePuntare = rich.chat_id || rich.telefono;
+    const cfgLibera = bot.config(db);
+    if (rich.risposta_da && bot.eOrarioAvvisi(cfgLibera, new Date())
+        && !bot.haDettoBasta(db, dovePuntare, rich.telefono)) {
+      try {
+        await rispondiConRitmo(dovePuntare, bot.riempi(cfgLibera.bot_t_umano_finito, {
+          nome: rich.risposta_da, locale: cfgLibera.bot_locale || 'noi',
+          assistente: cfgLibera.bot_assistente || '',
+        }));
+      } catch (e) { console.error('Bot: saluto di chiusura non riuscito:', e.message); }
+    }
     // ⚠️ Se non c'era nessun silenzio da togliere va DETTO. Il ✅ secco faceva
     // credere che fosse tutto a posto anche quando non era stato liberato
     // niente, e chi lo leggeva aspettava un bot che non sarebbe tornato.

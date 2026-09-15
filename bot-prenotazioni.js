@@ -739,6 +739,19 @@ const PREDEFINITI = {
   bot_t_nonho_aperto: 'Non sono sicura di aver capito la tua richiesta. 😊\n\nTi metto subito in contatto con un operatore, che potrà aiutarti.',
   bot_t_nonho_chiuso: 'Non ho capito la tua richiesta. 😊\n\nHo passato il messaggio a un operatore, che ti risponderà alla riapertura del ristorante.\n\nA presto! ✨',
   bot_t_operatore: 'Certamente! 😊\n\nHo passato la tua richiesta a un operatore.\nTi risponderà appena possibile.\n\nA presto! ✨',
+  // ⚠️ La stessa cosa, ma quando nessuno sta leggendo il telefono. «Ti
+  // risponderà appena possibile» scritto alle tre di notte è una promessa che
+  // il locale non può mantenere: chi la legge resta col telefono in mano ad
+  // aspettare. Dire che il locale è chiuso e da che ora si risponde costa una
+  // riga e toglie l'attesa a vuoto. Le due frasi per «non ho capito» erano già
+  // sdoppiate così (bot_t_nonho_aperto / _chiuso): questa era rimasta indietro.
+  bot_t_operatore_chiuso: 'Certamente! 😊\n\nIn questo momento il locale è chiuso, ma ho già passato la tua richiesta a un operatore: ti risponderà alla riapertura, dalle {apertura}.\n\nA presto! ✨',
+  // ⚠️ E quando la persona ha finito. Prima il cliente non riceveva NIENTE:
+  // stava parlando con Giulia e al messaggio dopo gli rispondeva di nuovo il
+  // bot, senza che nessuno gli avesse detto che Giulia era andata via. Non
+  // «ha abbandonato la conversazione», che suona come se l'avessero piantato
+  // lì: la persona ha finito, e al cliente serve sapere come richiamarla.
+  bot_t_umano_finito: '👋 {nome} ti saluta, grazie per aver scritto!\n\nDa qui in avanti ti risponde di nuovo l’assistente virtuale: posso aiutarti con le prenotazioni.\nSe ti serve ancora una persona, scrivi OPERATORE.',
   bot_t_prefisso_umano: '👋 Sei in contatto con {nome} del team {locale}.',
   bot_t_troppe: 'Per aiutarti al meglio, ti passo a un operatore.\n\nTi risponderà appena possibile. ✨\n',
 };
@@ -3428,7 +3441,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   if (parolaOperatore && t.includes(parolaOperatore)) {
     zittisci(db, telefono, num(cfg.bot_silenzio_ore, 6), adesso);
     azzeraStato(db, telefono);
-    risposte.push(di('bot_t_operatore'));
+    risposte.push(di(eOrarioAvvisi(cfg, adesso) ? 'bot_t_operatore' : 'bot_t_operatore_chiuso'));
     esito.passaAUmano = true;
     return esito;
   }

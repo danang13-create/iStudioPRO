@@ -2035,6 +2035,31 @@
         <div id="pren-personale"></div>
       </div>
 
+      <!-- ⚠️ Questi due orari decidevano molte cose — quando partono gli avvisi
+           al personale, il richiamo «sei ancora lì?», cosa si dice al cliente
+           che chiede un operatore — e stavano SCRITTI NEL CODICE, uguali per
+           tutti: 09:00–23:30. Un locale che apre a mezzogiorno o che chiude
+           all'una di notte non poteva cambiarli. -->
+      <div class="card">
+        <h2 style="font-size:1rem;margin:0 0 6px">Quando qualcuno legge il telefono</h2>
+        <p class="conteggio" style="margin:0 0 14px">
+          Le ore in cui c'è davvero qualcuno che può rispondere a un cliente. <b>Non</b> sono gli
+          orari dei turni: sono quelle in cui il telefono viene guardato.
+        </p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px">
+          <label>Dalle<input id="cfg-bot_avvisi_da" autocomplete="off" placeholder="09:00">
+            <span class="conteggio" style="margin:0">Prima di quest'ora gli avvisi restano in coda e partono tutti insieme all'apertura, invece di svegliare qualcuno.</span>
+          </label>
+          <label>Alle<input id="cfg-bot_avvisi_a" autocomplete="off" placeholder="23:30">
+            <span class="conteggio" style="margin:0">Dopo, a chi chiede un operatore il bot dice che il locale è chiuso e da che ora gli si risponde, invece di promettere «appena possibile».</span>
+          </label>
+        </div>
+        <div class="barra-salva">
+          <button class="btn" id="orari-avvisi-salva">Salva</button>
+          <span id="orari-avvisi-salvato" class="conteggio" style="margin:0"></span>
+        </div>
+      </div>
+
       <!-- Aggiungere qualcuno: prima si sceglie chi è, poi si aggiunge. Le
            spunte stavano SOTTO il pulsante, e chi compilava premeva «Aggiungi»
            prima ancora di vederle. -->
@@ -4489,6 +4514,7 @@ const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_turni_cena', 'bot_turni_
   'bot_lista_attesa', 'bot_attesa_minuti',
   'bot_riapre_minuti', 'bot_richiamo_minuti',
   'bot_parole_richiesta', 'bot_parole_nessuna',
+  'bot_avvisi_da', 'bot_avvisi_a',
   'bot_email_oggetto', 'bot_email_testo', 'bot_email_logo', 'bot_email_html'];
 // Cosa mostrare al posto del numero. Con gli indirizzi interni di WhatsApp
 // (@lid, @c.us) il numero può non essere noto: meglio dirlo che far leggere
@@ -4602,7 +4628,9 @@ const TESTI_BOT = [
   [null, 'Quando il bot non capisce'],
   ['bot_t_nonho_aperto', 'Non ha capito — locale aperto', 'Qui non promettere tempi che non puoi mantenere.'],
   ['bot_t_nonho_chiuso', 'Non ha capito — locale chiuso', ''],
-  ['bot_t_operatore', 'Il cliente ha chiesto una persona', ''],
+  ['bot_t_operatore', 'Il cliente ha chiesto una persona — locale aperto', 'Quando qualcuno sta leggendo il telefono, cioè dentro gli orari qui sopra.'],
+  ['bot_t_operatore_chiuso', 'Il cliente ha chiesto una persona — locale chiuso', '⚠️ Fuori dagli orari in cui qualcuno legge. «Ti risponderà appena possibile» scritto alle tre di notte è una promessa che non puoi mantenere: chi la legge resta col telefono in mano ad aspettare. <b>{apertura}</b> è l\'ora da cui si risponde, presa dagli orari qui sopra.'],
+  ['bot_t_umano_finito', 'La persona ha finito: la conversazione torna al bot', '⚠️ Esce quando scrivi <b>LIBERA</b> su WhatsApp. Prima il cliente non riceveva niente: stava parlando con una persona e al messaggio dopo gli rispondeva di nuovo il bot, senza sapere che quella persona era andata via. <b>{nome}</b> è chi ha <b>risposto</b>, non chi scrive LIBERA. Non parte se nessuno ha mai risposto, fuori dagli orari, o a chi ha scritto STOP — e <b>mai</b> quando la conversazione si chiude da sola dopo le ore di silenzio: arriverebbe di notte, su una cosa già dimenticata.'],
   ['bot_t_prefisso_umano', 'Prefisso quando risponde una persona', 'Lascia vuoto se preferisci che il passaggio non si noti. Es: 👤 Ti risponde {nome} del ristorante:'],
   ['bot_t_troppe', 'Troppi messaggi dalla stessa chat', ''],
 ];
@@ -6386,6 +6414,7 @@ $('#pren-salva').addEventListener('click', () => salvaConfigBot('pren-salvato'))
 $('#promemoria-salva').addEventListener('click', () => salvaConfigBot('promemoria-salvato'));
 $('#meta-salva').addEventListener('click', () => salvaConfigBot('meta-salvato'));
 $('#parole-salva').addEventListener('click', () => salvaConfigBot('parole-salvato'));
+$('#orari-avvisi-salva').addEventListener('click', () => salvaConfigBot('orari-avvisi-salvato'));
 $('#recensioni-salva').addEventListener('click', () => salvaConfigBot('recensioni-salvato'));
 $('#sala-salva').addEventListener('click', () => salvaConfigBot('sala-salvato'));
 // I riquadri spostati fuori da «Orari e coperti» hanno ognuno il suo Salva:
