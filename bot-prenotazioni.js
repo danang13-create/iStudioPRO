@@ -388,6 +388,9 @@ const TESTI_SUPERATI = {
   ],
   bot_t_note: [
     'Ci sono allergie o richieste particolari? Se no, scrivi NO.',
+    // ⚠️ «scrivi NO» invitava a cominciare la frase con un no, che è esattamente
+    // la forma che veniva buttata via: «no, ma abbiamo un passeggino».
+    'Prima di completare la prenotazione, c’è qualche allergia, intolleranza o esigenza particolare che dovremmo conoscere?\n\nSe non hai nulla da segnalare, scrivi semplicemente NO.',
   ],
   bot_t_telefono: [
     'A quale numero possiamo richiamarti se serve?\nScrivi OK per usare questo, oppure scrivimi il numero giusto.',
@@ -656,7 +659,7 @@ const PREDEFINITI = {
   bot_t_attesa_rimossa: 'Ti ho tolto dalla lista d\'attesa {quando}: non ti scriverò più se si libera un posto.\n\nSe ti serve un tavolo, scrivimi pure quando vuoi.',
   bot_t_attesa_tolta: 'Ti ho tolto dalla lista d\'attesa. Se vuoi prenotare, dimmi per quante persone.',
   bot_t_nome: 'A che nome e cognome segno la prenotazione?\n',
-  bot_t_note: 'Prima di completare la prenotazione, c’è qualche allergia, intolleranza o esigenza particolare che dovremmo conoscere?\n\nSe non hai nulla da segnalare, scrivi semplicemente NO.',
+  bot_t_note: 'Prima di completare la prenotazione, c’è qualche allergia, intolleranza o esigenza particolare che dovremmo conoscere?\n\nSe non c’è nulla, scrivi NESSUNA.',
   bot_t_telefono: 'A quale numero possiamo richiamarti se serve?\n\nScrivi OK per usare questo, oppure scrivimi il numero giusto.',
   bot_t_telefono_no: 'Non ho capito il numero. \nScrivilo intero (esempio 3331234567)',
   bot_t_email: 'Perfetto! ✨\nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n\nPer confermare, scrivimi la tua email: la useremo per mandarti la conferma.\n\n(se hai cambiato idea, scrivi NO)',
@@ -1152,14 +1155,62 @@ function interpretaTelefono(testo) {
   return cifre;
 }
 
-const SI = /^(si|s|sì|ok|okay|va bene|confermo|certo|perfetto|yes|👍|✅)\b/;
-const NO = /^(no|n|annulla|lascia|niente|no grazie|non)\b/;
+const SI = new RegExp('^(si|s|sì|ok|okay|va bene|confermo|certo|perfetto|yes|👍|✅'
+  // ⚠️ Queste tre cominciano per «no» e vogliono dire il contrario. Senza,
+  // chi rispondeva «nessun problema» al riepilogo si vedeva rifiutare il
+  // tavolo. Stanno nel SÌ perché il sì si legge per primo.
+  + "|no problem|no problema|nessun problema|non c'?e problema|non ci sono problemi)\\b");
+// ⚠️ «non» da solo NON sta più qui, ed è il guasto più caro che questo file
+// abbia avuto. Bastava che il messaggio COMINCIASSE per «non» perché venisse
+// letto come un rifiuto. Due danni veri, tutti e due silenziosi:
+//   «non mangiamo carne»  → alla domanda sulle allergie, nota BUTTATA
+//   «non vedo l'ora!»     → al riepilogo, prenotazione RIFIUTATA
+// Chi scriveva quelle parole era entusiasta o stava segnalando un'allergia, e
+// si è sentito rispondere che non era stata segnata nessuna prenotazione.
+// Adesso «non» vale come no solo nelle frasi in cui nega DAVVERO, qui sotto.
+const NO = /^(no|n|annulla|lascia|niente|no grazie)\b/;
+const NON_CHE_NEGA = new RegExp('^non\\s+(va bene|mi va|mi sta bene|confermo'
+  + '|voglio|posso|riesco|serve|mi serve|importa|piu)\\b');
 
 function interpretaSiNo(testo) {
   const t = normalizza(testo);
   if (SI.test(t)) return true;
-  if (NO.test(t)) return false;
+  if (NO.test(t) || NON_CHE_NEGA.test(t)) return false;
   return null;
+}
+
+// ---------------------------------------------------------------------------
+//  «Niente da segnalare», alla domanda sulle allergie
+// ---------------------------------------------------------------------------
+//  ⚠️ Lì la domanda NON è una domanda da sì o no: è «dimmi qualcosa». Usarci un
+//  lettore di sì/no era l'errore di fondo, e buttava via note vere:
+//
+//      «niente glutine per favore»      → letto NO, nota persa
+//      «no, ma abbiamo un passeggino»   → letto NO, nota persa
+//      «non ho allergie ma mia moglie è celiaca» → letto NO, CELIACA PERSA
+//
+//  La regola giusta è una sola: un no vale **solo se il messaggio è soltanto
+//  quello**. Se dentro c'è dell'altro, quell'altro è la nota — sempre. Meglio
+//  una nota inutile in più («no grazie» scritto sulla riga) che un'allergia in
+//  meno: la prima la legge chi è in sala e sorride, la seconda manda qualcuno
+//  al pronto soccorso.
+const SOLO_UN_NO = new RegExp('^(no+|n|nope|negativo|nada|niente|nulla|nessuno|nessuna|nessun'
+  + '|annulla|annullare|lascia|lascia stare|lascia perdere|no no|assolutamente no'
+  + '|direi di no|meglio di no|per niente|tutto ok|tutto a posto|tutto bene|a posto'
+  + '|nessun problema|no problem|no problema)$');
+const NON_SOLO_UN_NO = new RegExp('^non\\s+(ho|abbiamo|c\'?e|ci sono)\\s+'
+  + '(nulla|niente|allergie|intolleranze|esigenze|preferenze|richieste|problemi'
+  + '|allergie particolari|esigenze particolari|richieste particolari)$');
+
+function soloUnNo(testo) {
+  const t = normalizza(testo)
+    .replace(/[!?.,;:…]/g, ' ')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, ' ')
+    .replace(/\b(grazie|mille|per favore|per cortesia|comunque)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!t) return false;
+  return SOLO_UN_NO.test(t) || NON_SOLO_UN_NO.test(t);
 }
 
 // ---------------------------------------------------------------------------
@@ -3852,7 +3903,8 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   }
 
   if (stato.passo === 'note') {
-    const note = interpretaSiNo(testo) === false ? '' : String(testo || '').trim().slice(0, 200);
+    // ⚠️ NON «interpretaSiNo»: qui la domanda non è da sì o no. Vedi «soloUnNo».
+    const note = soloUnNo(testo) ? '' : String(testo || '').trim().slice(0, 200);
     return vaiAlRiepilogo({ ...dati, note }, true);
   }
 
@@ -4035,7 +4087,7 @@ module.exports = {
   interpretaPersone,
   interpretaData,
   interpretaOra,
-  interpretaSiNo,
+  interpretaSiNo, soloUnNo,
   interpretaTelefono,
   colTelefono,
   nomeInSala,
