@@ -3187,6 +3187,16 @@ function agganciaConversazione(rich, persona, adesso = new Date()) {
     .run(persona.chat_id || persona.telefono, adesso.toLocaleString('sv-SE'), rich.id);
 }
 
+// Questa riga è seguita da qualcuno, adesso? Stessa regola di scadenza di
+// «conversazioneAgganciata», letta dall'altro lato: dalla conversazione invece
+// che dalla persona.
+function aggancioVivo(rich, adesso = new Date()) {
+  if (!rich || !rich.presa_da || !rich.presa_at) return false;
+  const quando = new Date(String(rich.presa_at).replace(' ', 'T'));
+  if (Number.isNaN(quando.getTime())) return false;
+  return (adesso - quando) / 60000 < AGGANCIO_MINUTI;
+}
+
 // La conversazione che questa persona sta seguendo adesso, se c'è.
 // ⚠️ L'aggancio SCADE. Chi si dimentica LIBERA e torna il giorno dopo a scrivere
 // «ok» non deve vederselo arrivare al cliente di ieri.
@@ -3261,6 +3271,25 @@ async function passaAUnaPersona(chatId, telefono, nomeChat, testo, opzioni = {})
     try {
       await rispondiConRitmo(chatId, cfg[aperto ? 'bot_t_nonho_aperto' : 'bot_t_nonho_chiuso']);
     } catch (e) { console.error('Bot: non riesco a rispondere al cliente:', e.message); }
+  }
+
+  // ⚠️ Se qualcuno la sta seguendo, il messaggio gli arriva COME IN UNA CHAT:
+  // «💬 Angela: sì, ti leggo bene» — e basta. Prima arrivava ogni volta il
+  // blocco intero, con «per rispondere: R8 + la tua risposta» sotto: un
+  // secondo dopo che il bot gli aveva detto «scrivi normalmente». Contraddirsi
+  // a ogni riga è il modo più rapido per far smettere di fidarsi. Va SOLO a chi
+  // la segue, non a tutti i responsabili — la conversazione è sua. E la
+  // risposta del cliente tiene vivo l'aggancio: una chat che va avanti non deve
+  // spegnersi a metà perché il conto dei trenta minuti guardava solo un lato.
+  if (aperta && aggancioVivo(aperta, new Date())) {
+    db.prepare('UPDATE bot_richieste SET presa_at = ? WHERE id = ?')
+      .run(new Date().toLocaleString('sv-SE'), aperta.id);
+    const chi = nomeChat || aperta.nome || (telefono ? '+' + telefono : codice);
+    try {
+      await inviaConRitmo(aperta.presa_da, `💬 ${chi}: ${String(testo || '').slice(0, 500)}`);
+      annota('inoltrato', `${codice}: la risposta del cliente va a chi lo sta seguendo`);
+    } catch (e) { console.error('Bot: inoltro al responsabile non riuscito:', e.message); }
+    return;
   }
 
   if (!aperto) return;   // fuori orario l'avviso resta in coda: nessuno lo guarderebbe
@@ -3659,8 +3688,10 @@ async function messaggioDelPersonale(persona, testo) {
     // ⚠️ La conferma c'è SEMPRE, a ogni messaggio. Senza, non c'è modo di sapere
     // se quel messaggio è uscito o è rimasto qui — ed è la sola cosa che rende
     // accettabile l'inoltro senza codice.
-    await inviaConRitmo(persona.chat_id || persona.telefono,
-      `→ ${seguita.nome || seguita.codice}   ·   LIBERA per ridarlo al bot`);
+    // Corta: «→ Angela» e basta. Il «LIBERA» è già stato detto quando la
+    // conversazione è diventata sua, e COMANDI lo ripete: ridirlo a ogni riga
+    // non è più una conferma, è rumore.
+    await inviaConRitmo(persona.chat_id || persona.telefono, `→ ${seguita.nome || seguita.codice}`);
     return;
   }
 
