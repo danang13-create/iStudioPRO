@@ -1667,6 +1667,44 @@
           <span id="domande-salvato" class="conteggio" style="margin:0"></span>
         </div>
       </div>
+      <!-- LE PAROLE CHE IL BOT RICONOSCE.
+           ⚠️ Non sono frasi che il bot DICE: sono parole che il bot LEGGE. Fin
+           qui stavano nel codice, e per aggiungerne una serviva pubblicare una
+           versione nuova — ma quali contino cambia da locale a locale. -->
+      <div class="card">
+        <h2 style="font-size:1rem;margin:0 0 6px">Le parole che il bot riconosce</h2>
+        <p class="conteggio" style="margin:0 0 14px">
+          Non sono frasi che dice: sono parole che <b>legge</b>, alla domanda su allergie e
+          richieste. Una per riga, oppure separate da virgola. Maiuscole e accenti non contano.
+        </p>
+        <label style="display:block;margin-bottom:16px">
+          <span style="font-weight:600;font-size:.92rem">Parole che ti fanno avvisare</span>
+          <br><span class="conteggio" style="margin:0">Quando il cliente le scrive, la nota è
+          una <b>richiesta</b> a cui qualcuno deve rispondere sì o no: ti arriva l'avviso col
+          codice per rispondergli in chat. Bastano dentro la frase — «torta» prende anche «per
+          il compleanno servirebbe una torta». Puoi svuotare il campo senza rompere niente:
+          restano comunque il punto interrogativo e le aperture da richiesta
+          («ho bisogno di», «mi serve», «vorrei»…), che sono grammatica e valgono per tutti.</span>
+          <textarea id="cfg-bot_parole_richiesta" autocomplete="off" rows="3"
+            style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;resize:vertical"></textarea>
+        </label>
+        <label style="display:block">
+          <span style="font-weight:600;font-size:.92rem">Altri modi di dire «niente da segnalare»</span>
+          <br><span class="conteggio" style="margin:0">Si <b>aggiungono</b> a quelli che il bot
+          capisce già (<b>no · nessuna · niente · nulla · tutto ok · non ho allergie</b>), che
+          restano sempre: un campo svuotato per sbaglio non deve far finire «no» sulla riga delle
+          allergie di ogni prenotazione. Qui la frase del cliente deve essere <b>solo</b> quella:
+          «apposto» vale, «apposto ma siamo in cinque» no — quella è una nota, e resta scritta.</span>
+          <textarea id="cfg-bot_parole_nessuna" autocomplete="off" rows="2"
+            placeholder="per esempio: apposto, ok così, tutto liscio"
+            style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;resize:vertical"></textarea>
+        </label>
+        <div class="barra-salva">
+          <button class="btn" id="parole-salva">Salva le parole</button>
+          <span id="parole-salvato" class="conteggio" style="margin:0"></span>
+        </div>
+      </div>
+
       <!-- I TESTI DEL BOT -->
       <div class="card">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
@@ -4450,6 +4488,7 @@ const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_turni_cena', 'bot_turni_
   'bot_pagamento_minuti', 'bot_pagamento_obbligatorio', 'bot_pagamento_chiave', 'bot_pagamento_ritorno',
   'bot_lista_attesa', 'bot_attesa_minuti',
   'bot_riapre_minuti', 'bot_richiamo_minuti',
+  'bot_parole_richiesta', 'bot_parole_nessuna',
   'bot_email_oggetto', 'bot_email_testo', 'bot_email_logo', 'bot_email_html'];
 // Cosa mostrare al posto del numero. Con gli indirizzi interni di WhatsApp
 // (@lid, @c.us) il numero può non essere noto: meglio dirlo che far leggere
@@ -4517,7 +4556,8 @@ const TESTI_BOT = [
   ['bot_t_nome', 'Chiede il nome', 'Compare solo se hai lasciato attiva la domanda sul nome.'],
   ['bot_t_telefono', 'Chiede il numero di telefono', 'Compare solo se hai attivato la domanda sul telefono. Capita spesso che uno prenoti per la moglie o per il capo: qui si chiede il numero a cui richiamare davvero.'],
   ['bot_t_telefono_no', 'Non ha capito il numero', ''],
-  ['bot_t_note', 'Chiede allergie e richieste', 'Compare solo se hai attivato la domanda sulle note.'],
+  ['bot_t_note', 'Chiede allergie e richieste', 'Compare solo se hai attivato la domanda sulle note. ⚠️ Se la riscrivi, non invitare a cominciare con un NO («se non hai nulla scrivi NO»): è la forma che si confonde con una nota vera, tipo «no, ma siamo con un bimbo».'],
+  ['bot_t_nota_domanda', 'Quando il cliente scrive una nota', '⚠️ Esce <b>ogni volta</b> che il cliente scrive qualcosa alla domanda sulle allergie — un\'allergia come una richiesta. Serve a non far sembrare che tu abbia detto di sì: «Si può avere una torta?» seguito da un «OK, grazie» è una promessa che non hai fatto, e quel cliente si presenta aspettandosi la torta. <b>Non riscriverla in modo che sembri una conferma.</b> Quando la nota sembra una <b>richiesta</b> ti arriva anche l\'avviso col codice per rispondere: quali parole contino lo decidi tu, nella scheda «Le parole che il bot riconosce».'],
   [null, 'Il riepilogo, prima di confermare'],
   ['bot_t_riepilogo', 'Riepilogo prima di confermare', 'Segnaposto: <b>{data} {ora} {persone} {nome} {telefono} {note}</b>. Le righe del telefono e delle note spariscono da sole quando non c\'è niente da scrivere: non serve toglierle a mano. <b>Tieni {note}</b> — è l\'unico modo che ha il cliente di accorgersi se l\'allergia è stata capita male.'],
   ['bot_t_daccordo', 'Quando il cliente dice solo «ok»', 'La risposta a un cenno del capo — «ok», «va bene», «perfetto» — da chi ha già una prenotazione. Deve restare CORTA: ripetere l\'elenco delle cose da fare sarebbe un muro, e il cliente lo ha appena letto.'],
@@ -4534,7 +4574,6 @@ const TESTI_BOT = [
   ['bot_t_conferma', 'Prenotazione confermata', ''],
   ['bot_t_rinuncia', 'Il cliente ha rinunciato mentre prenotava', 'Quando dice NO al riepilogo: non è stata segnata nessuna prenotazione.'],
   ['bot_t_lasciato', 'Ci ha ripensato: non si tocca niente', '⚠️ Quando dice NO a «la sposto?» o a «la annullo?». La sua prenotazione È ANCORA VIVA: qui non si deve scrivere che è stata cancellata, o il cliente non si presenta e il tavolo resta vuoto.'],
-  ['bot_t_nota_domanda', 'Quando il cliente scrive una nota', '⚠️ Esce <b>ogni volta</b> che il cliente scrive qualcosa alla domanda sulle allergie — un\'allergia come una richiesta. Serve a non far sembrare che tu abbia detto di sì: «Si può avere una torta?» seguito da un «OK, grazie» è una promessa che non hai fatto, e quel cliente si presenta aspettandosi la torta. <b>Non riscriverla in modo che sembri una conferma.</b> Quando la nota sembra una <b>richiesta</b> ti arriva anche l\'avviso con il codice per rispondere.'],
   ['bot_t_ricominciamo', 'Quando ridomanda la stessa cosa', 'Va in fondo alla domanda ripetuta: dice al cliente come uscirne invece di lasciarlo davanti a un muro. Lascia vuoto per ripetere solo la domanda.'],
   ['bot_t_ricominciato', 'Il cliente ha scritto RICOMINCIA', ''],
   ['bot_t_richiamo', '«Sei ancora lì?» — la conversazione si è fermata', 'Chi si ferma a metà quasi mai ha cambiato idea: si è distratto. Una domanda sola lo riporta indietro, e un tavolo vale molto più del messaggio. Parte <b>una volta sola</b> per conversazione, mai di notte, mai a chi è in mano a una persona. <b>{cosa}</b> è quello che manca, scritto a parole («per che giorno», «l\'orario»).'],
@@ -6345,6 +6384,7 @@ async function salvaConfigBot(doveDirlo) {
 $('#pren-salva').addEventListener('click', () => salvaConfigBot('pren-salvato'));
 $('#promemoria-salva').addEventListener('click', () => salvaConfigBot('promemoria-salvato'));
 $('#meta-salva').addEventListener('click', () => salvaConfigBot('meta-salvato'));
+$('#parole-salva').addEventListener('click', () => salvaConfigBot('parole-salvato'));
 $('#recensioni-salva').addEventListener('click', () => salvaConfigBot('recensioni-salvato'));
 $('#sala-salva').addEventListener('click', () => salvaConfigBot('sala-salvato'));
 // I riquadri spostati fuori da «Orari e coperti» hanno ognuno il suo Salva:

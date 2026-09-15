@@ -573,6 +573,23 @@ const PREDEFINITI = {
   bot_appello_ora: '23:30',
   bot_appello_senza_risposta: 'presentati',   // presentati|niente
 
+  // ---- Le parole del passo «allergie e richieste» ----
+  // ⚠️ Stanno qui e non nel codice perché cambiano da locale a locale, e fin
+  // qui per aggiungerne una serviva pubblicare una versione nuova.
+  //
+  // Queste fanno scattare l'avviso al locale (codice R): sono le cose che un
+  // cliente CHIEDE, e a cui qualcuno deve rispondere sì o no. Si possono
+  // togliere: restano comunque il punto interrogativo e le aperture da
+  // richiesta («ho bisogno di», «mi serve», «vorrei»…), che sono grammatica e
+  // non cambiano da locale a locale.
+  bot_parole_richiesta: 'torta, torte, dolce, dolci, candeline, regalo, sorpresa, fiori, '
+    + 'seggiolone, seggioloni, passeggino, carrozzina, preventivo, menu fisso, '
+    + 'menu degustazione, conto separato, conti separati, parcheggio, taxi',
+  // Queste invece si AGGIUNGONO a «no / nessuna / niente / nulla / tutto ok»,
+  // che restano sempre. Servono per i modi di dire di zona: «apposto», «ok
+  // così», «tutto liscio».
+  bot_parole_nessuna: '',
+
   // ---- La conversazione lasciata a metà ----
   // Due meccanismi diversi, e il primo è quello che conta.
   //
@@ -1242,20 +1259,35 @@ const INIZI_DI_RICHIESTA = new RegExp("^(si puo|si riesce|posso|possiamo|potete|
   + "|mi piacerebbe|ci piacerebbe|riuscite|riuscireste|preparate|potreste preparare"
   + "|chiedo|chiederei|chiediamo|per favore|gradirei|gradiremmo|desidero|desidererei)\\b");
 
-// Parole che quasi sempre vogliono dire «mi dovete dare una cosa», anche
-// infilate in mezzo a una frase: «per il compleanno servirebbe una torta».
-const COSE_DA_CHIEDERE = new RegExp('\\b(torta|dolce|candelin|regalo|sorpresa|fior'
-  + '|seggiolon|passeggino|carrozzin|preventivo|menu fisso|menu degustazione'
-  + '|conto separato|conti separati|parcheggi|taxi)', 'i');
+// Un elenco scritto in un campo: virgole o a capo, uno vale l'altro. Le voci
+// vuote si buttano, i doppioni pure.
+function elencoParole(valore) {
+  const viste = new Set();
+  for (const pezzo of String(valore || '').split(/[,\n;]/)) {
+    const parola = normalizza(pezzo);
+    if (parola) viste.add(parola);
+  }
+  return [...viste];
+}
 
-function eUnaRichiesta(testo) {
+// ⚠️ Queste due liste stanno in un'IMPOSTAZIONE, non nel codice. Le parole che
+// contano cambiano da locale a locale — una pasticceria vive di torte, un
+// agriturismo di seggioloni e passeggini, chi fa banchetti di preventivi — e
+// fin qui per aggiungerne una serviva una versione nuova. Il confronto è per
+// pezzo di parola, così «torta» prende anche «una torta al cioccolato».
+function coseDaChiedere(cfg) {
+  return elencoParole((cfg || PREDEFINITI).bot_parole_richiesta);
+}
+
+function eUnaRichiesta(testo, cfg) {
   const t = String(testo || '');
   if (t.includes('?')) return true;
   const n = normalizza(t);
-  return INIZI_DI_RICHIESTA.test(n) || COSE_DA_CHIEDERE.test(n);
+  if (INIZI_DI_RICHIESTA.test(n)) return true;
+  return coseDaChiedere(cfg).some((parola) => n.includes(parola));
 }
 
-function soloUnNo(testo) {
+function soloUnNo(testo, cfg) {
   const t = normalizza(testo)
     .replace(/[!?.,;:…]/g, ' ')
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, ' ')
@@ -1263,7 +1295,12 @@ function soloUnNo(testo) {
     .replace(/\s+/g, ' ')
     .trim();
   if (!t) return false;
-  return SOLO_UN_NO.test(t) || NON_SOLO_UN_NO.test(t);
+  if (SOLO_UN_NO.test(t) || NON_SOLO_UN_NO.test(t)) return true;
+  // ⚠️ Queste si AGGIUNGONO a quelle incorporate, non le sostituiscono: un
+  // campo svuotato per sbaglio non deve far finire «no» sulla riga delle
+  // allergie di ogni prenotazione. Il confronto è esatto — la frase deve essere
+  // SOLO quella — perché è la stessa regola che vale per «no» e «nessuna».
+  return elencoParole((cfg || PREDEFINITI).bot_parole_nessuna).includes(t);
 }
 
 // ---------------------------------------------------------------------------
@@ -3968,7 +4005,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
 
   if (stato.passo === 'note') {
     // ⚠️ NON «interpretaSiNo»: qui la domanda non è da sì o no. Vedi «soloUnNo».
-    const note = soloUnNo(testo) ? '' : String(testo || '').trim().slice(0, 200);
+    const note = soloUnNo(testo, cfg) ? '' : String(testo || '').trim().slice(0, 200);
     if (note) {
       // ⚠️ La frase è la STESSA per qualunque nota, e non conferma mai niente.
       // Prima dipendeva dal riconoscere una domanda, e bastava un «ho bisogno di
@@ -3980,7 +4017,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       // L'avviso al personale invece SÌ che si sceglie: una notifica in più per
       // un'allergia costa poco, una richiesta che non arriva a nessuno costa un
       // cliente che aspetta una risposta che non arriverà.
-      if (eUnaRichiesta(note)) esito.passaAUmano = true;
+      if (eUnaRichiesta(note, cfg)) esito.passaAUmano = true;
     }
     // La prenotazione va avanti comunque: è a un passo dalla fine, e fermarla
     // qui sarebbe peggio del silenzio.
@@ -4175,7 +4212,7 @@ module.exports = {
   interpretaPersone,
   interpretaData,
   interpretaOra,
-  interpretaSiNo, soloUnNo, eUnaRichiesta, senzaRigheVuote,
+  interpretaSiNo, soloUnNo, eUnaRichiesta, senzaRigheVuote, elencoParole,
   interpretaTelefono,
   colTelefono,
   nomeInSala,
