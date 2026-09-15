@@ -312,6 +312,12 @@ function preparaDatabase(db) {
 // dalla storia del progetto — ogni frase che è stata riscritta lascia qui
 // dietro quella di prima.
 const TESTI_SUPERATI = {
+  bot_t_nota_domanda: [
+    // ⚠️ Partiva dal presupposto di aver riconosciuto una DOMANDA, e prometteva
+    // una risposta. Su «allergia alle noci» sarebbe stata una risposta attesa e
+    // mai arrivata; e «ho bisogno di una torta» non veniva riconosciuto affatto.
+    'Me la sono segnata 📝\n\nQuesta però non posso confermartela io: la giro a {locale} e ti rispondono appena possibile.',
+  ],
   bot_t_pagamento: [
     'Perfetto {nome}, ci siamo quasi ✨\nTi collego al pagamento per confermare il tavolo.\n\n📅 {data}  🕘 {ora}  👥 {persone}\n💳 Da pagare adesso: {importo}\n\n👉 Paga qui: {link}\n{resto}\n⚠️ Il tavolo NON è ancora prenotato: lo diventa appena ricevo il pagamento.\nHo tenuto il tuo posto fino alle {scadenza}.',  ],
   bot_t_benvenuto: [
@@ -676,7 +682,9 @@ const PREDEFINITI = {
   // ⚠️ Il bot NON dice di sì al posto del ristorante. «Si può avere una torta?»
   // seguito da «OK, grazie» è una promessa che il locale non ha fatto, e quel
   // cliente si presenta aspettandosi la torta.
-  bot_t_nota_domanda: 'Me la sono segnata 📝\n\nQuesta però non posso confermartela io: la giro a {locale} e ti rispondono appena possibile.',
+  // ⚠️ Il nome della chiave è storico: vale per QUALUNQUE nota, non solo per le
+  // domande. Non si rinomina perché chi l'ha già riscritta perderebbe il testo.
+  bot_t_nota_domanda: 'Me la sono segnata 📝\n\nLa trovano scritta sulla prenotazione. Se c’è qualcosa da confermare te lo dicono loro: io non posso farlo al posto del ristorante.',
   bot_t_conferma: '✅ Prenotazione confermata!\n\nGrazie, {nome}. ✨\nTi aspettiamo da {locale} per una nuova esperienza.\n\nSe dovessi avere un imprevisto, contattami in questa chat.\n\nA presto!',
   bot_t_rinuncia: 'OK! Non ho prenotato niente.\n\nSperiamo di poterti accogliere presto da {locale}. ✨',
   bot_t_lasciato: 'Va bene, non ho toccato niente: la tua prenotazione resta com\'era. ✨',
@@ -1213,19 +1221,38 @@ const NON_SOLO_UN_NO = new RegExp('^non\\s+(ho|abbiamo|c\'?e|ci sono)\\s+'
   + '(nulla|niente|allergie|intolleranze|esigenze|preferenze|richieste|problemi'
   + '|allergie particolari|esigenze particolari|richieste particolari)$');
 
-// ⚠️ «Si può avere una torta?» non è una nota: è una DOMANDA, e il bot non può
-// rispondere al posto del ristorante. Segnarsela e tirare dritto con «OK,
-// grazie» si legge come un SÌ — il cliente si presenta aspettandosi la torta e
-// in cucina non ne sanno niente. Una promessa fatta dal bot al posto del locale
-// è il danno peggiore che questo programma possa fare.
-const INIZI_DA_DOMANDA = new RegExp("^(si puo|si riesce|posso|possiamo|potete|puoi|potreste"
-  + "|e possibile|sarebbe possibile|avete|fate|c'?e modo|ci sarebbe|vorrei sapere|volevo sapere"
-  + "|mi sapete dire|si fa in tempo)\\b");
+// ⚠️ Il danno peggiore che questo programma possa fare è promettere qualcosa
+// al posto del ristorante. «Si può avere una torta?» seguito da «OK, grazie» è
+// un sì che il locale non ha mai dato: quel cliente si presenta aspettandosi la
+// torta e in cucina non ne sanno niente.
+//
+// ⚠️ La prima versione cercava un «?» o un'apertura da domanda, e l'ha mancato
+// al primo colpo su una chat vera: «ho bisogno di una torta» non ha né l'uno né
+// l'altra, ed è una richiesta a tutti gli effetti. La lezione è che la
+// distinzione fra «ti INFORMO» (allergia alle noci) e «ti CHIEDO» (una torta)
+// non si riconosce in modo affidabile — quindi non ci si appoggia per decidere
+// cosa dire al cliente. Vedi il passo «note»: la frase è la stessa per tutti e
+// non conferma mai niente. Questa serve solo a decidere se AVVISARE il locale,
+// dove un falso positivo costa una notifica e un falso negativo costa un
+// cliente che aspetta una risposta che non arriverà mai.
+const INIZI_DI_RICHIESTA = new RegExp("^(si puo|si riesce|posso|possiamo|potete|puoi|potreste"
+  + "|e possibile|sarebbe possibile|avete|fate|c'?e modo|ci sarebbe|vorrei|volevo|vorremmo"
+  + "|volevamo|mi sapete dire|si fa in tempo|ho bisogno|abbiamo bisogno|avrei bisogno"
+  + "|avremmo bisogno|mi serve|ci serve|mi servirebbe|ci servirebbe|serve|servirebbe"
+  + "|mi piacerebbe|ci piacerebbe|riuscite|riuscireste|preparate|potreste preparare"
+  + "|chiedo|chiederei|chiediamo|per favore|gradirei|gradiremmo|desidero|desidererei)\\b");
 
-function eUnaDomanda(testo) {
+// Parole che quasi sempre vogliono dire «mi dovete dare una cosa», anche
+// infilate in mezzo a una frase: «per il compleanno servirebbe una torta».
+const COSE_DA_CHIEDERE = new RegExp('\\b(torta|dolce|candelin|regalo|sorpresa|fior'
+  + '|seggiolon|passeggino|carrozzin|preventivo|menu fisso|menu degustazione'
+  + '|conto separato|conti separati|parcheggi|taxi)', 'i');
+
+function eUnaRichiesta(testo) {
   const t = String(testo || '');
   if (t.includes('?')) return true;
-  return INIZI_DA_DOMANDA.test(normalizza(t));
+  const n = normalizza(t);
+  return INIZI_DI_RICHIESTA.test(n) || COSE_DA_CHIEDERE.test(n);
 }
 
 function soloUnNo(testo) {
@@ -3942,13 +3969,21 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   if (stato.passo === 'note') {
     // ⚠️ NON «interpretaSiNo»: qui la domanda non è da sì o no. Vedi «soloUnNo».
     const note = soloUnNo(testo) ? '' : String(testo || '').trim().slice(0, 200);
-    // Una DOMANDA non è una nota: si dice che la risposta arriva dal locale, e
-    // il locale viene avvisato davvero. La prenotazione va avanti lo stesso —
-    // è a un passo dalla fine, e fermarla qui sarebbe peggio del silenzio.
-    if (note && eUnaDomanda(note)) {
+    if (note) {
+      // ⚠️ La frase è la STESSA per qualunque nota, e non conferma mai niente.
+      // Prima dipendeva dal riconoscere una domanda, e bastava un «ho bisogno di
+      // una torta» per tornare al silenzio — cioè al «sì» implicito. Adesso il
+      // bot dice sempre e solo quello che è vero: me la sono segnata, la vedono
+      // loro, e se c'è da confermare qualcosa lo confermano loro. Va bene per
+      // un'allergia (non c'è niente da confermare) come per una torta.
       risposte.push(di('bot_t_nota_domanda'));
-      esito.passaAUmano = true;
+      // L'avviso al personale invece SÌ che si sceglie: una notifica in più per
+      // un'allergia costa poco, una richiesta che non arriva a nessuno costa un
+      // cliente che aspetta una risposta che non arriverà.
+      if (eUnaRichiesta(note)) esito.passaAUmano = true;
     }
+    // La prenotazione va avanti comunque: è a un passo dalla fine, e fermarla
+    // qui sarebbe peggio del silenzio.
     return vaiAlRiepilogo({ ...dati, note }, true);
   }
 
@@ -4140,7 +4175,7 @@ module.exports = {
   interpretaPersone,
   interpretaData,
   interpretaOra,
-  interpretaSiNo, soloUnNo, eUnaDomanda, senzaRigheVuote,
+  interpretaSiNo, soloUnNo, eUnaRichiesta, senzaRigheVuote,
   interpretaTelefono,
   colTelefono,
   nomeInSala,
