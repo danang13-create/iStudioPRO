@@ -3376,7 +3376,12 @@ async function messaggioDelPersonale(persona, testo) {
       return;
     }
     const cfg = bot.config(db);
-    const prefisso = bot.riempi(cfg.bot_t_prefisso_umano, { nome: persona.nome, locale: cfg.bot_locale });
+    // Il prefisso presenta chi scrive, e si manda SOLO la prima volta: dalla
+    // seconda in poi il cliente sa già con chi sta parlando, e rivederselo a
+    // ogni riga fa sembrare che dall'altra parte non ci sia nessuno.
+    const giaSua = rich.presa_da === (persona.chat_id || persona.telefono);
+    const prefisso = giaSua
+      ? '' : bot.riempi(cfg.bot_t_prefisso_umano, { nome: persona.nome, locale: cfg.bot_locale });
     // Si risponde all'INDIRIZZO della conversazione, non a un numero
     // ricomposto: è l'unico modo che funziona con tutti i formati di WhatsApp.
     await rispondiConRitmo(rich.chat_id || rich.telefono, prefisso ? `${prefisso}\n${risposta}` : risposta);
@@ -3385,7 +3390,6 @@ async function messaggioDelPersonale(persona, testo) {
     // Chi ha risposto ha preso in carico la conversazione: il bot tace.
     bot.zittisci(db, rich.chat_id || rich.telefono, bot.num(cfg.bot_silenzio_ore, 6), new Date());
     // Da qui in poi quella conversazione è sua: può scrivere senza codice.
-    const giaSua = rich.presa_da === (persona.chat_id || persona.telefono);
     agganciaConversazione(rich, persona);
     await inviaConRitmo(persona.chat_id || persona.telefono,
       `✅ Inviato a ${rich.nome || rich.telefono}`
@@ -3627,12 +3631,13 @@ async function messaggioDelPersonale(persona, testo) {
   // questo blocco più su vorrebbe dire mandare «PRENOTAZIONI» al cliente.
   const seguita = conversazioneAgganciata(persona, new Date());
   if (seguita) {
-    const cfg2 = bot.config(db);
-    const prefisso = bot.riempi(cfg2.bot_t_prefisso_umano, { nome: persona.nome, locale: cfg2.bot_locale });
-    await rispondiConRitmo(seguita.chat_id || seguita.telefono, prefisso ? `${prefisso}\n${t}` : t);
+    // Nessun prefisso: qui la conversazione è già sua da prima, il cliente sa
+    // con chi sta parlando. Vedi il commento sul prefisso qui sopra.
+    await rispondiConRitmo(seguita.chat_id || seguita.telefono, t);
     db.prepare("UPDATE bot_richieste SET stato = 'risposta', risposta = ?, risposta_at = datetime('now','localtime'), risposta_da = ?, presa_at = ? WHERE id = ?")
       .run(t, persona.nome, new Date().toLocaleString('sv-SE'), seguita.id);
-    bot.zittisci(db, seguita.chat_id || seguita.telefono, bot.num(cfg2.bot_silenzio_ore, 6), new Date());
+    bot.zittisci(db, seguita.chat_id || seguita.telefono,
+      bot.num(bot.leggi(db, 'bot_silenzio_ore'), 6), new Date());
     annota('risposto a mano', `${persona.nome} → ${seguita.codice} (${seguita.nome || 'cliente'})`);
     // ⚠️ La conferma c'è SEMPRE, a ogni messaggio. Senza, non c'è modo di sapere
     // se quel messaggio è uscito o è rimasto qui — ed è la sola cosa che rende
