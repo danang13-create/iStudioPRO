@@ -650,6 +650,12 @@ const PREDEFINITI = {
   // ricordiamo di lui. Chi scrive NUOVA sta rispondendo a noi.
   bot_t_quante: 'Per quante persone desideri prenotare? (esempio: 2)',
   bot_t_primo_no: '{saluto} 😊\nSono {assistente}, l’assistente virtuale di {locale}.\n\nNon sono riuscita a capire cosa intendi, ma posso aiutarti con la prenotazione.\n\nDimmi semplicemente per quante persone vuoi prenotare.\n\nPer tutto il resto scrivi OPERATORE: ti risponde una persona del locale.\n',
+  // ⚠️ Quando il cliente ha fatto una DOMANDA chiara — «è possibile
+  // parcheggiare», «accettate la carta?» — la frase qui sopra è mezza
+  // sbagliata: gli propone di prenotare, che non è quello che ha chiesto.
+  // Qui la prenotazione passa in fondo, fra parentesi, e davanti c'è la sola
+  // cosa che gli serve: come si ottiene una risposta vera.
+  bot_t_domanda_no: 'Su questa non riesco a risponderti io 😊\n\nScrivi OPERATORE e ti risponde una persona di {locale}.\n\n(se invece vuoi prenotare, dimmi per quante persone)',
   // ⚠️ Nel messaggio del pagamento la parola «confermata» non deve comparire:
   // chi legge «richiesta ricevuta» e poi «confermata» due righe sotto capisce
   // di avere un tavolo, e sabato sera si presenta. È il rischio numero uno di
@@ -1284,6 +1290,14 @@ function elencoParole(valore) {
 function coseDaChiedere(cfg) {
   return elencoParole((cfg || PREDEFINITI).bot_parole_richiesta);
 }
+
+// ⚠️ Solo le aperture che rendono la frase una DOMANDA SU ALTRO. Volutamente
+// più stretta di INIZI_DI_RICHIESTA: lì dentro c'è «vorrei», che quasi sempre
+// apre una prenotazione («vorrei per sabato sera»), e qui manderebbe a una
+// persona proprio chi voleva un tavolo.
+const APERTURE_DI_DOMANDA = new RegExp("^(e |ma |scusa |scusate |senti |buongiorno |buonasera )*"
+  + "(possibile|si puo|si riesce|posso|possiamo|potete|puoi|potreste|avete|fate|accettate"
+  + "|c'?e |ci sono|quanto|quando|dove|come|quale|quali|per caso|sapete|mi sapete)\\b");
 
 function eUnaRichiesta(testo, cfg) {
   const t = String(testo || '');
@@ -3729,7 +3743,21 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     const persone = interpretaPersone(testo);
     // «vorrei prenotare» senza numero, oppure un numero già nel primo messaggio
     if (persone === null) {
-      const sembraPrenotazione = /(prenot|tavolo|posto|vorrei|possibile|disponibil)/.test(t) || eSalutoStorto(testo);
+      // ⚠️ IL GUASTO, visto in una chat vera. «possibile» stava in questo
+      // elenco, e bastava contenerlo: «È possibile parcheggiare» diventava una
+      // prenotazione, e il cliente che aveva chiesto del parcheggio si sentiva
+      // rispondere «per quante persone desideri prenotare?». Con la
+      // prenotazione già confermata due minuti prima.
+      //
+      // La regola giusta non è togliere una parola — è guardare la FORMA. Se
+      // dentro non c'è niente che parli di prenotare e il messaggio è una
+      // domanda, quella è una domanda su altro: il parcheggio, il cane, la
+      // carta di credito. Non si risponde con un modulo di prenotazione.
+      const parlaDiPrenotare = /(prenot|tavolo|posto|coperti|disponibil)/.test(t);
+      const domandaSuAltro = !parlaDiPrenotare
+        && (String(testo).includes('?') || APERTURE_DI_DOMANDA.test(t));
+      const sembraPrenotazione = !domandaSuAltro
+        && (parlaDiPrenotare || /(vorrei|possibile)/.test(t) || eSalutoStorto(testo));
       if (!sembraPrenotazione) {
         // ⚠️ Qui prima si chiamava una persona SUBITO, al primo messaggio. Ma
         // il primo messaggio è quello scritto di fretta, con una lettera
@@ -3747,6 +3775,13 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
         // gli scrivono davvero e cosa vale la pena mettere fra le risposte
         // pronte. Che il bot ora risponda non vuol dire che abbia capito.
         annotaNonCapita(db, testo);
+        // ⚠️ Qui NON si chiama una persona, nemmeno per una domanda chiara: la
+        // seconda occasione è una decisione presa apposta, e vale anche per
+        // questa. Chiamare qualcuno alla prima riga vuol dire riempirgli il
+        // telefono, e dopo tre giorni non guarda più nemmeno gli avvisi veri.
+        // Al secondo messaggio ci si arriva comunque. Per le domande che
+        // tornano — parcheggio, cane, carta — la strada giusta sono le risposte
+        // pronte, che vengono guardate prima di tutto questo.
         // ⚠️ Ma se quel numero ha GIÀ un tavolo, «se vuoi prenotare dimmi per
         // quante persone» è la risposta sbagliata: chi ha già prenotato e
         // scrive storto si sente proporre una prenotazione che ha già fatto, e
@@ -3754,9 +3789,16 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
         // cioè un doppione, e una telefonata al locale per disfarlo.
         // Gli si ricorda il suo tavolo: è la cosa che stava cercando comunque,
         // e porta con sé le due parole per cambiarlo o disdirlo.
-        if (gia) return ricordaIlTavolo(true);
+        // ⚠️ Il ricordino del tavolo serve a chi ha scritto STORTO: senza, si
+        // sentirebbe proporre una prenotazione che ha già fatto e ne farebbe un
+        // doppione. Ma a chi ha fatto una DOMANDA precisa è un non-sequitur:
+        // ha chiesto del parcheggio e si sente rispondere «vuoi spostarla?».
+        // A lui serve sapere come si ottiene una risposta, ed è quello che
+        // «bot_t_primo_no» dice in fondo: scrivi OPERATORE.
+        if (gia && !domandaSuAltro) return ricordaIlTavolo(true);
         salvaStato(db, telefono, 'persone', { tentativi: 1 });
-        risposte.push(di('bot_t_primo_no'));
+        // Una domanda chiara si merita una risposta che parli della domanda.
+        risposte.push(di(domandaSuAltro ? 'bot_t_domanda_no' : 'bot_t_primo_no'));
         return esito;
       }
       salvaStato(db, telefono, 'persone', {});
