@@ -3141,7 +3141,11 @@ function giaVisto(id) {
 // dopo due giorni di silenzio (o dopo R999), quando l'avviso vecchio è sepolto
 // sotto altri messaggi e nessuno ci risponderebbe più.
 function nuovoCodice() {
-  const aperti = new Set(db.prepare("SELECT codice FROM bot_richieste WHERE stato = 'in_attesa'")
+  // ⚠️ «non chiusa»: una conversazione a cui si è già risposto è ancora VIVA
+  // finché non arriva LIBERA. Contando solo le «in attesa», il suo codice
+  // risultava libero e poteva essere dato a un altro cliente — e la risposta del
+  // responsabile sarebbe partita alla persona sbagliata.
+  const aperti = new Set(db.prepare("SELECT codice FROM bot_richieste WHERE stato != 'chiusa'")
     .all().map((r) => r.codice));
   const recenti = db.prepare(
     "SELECT codice FROM bot_richieste WHERE creata_at >= datetime('now','localtime','-2 days')"
@@ -3158,6 +3162,47 @@ function nuovoCodice() {
   return 'R' + Date.now().toString().slice(-4);
 }
 
+// ---------------------------------------------------------------------------
+//  La conversazione agganciata a chi la sta seguendo
+// ---------------------------------------------------------------------------
+//  Chi ha risposto a R1 continua a scrivere NORMALMENTE, senza rimettere il
+//  codice davanti a ogni riga: tutto quello che scrive arriva a quel cliente,
+//  fino a LIBERA. In servizio, ricordarsi un codice a ogni messaggio non lo fa
+//  nessuno — e infatti succedeva di scrivere la risposta senza codice, sentirsi
+//  dire «serve il codice», e riscriverla.
+//
+//  ⚠️ QUESTO È IL PUNTO PERICOLOSO DEL PROGRAMMA, e va tenuto a mente ogni volta
+//  che si tocca: con l'aggancio attivo, un pensiero buttato lì nella chat parte
+//  DAVVERO al cliente. È esattamente il rischio che il codice obbligatorio
+//  evitava. Si accetta solo perché tutte queste cose sono vere insieme:
+//    • l'aggancio lo crea la persona, rispondendo — non nasce da solo;
+//    • le viene detto a chiare lettere quando comincia, e come finirlo;
+//    • ogni messaggio inoltrato ha la sua conferma: non c'è dubbio su dove è andato;
+//    • scade da solo dopo mezz'ora di silenzio;
+//    • i COMANDI restano comandi, sempre (vedi dove sta l'inoltro: in fondo).
+const AGGANCIO_MINUTI = 30;
+
+function agganciaConversazione(rich, persona, adesso = new Date()) {
+  db.prepare('UPDATE bot_richieste SET presa_da = ?, presa_at = ? WHERE id = ?')
+    .run(persona.chat_id || persona.telefono, adesso.toLocaleString('sv-SE'), rich.id);
+}
+
+// La conversazione che questa persona sta seguendo adesso, se c'è.
+// ⚠️ L'aggancio SCADE. Chi si dimentica LIBERA e torna il giorno dopo a scrivere
+// «ok» non deve vederselo arrivare al cliente di ieri.
+function conversazioneAgganciata(persona, adesso = new Date()) {
+  const chiave = persona.chat_id || persona.telefono;
+  if (!chiave) return null;
+  const rich = db.prepare(
+    "SELECT * FROM bot_richieste WHERE presa_da = ? AND stato != 'chiusa' ORDER BY id DESC LIMIT 1"
+  ).get(chiave);
+  if (!rich || !rich.presa_at) return null;
+  const quando = new Date(String(rich.presa_at).replace(' ', 'T'));
+  if (Number.isNaN(quando.getTime())) return null;
+  if ((adesso - quando) / 60000 >= AGGANCIO_MINUTI) return null;
+  return rich;
+}
+
 // Passa una conversazione a una persona: avvisa il cliente e il personale.
 async function passaAUnaPersona(chatId, telefono, nomeChat, testo, opzioni = {}) {
   const cfg = bot.config(db);
@@ -3167,12 +3212,25 @@ async function passaAUnaPersona(chatId, telefono, nomeChat, testo, opzioni = {})
   // codice: cambiarlo a ogni messaggio riempirebbe il telefono del
   // responsabile di codici diversi per la stessa persona, e a quel punto non
   // saprebbe più a chi sta rispondendo.
+  // ⚠️ «non chiusa», NON «in attesa». Appena il responsabile rispondeva, quella
+  // riga passava a «risposta» e il messaggio successivo dello stesso cliente
+  // non la trovava più: si apriva un codice NUOVO, e così a ogni giro — R1, R2,
+  // R3 per la stessa persona. Tre danni, tutti visti leggendo il codice:
+  //   • la risposta non parte: scrivi «R1 arriviamo» quando ormai è R3 e ti
+  //     senti dire «non ho nessuna richiesta col codice R1». Tu credi di aver
+  //     risposto, il cliente aspetta;
+  //   • «LIBERA R1» chiude R1 e lascia aperte R2 e R3;
+  //   • il codice si poteva RIUSARE su un altro cliente (vedi nuovoCodice), e
+  //     la risposta finiva alla persona sbagliata. Questo è il peggiore.
+  // Il codice adesso è della conversazione, e muore solo con LIBERA.
   const aperta = db.prepare(
-    "SELECT * FROM bot_richieste WHERE chat_id = ? AND stato = 'in_attesa' ORDER BY id DESC LIMIT 1"
+    "SELECT * FROM bot_richieste WHERE chat_id = ? AND stato != 'chiusa' ORDER BY id DESC LIMIT 1"
   ).get(chatId);
   const codice = aperta ? aperta.codice : nuovoCodice();
   if (aperta) {
-    db.prepare('UPDATE bot_richieste SET testo = ? WHERE id = ?')
+    // Torna «in attesa»: c'è una domanda nuova senza risposta. Senza questo, chi
+    // ha già risposto una volta non potrebbe più rispondere con quel codice.
+    db.prepare("UPDATE bot_richieste SET testo = ?, stato = 'in_attesa' WHERE id = ?")
       .run(String(testo || '').slice(0, 500), aperta.id);
   } else {
     db.prepare('INSERT INTO bot_richieste (codice, telefono, chat_id, nome, testo) VALUES (?, ?, ?, ?, ?)')
@@ -3254,8 +3312,9 @@ const COMANDI_SALA = [
   {
     titolo: '💬 Un cliente che aspetta te',
     righe: [
-      { parola: 'R1 il tavolo è libero alle 21', spiega: 'la tua risposta arriva al cliente del codice R1' },
-      { parola: 'LIBERA R1', spiega: 'da lì in poi gli risponde di nuovo il bot' },
+      { parola: 'R1 il tavolo è libero alle 21',
+        spiega: 'la tua risposta arriva al cliente del codice R1 — e da lì in poi gli scrivi normalmente, senza rimettere il codice davanti' },
+      { parola: 'LIBERA R1', spiega: 'hai finito: da lì in poi gli risponde di nuovo il bot' },
     ],
   },
 ];
@@ -3271,6 +3330,18 @@ function stampaComandi(db) {
   if (attese.length) {
     pezzi.push('⏳ In attesa adesso\n'
       + attese.map((r) => `▸ ${r.codice} — ${r.nome || 'cliente senza nome'}`).join('\n'));
+  }
+  // ⚠️ Chi sta seguendo cosa, e SOPRATTUTTO che quello che scrive sta uscendo.
+  // È la riga che conta quando si scrive di fretta: senza, uno non sa se il
+  // prossimo messaggio finisce al cliente o resta qui.
+  const seguite = db.prepare(
+    "SELECT codice, nome, risposta_da FROM bot_richieste WHERE presa_da IS NOT NULL AND stato != 'chiusa' ORDER BY id"
+  ).all();
+  if (seguite.length) {
+    pezzi.push('✍️ Seguite a mano adesso (quello che scrivono arriva al cliente)\n'
+      + seguite.map((r) => `▸ ${r.codice} — ${r.nome || 'cliente senza nome'}`
+        + (r.risposta_da ? ` · ${r.risposta_da}` : '')).join('\n')
+      + '\nPer chiudere: LIBERA <codice>');
   }
   return '📋 *I comandi che capisco*\n\n' + pezzi.join('\n\n')
     + '\n\nScrivi COMANDI quando vuoi rivederli.';
@@ -3299,7 +3370,7 @@ async function messaggioDelPersonale(persona, testo) {
   if (conCodice) {
     const codice = conCodice[1].toUpperCase();
     const risposta = conCodice[2].trim();
-    const rich = db.prepare("SELECT * FROM bot_richieste WHERE codice = ? AND stato = 'in_attesa' ORDER BY id DESC LIMIT 1").get(codice);
+    const rich = db.prepare("SELECT * FROM bot_richieste WHERE codice = ? AND stato != 'chiusa' ORDER BY id DESC LIMIT 1").get(codice);
     if (!rich) {
       await inviaConRitmo(persona.chat_id || persona.telefono, `Non ho nessuna richiesta in attesa col codice ${codice}.`);
       return;
@@ -3313,7 +3384,16 @@ async function messaggioDelPersonale(persona, testo) {
       .run(risposta, persona.nome, rich.id);
     // Chi ha risposto ha preso in carico la conversazione: il bot tace.
     bot.zittisci(db, rich.chat_id || rich.telefono, bot.num(cfg.bot_silenzio_ore, 6), new Date());
-    await inviaConRitmo(persona.chat_id || persona.telefono, `✅ Inviato a ${rich.nome || rich.telefono}`);
+    // Da qui in poi quella conversazione è sua: può scrivere senza codice.
+    const giaSua = rich.presa_da === (persona.chat_id || persona.telefono);
+    agganciaConversazione(rich, persona);
+    await inviaConRitmo(persona.chat_id || persona.telefono,
+      `✅ Inviato a ${rich.nome || rich.telefono}`
+      // ⚠️ Si dice la PRIMA volta, non a ogni risposta: ripeterlo a ogni riga
+      // diventa rumore e si smette di leggerlo proprio quando conta.
+      + (giaSua ? '' : `\n\nDa ora scrivi pure normalmente: quello che scrivi arriva a `
+        + `${rich.nome || 'questo cliente'}, senza rimettere ${rich.codice} davanti.\n`
+        + `Quando hai finito: LIBERA ${rich.codice}.`));
     return;
   }
 
@@ -3323,9 +3403,13 @@ async function messaggioDelPersonale(persona, testo) {
   const libera = t.match(/^libera\s*([Rr]\d{1,3})?$/i);
   if (libera) {
     const codice = libera[1] ? libera[1].toUpperCase() : null;
+    // ⚠️ «LIBERA» da solo libera la conversazione che QUESTA persona sta
+    // seguendo. Prima prendeva l'ultima in attesa, chiunque la stesse seguendo:
+    // con due responsabili al lavoro si liberava il cliente di un altro.
     const rich = codice
       ? db.prepare("SELECT * FROM bot_richieste WHERE codice = ? AND stato != 'chiusa' ORDER BY id DESC LIMIT 1").get(codice)
-      : db.prepare("SELECT * FROM bot_richieste WHERE stato = 'in_attesa' ORDER BY id DESC LIMIT 1").get();
+      : (conversazioneAgganciata(persona, new Date())
+         || db.prepare("SELECT * FROM bot_richieste WHERE stato != 'chiusa' ORDER BY id DESC LIMIT 1").get());
     if (!rich) {
       await inviaConRitmo(persona.chat_id || persona.telefono, 'Non trovo nessuna conversazione da liberare.');
       return;
@@ -3536,10 +3620,46 @@ async function messaggioDelPersonale(persona, testo) {
     if (esito) { await inviaConRitmo(persona.chat_id || persona.telefono, esito); return; }
   }
 
-  const attese = db.prepare("SELECT COUNT(*) n FROM bot_richieste WHERE stato = 'in_attesa'").get().n;
-  if (attese) {
+  // ⚠️ DA QUI IN GIÙ si esce dall'edificio: quello che arriva qui va al CLIENTE.
+  // Sta in fondo di proposito — dopo COMANDI, PRENOTAZIONI, LISTA, SOLD OUT,
+  // NUOVA, CANCELLA, LIBERA, R<n> e l'appello. È il motivo per cui quei comandi
+  // continuano a funzionare anche con una conversazione agganciata: spostare
+  // questo blocco più su vorrebbe dire mandare «PRENOTAZIONI» al cliente.
+  const seguita = conversazioneAgganciata(persona, new Date());
+  if (seguita) {
+    const cfg2 = bot.config(db);
+    const prefisso = bot.riempi(cfg2.bot_t_prefisso_umano, { nome: persona.nome, locale: cfg2.bot_locale });
+    await rispondiConRitmo(seguita.chat_id || seguita.telefono, prefisso ? `${prefisso}\n${t}` : t);
+    db.prepare("UPDATE bot_richieste SET stato = 'risposta', risposta = ?, risposta_at = datetime('now','localtime'), risposta_da = ?, presa_at = ? WHERE id = ?")
+      .run(t, persona.nome, new Date().toLocaleString('sv-SE'), seguita.id);
+    bot.zittisci(db, seguita.chat_id || seguita.telefono, bot.num(cfg2.bot_silenzio_ore, 6), new Date());
+    annota('risposto a mano', `${persona.nome} → ${seguita.codice} (${seguita.nome || 'cliente'})`);
+    // ⚠️ La conferma c'è SEMPRE, a ogni messaggio. Senza, non c'è modo di sapere
+    // se quel messaggio è uscito o è rimasto qui — ed è la sola cosa che rende
+    // accettabile l'inoltro senza codice.
     await inviaConRitmo(persona.chat_id || persona.telefono,
-      `Per inoltrare al cliente devi iniziare col codice (es. R1).\nRichieste in attesa: ${attese}.\n\nScrivi COMANDI per l'elenco completo.`);
+      `→ ${seguita.nome || seguita.codice}   ·   LIBERA per ridarlo al bot`);
+    return;
+  }
+
+  // Nessuna conversazione agganciata. ⚠️ Il messaggio NON parte al cliente, ed è
+  // voluto: basterebbe un pensiero scritto di getto («questo rompe, digli di
+  // no») per mandarlo a un cliente senza modo di richiamarlo. Ma la risposta che
+  // ha appena scritto non si butta via: gliela si riscrive pronta col codice
+  // davanti, così è un copia-incolla invece che da riscrivere.
+  const aperte = db.prepare(
+    "SELECT codice, nome FROM bot_richieste WHERE stato != 'chiusa' ORDER BY id DESC LIMIT 5").all();
+  if (aperte.length === 1) {
+    const una = aperte[0];
+    await inviaConRitmo(persona.chat_id || persona.telefono,
+      `Per farlo arrivare al cliente serve il codice. Ce n'è una sola: ${una.codice} — `
+      + `${una.nome || 'cliente senza nome'}.\n\nCopia e manda questo:\n\n${una.codice} ${t}`
+      + '\n\n(oppure rispondi direttamente nella sua chat: il bot si fa da parte da solo)');
+  } else if (aperte.length) {
+    await inviaConRitmo(persona.chat_id || persona.telefono,
+      'Per farlo arrivare al cliente serve il codice davanti. Aperte adesso:\n'
+      + aperte.map((r) => `▸ ${r.codice} — ${r.nome || 'cliente senza nome'}`).join('\n')
+      + `\n\nPer esempio:\n\n${aperte[0].codice} ${t}`);
   } else {
     await inviaConRitmo(persona.chat_id || persona.telefono,
       'Non ho conversazioni in attesa in questo momento.\n\n'

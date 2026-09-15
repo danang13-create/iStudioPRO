@@ -110,7 +110,11 @@ function preparaDatabase(db) {
       sollecitata_at TEXT,
       risposta TEXT,
       risposta_at TEXT,
-      risposta_da TEXT
+      risposta_da TEXT,
+      -- Chi se ne sta occupando adesso, e da quando. Finché è agganciata, quella
+      -- persona scrive al cliente NORMALMENTE, senza rimettere il codice davanti.
+      presa_da TEXT,
+      presa_at TEXT
     );
 
     -- Giorni in cui il bot non prende prenotazioni. Due motivi diversi che
@@ -210,6 +214,8 @@ function preparaDatabase(db) {
   // Quando gli è stato chiesto «sei ancora lì?». Una volta sola per
   // conversazione: si azzera quando la conversazione riparte da capo.
   try { db.exec('ALTER TABLE bot_conversazioni ADD COLUMN richiamata_at TEXT'); } catch {}
+  try { db.exec('ALTER TABLE bot_richieste ADD COLUMN presa_da TEXT'); } catch {}
+  try { db.exec('ALTER TABLE bot_richieste ADD COLUMN presa_at TEXT'); } catch {}
   try { db.exec("ALTER TABLE prenotazioni ADD COLUMN chat_id TEXT NOT NULL DEFAULT ''"); } catch {}
   try { db.exec("ALTER TABLE bot_richieste ADD COLUMN chat_id TEXT NOT NULL DEFAULT ''"); } catch {}
   // L'indirizzo della chat del personale, imparato la prima volta che scrive:
