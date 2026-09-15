@@ -3203,6 +3203,23 @@ function conversazioneAgganciata(persona, adesso = new Date()) {
   return rich;
 }
 
+// ⚠️ Una conversazione «risposta» non è viva per sempre. Da quando il codice
+// resta fino a LIBERA, le righe in stato «risposta» contano come aperte — ma
+// LIBERA non lo scrive quasi nessuno, quindi senza questo ogni cliente a cui si
+// è mai risposto resterebbe «vivo» per sempre. Due danni, misurati con una
+// prova: dopo 999 risposte nuovoCodice() sputa «R6078», che nessun comando
+// riconosce; e «serve il codice» proporrebbe di copiare «R997 …» — una
+// conversazione di dieci giorni fa, cioè la risposta al cliente SBAGLIATO.
+// La finestra giusta è quella del silenzio: passate quelle ore il bot
+// risponde di nuovo lui, e la conversazione a mano è finita comunque.
+function chiudiConversazioniFinite() {
+  const ore = Math.max(1, bot.num(bot.leggi(db, 'bot_silenzio_ore'), 6));
+  return db.prepare(
+    "UPDATE bot_richieste SET stato = 'chiusa', presa_da = NULL WHERE stato = 'risposta' "
+    + `AND (risposta_at IS NULL OR risposta_at < datetime('now','localtime','-${ore} hours'))`
+  ).run().changes;
+}
+
 // Passa una conversazione a una persona: avvisa il cliente e il personale.
 async function passaAUnaPersona(chatId, telefono, nomeChat, testo, opzioni = {}) {
   const cfg = bot.config(db);
@@ -4685,9 +4702,12 @@ async function giroDelMinuto() {
   // posti, e chi è in lista li deve vedere in questo stesso giro, non fra
   // un minuto.
   try { await avvisaLaListaDAttesa(); } catch (e) { annota('errore', `lista d'attesa: ${e.message}`); }
+  // Le conversazioni a mano finite da ore: qui l'ordine non conta.
+  try { chiudiConversazioniFinite(); } catch (e) { console.error('Bot:', e.message); }
 }
 
 if (botDisponibile()) {
+  try { chiudiConversazioniFinite(); } catch (e) { console.error('Bot:', e.message); }
   setInterval(() => { giroDelMinuto().catch(giroFallito('giro del minuto')); }, 60 * 1000);
 }
 
