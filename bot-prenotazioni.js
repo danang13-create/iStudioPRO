@@ -334,7 +334,14 @@ const TESTI_SUPERATI = {
   bot_t_riepilogo: [
     'Ricapitolando:\n📅 {data}  🕘 {ora}  👥 {persone}  👤 {nome}\n\nConfermi? Scrivi SÌ per confermare o NO per annullare.',
 
-    'Perfetto! ✨\nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n📞 {telefono}\n\nConfermi la prenotazione?\n\nScrivi SÌ per confermare\noppure NO per annullare.',  ],
+    'Perfetto! ✨\nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n📞 {telefono}\n\nConfermi la prenotazione?\n\nScrivi SÌ per confermare\noppure NO per annullare.',
+
+    // ⚠️ Senza la riga «Note»: il cliente scriveva «siamo con un bimbo» e poi
+    // non se la vedeva scritta da nessuna parte. L'unico modo che ha di
+    // accorgersi se è stato capito male è rileggerla.
+    'Perfetto! ✨ \nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n\nConfermi la prenotazione?\n\nScrivi SÌ per confermare',  ],
+  bot_t_email: [
+    'Perfetto! ✨\nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n\nPer confermare, scrivimi la tua email: la useremo per mandarti la conferma.\n\n(se hai cambiato idea, scrivi NO)',  ],
   bot_t_nonho_chiuso: [
     'Su questa non riesco a risponderti io. Ho passato il messaggio al locale: ti rispondono appena aperto.',
 
@@ -662,10 +669,14 @@ const PREDEFINITI = {
   bot_t_note: 'Prima di completare la prenotazione, c’è qualche allergia, intolleranza o esigenza particolare che dovremmo conoscere?\n\nSe non c’è nulla, scrivi NESSUNA.',
   bot_t_telefono: 'A quale numero possiamo richiamarti se serve?\n\nScrivi OK per usare questo, oppure scrivimi il numero giusto.',
   bot_t_telefono_no: 'Non ho capito il numero. \nScrivilo intero (esempio 3331234567)',
-  bot_t_email: 'Perfetto! ✨\nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n\nPer confermare, scrivimi la tua email: la useremo per mandarti la conferma.\n\n(se hai cambiato idea, scrivi NO)',
+  bot_t_email: 'Perfetto! ✨\nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n📝 Note: {note}\n\nPer confermare, scrivimi la tua email: la useremo per mandarti la conferma.\n\n(se hai cambiato idea, scrivi NO)',
   bot_t_daccordo: 'Va bene! 😊\n\nResto qui: se ti serve altro, scrivimi pure.',
   bot_t_email_no: 'Mi serve la tua email per confermare la prenotazione.\nScrivimela per intero, per esempio: nome@esempio.it\n\n(se hai cambiato idea, scrivi NO)',
-  bot_t_riepilogo: 'Perfetto! ✨ \nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n\nConfermi la prenotazione?\n\nScrivi SÌ per confermare',
+  bot_t_riepilogo: 'Perfetto! ✨ \nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n📝 Note: {note}\n\nConfermi la prenotazione?\n\nScrivi SÌ per confermare',
+  // ⚠️ Il bot NON dice di sì al posto del ristorante. «Si può avere una torta?»
+  // seguito da «OK, grazie» è una promessa che il locale non ha fatto, e quel
+  // cliente si presenta aspettandosi la torta.
+  bot_t_nota_domanda: 'Me la sono segnata 📝\n\nQuesta però non posso confermartela io: la giro a {locale} e ti rispondono appena possibile.',
   bot_t_conferma: '✅ Prenotazione confermata!\n\nGrazie, {nome}. ✨\nTi aspettiamo da {locale} per una nuova esperienza.\n\nSe dovessi avere un imprevisto, contattami in questa chat.\n\nA presto!',
   bot_t_rinuncia: 'OK! Non ho prenotato niente.\n\nSperiamo di poterti accogliere presto da {locale}. ✨',
   bot_t_lasciato: 'Va bene, non ho toccato niente: la tua prenotazione resta com\'era. ✨',
@@ -1202,6 +1213,21 @@ const NON_SOLO_UN_NO = new RegExp('^non\\s+(ho|abbiamo|c\'?e|ci sono)\\s+'
   + '(nulla|niente|allergie|intolleranze|esigenze|preferenze|richieste|problemi'
   + '|allergie particolari|esigenze particolari|richieste particolari)$');
 
+// ⚠️ «Si può avere una torta?» non è una nota: è una DOMANDA, e il bot non può
+// rispondere al posto del ristorante. Segnarsela e tirare dritto con «OK,
+// grazie» si legge come un SÌ — il cliente si presenta aspettandosi la torta e
+// in cucina non ne sanno niente. Una promessa fatta dal bot al posto del locale
+// è il danno peggiore che questo programma possa fare.
+const INIZI_DA_DOMANDA = new RegExp("^(si puo|si riesce|posso|possiamo|potete|puoi|potreste"
+  + "|e possibile|sarebbe possibile|avete|fate|c'?e modo|ci sarebbe|vorrei sapere|volevo sapere"
+  + "|mi sapete dire|si fa in tempo)\\b");
+
+function eUnaDomanda(testo) {
+  const t = String(testo || '');
+  if (t.includes('?')) return true;
+  return INIZI_DA_DOMANDA.test(normalizza(t));
+}
+
 function soloUnNo(testo) {
   const t = normalizza(testo)
     .replace(/[!?.,;:…]/g, ' ')
@@ -1439,6 +1465,17 @@ function riempi(testo, valori) {
 // discorso. Si lavora sul testo PRIMA dei segnaposto: così la riga si toglie
 // tutta quando il numero non c'è.
 const SEGNAPOSTI_DATI = ['{data}', '{ora}', '{persone}', '{nome}', '{cognome}'];
+
+// ⚠️ «📝 Note:» da sola, senza niente dopo, sembra un guasto. Una riga che
+// contiene SOLO segnaposto vuoti si toglie tutta. «Solo»: se sulla stessa riga
+// ce n'è anche uno pieno la riga resta, sennò si porterebbe via del testo vero.
+function senzaRigheVuote(testo, valori) {
+  return String(testo || '').split('\n').filter((riga) => {
+    const chiavi = (riga.match(/\{(\w+)\}/g) || []).map((x) => x.slice(1, -1));
+    if (!chiavi.length) return true;
+    return chiavi.some((k) => String(valori[k] == null ? '' : valori[k]).trim() !== '');
+  }).join('\n');
+}
 
 function colTelefono(testo, numero) {
   const righe = String(testo || '').split('\n');
@@ -3905,6 +3942,13 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   if (stato.passo === 'note') {
     // ⚠️ NON «interpretaSiNo»: qui la domanda non è da sì o no. Vedi «soloUnNo».
     const note = soloUnNo(testo) ? '' : String(testo || '').trim().slice(0, 200);
+    // Una DOMANDA non è una nota: si dice che la risposta arriva dal locale, e
+    // il locale viene avvisato davvero. La prenotazione va avanti lo stesso —
+    // è a un passo dalla fine, e fermarla qui sarebbe peggio del silenzio.
+    if (note && eUnaDomanda(note)) {
+      risposte.push(di('bot_t_nota_domanda'));
+      esito.passaAUmano = true;
+    }
     return vaiAlRiepilogo({ ...dati, note }, true);
   }
 
@@ -3919,13 +3963,22 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     // ogni passo in più è gente che si ferma a metà e non torna.
     const conEmail = boolDi(cfg.bot_chiedi_email);
     salvaStato(db, telefono, conEmail ? 'email' : 'conferma', d);
-    risposte.push(riempi(colTelefono(conEmail ? cfg.bot_t_email : cfg.bot_t_riepilogo, d.telefono), {
+    // ⚠️ La NOTA va nel riepilogo. Il cliente scriveva «siamo con un bimbo» e
+    // poi non la vedeva scritta da nessuna parte: l'unico modo che ha di
+    // accorgersi se è stata capita male è rileggerla. La riga sparisce da sola
+    // quando non c'è niente da segnalare.
+    const valoriRiepilogo = {
       ...valori,
       data: dataItaliana(d.data), ora: d.ora, persone: d.persone,
       nome: [d.nome, d.cognome].filter(Boolean).join(' ') || '—',
       cognome: d.cognome || '',
       telefono: d.telefono || '',
-    }));
+      note: d.note || '',
+    };
+    risposte.push(riempi(
+      senzaRigheVuote(colTelefono(conEmail ? cfg.bot_t_email : cfg.bot_t_riepilogo, d.telefono), valoriRiepilogo),
+      valoriRiepilogo,
+    ));
     return esito;
   }
 
@@ -4087,7 +4140,7 @@ module.exports = {
   interpretaPersone,
   interpretaData,
   interpretaOra,
-  interpretaSiNo, soloUnNo,
+  interpretaSiNo, soloUnNo, eUnaDomanda, senzaRigheVuote,
   interpretaTelefono,
   colTelefono,
   nomeInSala,
