@@ -470,6 +470,18 @@ const TESTI_SUPERATI = {
   ],
   bot_t_operatore: [
     'Va bene, ti risponde una persona del locale appena possibile.',
+    // ⚠️ Prometteva fretta proprio quando non ce n'è: alle 20:30 di sabato
+    // nessuno può guardare il telefono.
+    'Certamente! 😊\n\nHo passato la tua richiesta a un operatore.\nTi risponderà appena possibile.\n\nA presto! ✨',
+  ],
+  bot_t_operatore_chiuso: [
+    // Senza il giorno: «dalle 09:00» la domenica sera di un locale chiuso il
+    // lunedì si legge come «domani», e sarebbe falso di un giorno.
+    'Certamente! 😊\n\nIn questo momento il locale è chiuso, ma ho già passato la tua richiesta a un operatore: ti risponderà alla riapertura, dalle {apertura}.\n\nA presto! ✨',
+  ],
+  bot_t_umano_finito: [
+    // ⚠️ «ti saluta» si legge come «ti manda un saluto»: il contrario.
+    '👋 {nome} ti saluta, grazie per aver scritto!\n\nDa qui in avanti ti risponde di nuovo l’assistente virtuale: posso aiutarti con le prenotazioni.\nSe ti serve ancora una persona, scrivi OPERATORE.',
   ],
   bot_t_prefisso_umano: [
     '',
@@ -578,6 +590,14 @@ const PREDEFINITI = {
   bot_riepilogo_ora: '17:00',
   bot_appello_ora: '23:30',
   bot_appello_senza_risposta: 'presentati',   // presentati|niente
+
+  // ⚠️ Dopo quanti minuti ricordare al responsabile una richiesta rimasta
+  // senza risposta. L'avviso partiva UNA volta sola: chi alle 20:30 di sabato
+  // aveva le mani occupate non se lo vedeva più ricordare, e quel cliente —
+  // a cui il bot aveva promesso una risposta — poteva non riceverla mai.
+  // La colonna «sollecitata_at» esisteva in archivio dal primo giorno e non la
+  // usava nessuno: era prevista per questo. 0 per spegnerlo.
+  bot_sollecito_minuti: '20',
 
   // ---- Le parole del passo «allergie e richieste» ----
   // ⚠️ Stanno qui e non nel codice perché cambiano da locale a locale, e fin
@@ -738,20 +758,30 @@ const PREDEFINITI = {
   bot_t_recensione: 'Ciao {nome}! ✨\n\nGrazie per aver scelto {locale} e per aver condiviso con noi la tua esperienza.\n\nSe ti sei trovato bene, ci farebbe davvero piacere ricevere una recensione: il tuo parere è prezioso per noi. ❤️\n\n{link}\n\nSe non vuoi più ricevere messaggi come questo, scrivi STOP.\n\nSe invece c’è qualcosa che non è andato come avresti desiderato, scrivici direttamente qui. Saremo felici di ascoltarti.',
   bot_t_nonho_aperto: 'Non sono sicura di aver capito la tua richiesta. 😊\n\nTi metto subito in contatto con un operatore, che potrà aiutarti.',
   bot_t_nonho_chiuso: 'Non ho capito la tua richiesta. 😊\n\nHo passato il messaggio a un operatore, che ti risponderà alla riapertura del ristorante.\n\nA presto! ✨',
-  bot_t_operatore: 'Certamente! 😊\n\nHo passato la tua richiesta a un operatore.\nTi risponderà appena possibile.\n\nA presto! ✨',
+  // ⚠️ «Ti risponderà appena possibile» alle 20:30 di sabato è il momento in
+  // cui è MENO vero: è esattamente quando nessuno può guardare il telefono.
+  // Meglio dire come stanno le cose che promettere una fretta che non c'è.
+  bot_t_operatore: 'Certamente! 😊\n\nHo passato la tua richiesta a una persona del locale.\nTi risponde appena si libera — in orario di servizio può volerci qualche minuto.\n\nA presto! ✨',
   // ⚠️ La stessa cosa, ma quando nessuno sta leggendo il telefono. «Ti
   // risponderà appena possibile» scritto alle tre di notte è una promessa che
   // il locale non può mantenere: chi la legge resta col telefono in mano ad
   // aspettare. Dire che il locale è chiuso e da che ora si risponde costa una
   // riga e toglie l'attesa a vuoto. Le due frasi per «non ho capito» erano già
   // sdoppiate così (bot_t_nonho_aperto / _chiuso): questa era rimasta indietro.
-  bot_t_operatore_chiuso: 'Certamente! 😊\n\nIn questo momento il locale è chiuso, ma ho già passato la tua richiesta a un operatore: ti risponderà alla riapertura, dalle {apertura}.\n\nA presto! ✨',
+  // ⚠️ Un'ora batte un aggettivo: «{quando} dalle {apertura}» è verificabile,
+  // «ci vorrà più tempo» no — e toglie certezza invece di darne. {quando} è
+  // «oggi», «domani» o il nome del giorno: l'ora senza il giorno, la domenica
+  // sera di un locale chiuso il lunedì, si legge come «domani» e sarebbe falso.
+  bot_t_operatore_chiuso: 'Certamente! 😊\n\nIn questo momento il locale è chiuso, ma ho già passato la tua richiesta a una persona: ti risponde {quando}, dalle {apertura}.\n\nA presto! ✨',
   // ⚠️ E quando la persona ha finito. Prima il cliente non riceveva NIENTE:
   // stava parlando con Giulia e al messaggio dopo gli rispondeva di nuovo il
   // bot, senza che nessuno gli avesse detto che Giulia era andata via. Non
   // «ha abbandonato la conversazione», che suona come se l'avessero piantato
   // lì: la persona ha finito, e al cliente serve sapere come richiamarla.
-  bot_t_umano_finito: '👋 {nome} ti saluta, grazie per aver scritto!\n\nDa qui in avanti ti risponde di nuovo l’assistente virtuale: posso aiutarti con le prenotazioni.\nSe ti serve ancora una persona, scrivi OPERATORE.',
+  // ⚠️ NON «{nome} ti saluta»: in italiano si legge benissimo come «ti manda un
+  // saluto», che è il contrario di quello che vuol dire. Qui serve una cosa
+  // sola, detta senza equivoci: quella persona ha finito.
+  bot_t_umano_finito: '✅ La conversazione con {nome} è conclusa — grazie di averci scritto!\n\nDa qui in avanti ti risponde di nuovo l’assistente virtuale: posso aiutarti con le prenotazioni.\nSe ti serve di nuovo una persona, scrivi OPERATORE.',
   bot_t_prefisso_umano: '👋 Sei in contatto con {nome} del team {locale}.',
   bot_t_troppe: 'Per aiutarti al meglio, ti passo a un operatore.\n\nTi risponderà appena possibile. ✨\n',
 };
@@ -3441,7 +3471,16 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   if (parolaOperatore && t.includes(parolaOperatore)) {
     zittisci(db, telefono, num(cfg.bot_silenzio_ore, 6), adesso);
     azzeraStato(db, telefono);
-    risposte.push(di(eOrarioAvvisi(cfg, adesso) ? 'bot_t_operatore' : 'bot_t_operatore_chiuso'));
+    // ⚠️ «qualcunoLegge», non «eOrarioAvvisi»: nel giorno di riposo alle 15:00
+    // si è dentro la finestra oraria e la sala è vuota. Il cliente si sentiva
+    // promettere una risposta imminente da nessuno.
+    if (qualcunoLegge(db, cfg, adesso)) {
+      risposte.push(di('bot_t_operatore'));
+    } else {
+      const fra = prossimaLettura(db, cfg, adesso);
+      risposte.push(riempi(cfg.bot_t_operatore_chiuso,
+        { ...valori, quando: fra.quando, apertura: fra.ora }));
+    }
     esito.passaAUmano = true;
     return esito;
   }
@@ -4260,6 +4299,38 @@ function eOrarioAvvisi(cfg, adesso) {
   return ora >= inMinuti(cfg.bot_avvisi_da) && ora <= inMinuti(cfg.bot_avvisi_a);
 }
 
+// ⚠️ L'orario da solo non basta: dice a che ORA si legge il telefono, non se
+// oggi c'è qualcuno. Nel giorno di riposo, alle 15:00, si è dentro la finestra
+// e non c'è nessuno — e il cliente si sentiva promettere «ti risponderà appena
+// possibile» da una sala vuota.
+function qualcunoLegge(db, cfg, adesso) {
+  if (!eOrarioAvvisi(cfg, adesso)) return false;
+  const oggi = comeData(adesso);
+  return turniDelGiorno(cfg, oggi).length > 0 && !eChiuso(db, oggi);
+}
+
+// Quando il telefono tornerà a essere guardato, detto a parole: «oggi»,
+// «domani», «lunedì». Serve a non lasciare il cliente con un'ora senza giorno:
+// «dalle 09:00» scritto la domenica sera di un locale chiuso il lunedì vuol
+// dire martedì, e chi legge capisce domani.
+function prossimaLettura(db, cfg, adesso = new Date()) {
+  const da = inMinuti(cfg.bot_avvisi_da);
+  const a = inMinuti(cfg.bot_avvisi_a);
+  const ora = adesso.getHours() * 60 + adesso.getMinutes();
+  for (let i = 0; i < 8; i++) {
+    const giorno = piuGiorni(adesso, i);
+    const iso = comeData(giorno);
+    if (!turniDelGiorno(cfg, iso).length || eChiuso(db, iso)) continue;
+    // Oggi vale solo se la finestra deve ancora cominciare: se è già passata,
+    // la prossima lettura è un altro giorno.
+    if (i === 0 && ora > a) continue;
+    const quando = i === 0 ? 'oggi' : i === 1 ? 'domani' : NOMI_GIORNI[giorno.getDay()];
+    return { quando, ora: cfg.bot_avvisi_da || '09:00' };
+  }
+  // Nessun giorno di apertura nei prossimi otto: meglio non inventare un giorno.
+  return { quando: 'alla riapertura', ora: cfg.bot_avvisi_da || '09:00' };
+}
+
 module.exports = {
   mettiInAttesa, listaDAttesa, togliDallaAttesa, toglieDaTutteLeAttese, rimettiInAttesa, esceDallaLista,
   chiDaAvvisareInAttesa, scadenzeDellaAttesa, ATTESE_APERTE,
@@ -4317,7 +4388,7 @@ module.exports = {
   azzeraStato,
   zittisci,
   eMuto,
-  eOrarioAvvisi,
+  eOrarioAvvisi, qualcunoLegge, prossimaLettura,
   eSaluto,
   eSalutoStorto,
   distanzaParole,

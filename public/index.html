@@ -2051,7 +2051,10 @@
             <span class="conteggio" style="margin:0">Prima di quest'ora gli avvisi restano in coda e partono tutti insieme all'apertura, invece di svegliare qualcuno.</span>
           </label>
           <label>Alle<input id="cfg-bot_avvisi_a" autocomplete="off" placeholder="23:30">
-            <span class="conteggio" style="margin:0">Dopo, a chi chiede un operatore il bot dice che il locale è chiuso e da che ora gli si risponde, invece di promettere «appena possibile».</span>
+            <span class="conteggio" style="margin:0">Dopo, a chi chiede un operatore il bot dice che il locale è chiuso e <b>da che giorno e ora</b> gli si risponde, invece di promettere «appena possibile». I <b>giorni di chiusura</b> contano: nel giorno di riposo non si promette niente a nessuno.</span>
+          </label>
+          <label>Ricorda una richiesta senza risposta dopo<input id="cfg-bot_sollecito_minuti" autocomplete="off" type="number" min="0" max="240">
+            <span class="conteggio" style="margin:0">Minuti. ⚠️ L'avviso parte <b>una volta sola</b>: chi in mezzo al servizio non lo vede, non se lo vede più ricordare — e quel cliente può non ricevere mai risposta. Il promemoria arriva una volta sola, e solo a chi sta già seguendo quella conversazione, se c'è. <b>0</b> per spegnerlo.</span>
           </label>
         </div>
         <div class="barra-salva">
@@ -4514,7 +4517,7 @@ const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_turni_cena', 'bot_turni_
   'bot_lista_attesa', 'bot_attesa_minuti',
   'bot_riapre_minuti', 'bot_richiamo_minuti',
   'bot_parole_richiesta', 'bot_parole_nessuna',
-  'bot_avvisi_da', 'bot_avvisi_a',
+  'bot_avvisi_da', 'bot_avvisi_a', 'bot_sollecito_minuti',
   'bot_email_oggetto', 'bot_email_testo', 'bot_email_logo', 'bot_email_html'];
 // Cosa mostrare al posto del numero. Con gli indirizzi interni di WhatsApp
 // (@lid, @c.us) il numero può non essere noto: meglio dirlo che far leggere

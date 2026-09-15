@@ -4321,6 +4321,59 @@ if (botDisponibile()) {
   setInterval(() => { mandaPromemoria().catch(giroFallito('promemoria')); }, 60 * 1000);
 }
 
+// ---------- Il cliente che aspetta ancora ----------
+// ⚠️ L'avviso al responsabile partiva UNA volta sola. Chi alle 20:30 di sabato
+// ha le mani occupate non se lo vede più ricordare, e quel cliente — a cui il
+// bot ha appena promesso una risposta — può non riceverla mai. La colonna
+// «sollecitata_at» era in archivio dal primo giorno e non la usava nessuno:
+// era prevista esattamente per questo.
+//
+// Una volta sola per richiesta: il secondo sollecito diventa il rumore che fa
+// smettere di guardare gli avvisi, cioè il guasto che si voleva curare.
+async function sollecitaChiAspetta(adesso = new Date()) {
+  const perche = motivoPerCuiNonSiManda();
+  if (perche) { lavoriFermi(perche); return 0; }
+  lavoriRipartiti();
+  const cfg = bot.config(db);
+  const minuti = bot.num(cfg.bot_sollecito_minuti, 20);
+  if (minuti <= 0) return 0;
+  // Nessuno sta leggendo: sollecitare una sala vuota non serve, e il ritardo
+  // lo si è già detto al cliente («ti risponde domani dalle 09:00»).
+  if (!bot.qualcunoLegge(db, cfg, adesso)) return 0;
+
+  const righe = db.prepare(
+    "SELECT * FROM bot_richieste WHERE stato = 'in_attesa' AND avvisata_at IS NOT NULL "
+    + `AND sollecitata_at IS NULL AND avvisata_at < datetime('now','localtime','-${minuti} minutes') ORDER BY id`
+  ).all();
+  if (!righe.length) return 0;
+
+  const segna = db.prepare("UPDATE bot_richieste SET sollecitata_at = datetime('now','localtime') WHERE id = ?");
+  let mandati = 0;
+  for (const r of righe) {
+    const da = new Date(String(r.avvisata_at).replace(' ', 'T'));
+    const quanti = Number.isNaN(da.getTime()) ? minuti : Math.round((adesso - da) / 60000);
+    const testo = `⏰ ${r.codice} — ${r.nome || r.telefono} aspetta da ${quanti} minuti e non ha ancora risposta.\n\n`
+      + `Ha scritto: «${String(r.testo || '').slice(0, 200)}»\n\n`
+      + `👉 Per rispondere: ${r.codice} + la tua risposta`;
+    // ⚠️ Se qualcuno la sta già seguendo, il sollecito va SOLO a lui: svegliare
+    // tutta la squadra per una conversazione che ha già un padrone è il modo
+    // di far rispondere in due allo stesso cliente.
+    const a = aggancioVivo(r, adesso) ? [{ chat_id: r.presa_da }]
+      : personale().filter((x) => x.gestisce && x.canale !== 'email');
+    for (const p of a) {
+      try { await inviaConRitmo(p.chat_id || p.telefono, testo); } catch (e) { console.error('Bot:', e.message); }
+    }
+    segna.run(r.id);
+    mandati++;
+  }
+  annota('sollecito', `ricordat${mandati === 1 ? 'a 1 richiesta' : 'e ' + mandati + ' richieste'} senza risposta`);
+  return mandati;
+}
+
+if (botDisponibile()) {
+  setInterval(() => { sollecitaChiAspetta().catch(giroFallito('sollecito')); }, 60 * 1000);
+}
+
 // ---------- «Sei ancora lì?» ----------
 // ⚠️ È l'unico dei due meccanismi che RECUPERA prenotazioni. Chi si ferma a
 // metà quasi mai ha cambiato idea: si è distratto, e la conversazione resta lì
