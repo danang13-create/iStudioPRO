@@ -4100,6 +4100,52 @@ if (botDisponibile()) {
   setInterval(() => { mandaPromemoria().catch(giroFallito('promemoria')); }, 60 * 1000);
 }
 
+// ---------- «Sei ancora lì?» ----------
+// ⚠️ È l'unico dei due meccanismi che RECUPERA prenotazioni. Chi si ferma a
+// metà quasi mai ha cambiato idea: si è distratto, e la conversazione resta lì
+// finché non scade. Una domanda sola, con dentro cosa manca, riporta indietro
+// gente che altrimenti non tornava — e un tavolo vale molto più del messaggio.
+//
+// Tutti i paletti stanno nel motore (`daRichiamare`): mai di notte, mai a chi è
+// in mano a una persona, mai a chi ha scritto STOP, una volta sola per
+// conversazione. Qui si manda e basta, perché questo è l'unico posto che sa se
+// WhatsApp è collegato.
+async function richiamaLasciateAMeta(adesso = new Date()) {
+  const perche = motivoPerCuiNonSiManda();
+  if (perche) { lavoriFermi(perche); return 0; }
+  lavoriRipartiti();
+  const cfg = bot.config(db);
+  let mandati = 0;
+  let falliti = 0;
+  for (const r of bot.daRichiamare(db, cfg, adesso)) {
+    const testo = bot.riempi(cfg.bot_t_richiamo, {
+      cosa: r.cosa, locale: cfg.bot_locale || 'noi', assistente: cfg.bot_assistente || '',
+    });
+    try {
+      await inviaConRitmo(r.telefono, testo);
+      // Si segna solo DOPO: segnarlo prima vorrebbe dire non richiamare mai
+      // più qualcuno a cui il messaggio non è nemmeno arrivato.
+      bot.segnaRichiamata(db, r.telefono, adesso);
+      mandati++;
+    } catch (e) { falliti++; console.error('Bot:', e.message); }
+  }
+  // Richiamato e ancora zitto: si lascia andare. Non è un'amnesia a sorpresa —
+  // a quella persona il bot ha già chiesto «sei ancora lì?».
+  let lasciate = 0;
+  for (const r of bot.daLasciareAndare(db, cfg, adesso)) {
+    bot.lasciaAndare(db, r.telefono, adesso);
+    lasciate++;
+  }
+  if (mandati) annota('richiamo', `chiesto «sei ancora lì?» a ${mandati} ${mandati === 1 ? 'persona' : 'persone'}`);
+  if (falliti) annota('errore', `${falliti} richiam${falliti === 1 ? 'o' : 'i'} non partiti`);
+  if (lasciate) annota('richiamo', `${lasciate} conversazion${lasciate === 1 ? 'e lasciata' : 'i lasciate'} andare: nessuna risposta dopo il richiamo`);
+  return mandati;
+}
+
+if (botDisponibile()) {
+  setInterval(() => { richiamaLasciateAMeta().catch(giroFallito('richiamo')); }, 60 * 1000);
+}
+
 // ---------------------------------------------------------------------------
 //  Stripe
 // ---------------------------------------------------------------------------

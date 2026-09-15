@@ -1849,6 +1849,35 @@
           <span id="email-salvato" class="conteggio" style="margin:0"></span>
         </div>
       </div>
+      <!-- LA CONVERSAZIONE LASCIATA A METÀ. Due cose diverse e vale la pena
+           tenerle distinte: il saluto che riapre non manda niente a nessuno, il
+           richiamo sì. ⚠️ Qui NON c'è un «azzera dopo N minuti»: chi sta
+           prenotando si distrae, e buttargli via giorno e ora dopo cinque
+           minuti di silenzio vuol dire perdere il tavolo, non fare ordine. -->
+      <div class="card">
+        <h2 style="font-size:1rem;margin:0 0 12px">Quando la conversazione si ferma a metà</h2>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px">
+          <label>Un saluto ricomincia dopo<input id="cfg-bot_riapre_minuti" autocomplete="off" type="number" min="0" max="240">
+            <span class="conteggio" style="margin:0">Minuti. Passati questi, un «ciao» di chi torna vale come <b>ricominciamo</b> invece che come risposta alla domanda rimasta in sospeso. <b>0</b> per spegnerlo. Non vale alla domanda sul nome: «Salvi» e «Salvo» sono cognomi veri.</span>
+          </label>
+          <label>Chiedi «sei ancora lì?» dopo<input id="cfg-bot_richiamo_minuti" autocomplete="off" type="number" min="0" max="240">
+            <span class="conteggio" style="margin:0">Minuti di silenzio prima del richiamo. <b>0</b> per spegnerlo. Se non risponde nemmeno a quello, dopo quattro volte tanto la conversazione viene lasciata andare.</span>
+          </label>
+        </div>
+        <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer;margin:12px 0 0">
+          <input type="checkbox" id="cfg-bot_richiamo_attivo" autocomplete="off">
+          Manda il richiamo «sei ancora lì?»
+        </label>
+        <p class="conteggio" style="margin:10px 0 0">
+          Il richiamo parte <b>una volta sola per conversazione</b>, solo dentro gli orari degli
+          avvisi (niente messaggi di notte), <b>mai</b> a chi è in mano a una persona e
+          <b>mai</b> a chi ha scritto <b>STOP</b>. Il testo si cambia in <b>Frasi e risposte</b>.
+        </p>
+        <div style="margin-top:16px;display:flex;gap:8px">
+          <button class="btn" id="meta-salva">Salva</button>
+          <span id="meta-salvato" class="conteggio" style="margin:0"></span>
+        </div>
+      </div>
       <!-- IL PROMEMORIA. Sta PRIMA della recensione perché è quello che conta
            di più: un tavolo che non si presenta è una serata persa per due, e
            quasi nessuno lo fa apposta — se ne dimentica.
@@ -4420,6 +4449,7 @@ const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_turni_cena', 'bot_turni_
   'bot_pagamento_prezzo', 'bot_pagamento_modo', 'bot_pagamento_percentuale',
   'bot_pagamento_minuti', 'bot_pagamento_obbligatorio', 'bot_pagamento_chiave', 'bot_pagamento_ritorno',
   'bot_lista_attesa', 'bot_attesa_minuti',
+  'bot_riapre_minuti', 'bot_richiamo_minuti',
   'bot_email_oggetto', 'bot_email_testo', 'bot_email_logo', 'bot_email_html'];
 // Cosa mostrare al posto del numero. Con gli indirizzi interni di WhatsApp
 // (@lid, @c.us) il numero può non essere noto: meglio dirlo che far leggere
@@ -4506,6 +4536,7 @@ const TESTI_BOT = [
   ['bot_t_lasciato', 'Ci ha ripensato: non si tocca niente', '⚠️ Quando dice NO a «la sposto?» o a «la annullo?». La sua prenotazione È ANCORA VIVA: qui non si deve scrivere che è stata cancellata, o il cliente non si presenta e il tavolo resta vuoto.'],
   ['bot_t_ricominciamo', 'Quando ridomanda la stessa cosa', 'Va in fondo alla domanda ripetuta: dice al cliente come uscirne invece di lasciarlo davanti a un muro. Lascia vuoto per ripetere solo la domanda.'],
   ['bot_t_ricominciato', 'Il cliente ha scritto RICOMINCIA', ''],
+  ['bot_t_richiamo', '«Sei ancora lì?» — la conversazione si è fermata', 'Chi si ferma a metà quasi mai ha cambiato idea: si è distratto. Una domanda sola lo riporta indietro, e un tavolo vale molto più del messaggio. Parte <b>una volta sola</b> per conversazione, mai di notte, mai a chi è in mano a una persona. <b>{cosa}</b> è quello che manca, scritto a parole («per che giorno», «l\'orario»).'],
   [null, 'Chi ha già prenotato e riscrive'],
   ['bot_t_gia_prenotato', 'Riscrive chi ha già una prenotazione', 'Quello che si sente dire chi ti scrive di nuovo e ha già un tavolo. CAMBIA e CANCELLA sono le due parole che il bot capisce: se riscrivi la frase, lasciale scritte così, altrimenti il cliente non ha più niente da rispondere.'],
   ['bot_t_gia_prenotate', 'Riscrive chi ha PIÙ prenotazioni', 'Quando i tavoli attivi sono più di uno si dicono tutti: mostrarne uno solo fa credere al cliente che gli altri non siano stati registrati, e lo porta a prenotare di nuovo. {elenco} è l\'elenco numerato, {quante} il totale.'],
@@ -4537,7 +4568,7 @@ const TESTI_BOT = [
 
 const CFG_SPUNTE = ['bot_chiedi_nome', 'bot_chiedi_telefono', 'bot_chiedi_note', 'bot_chiedi_email',
   'bot_promemoria_attivo', 'bot_recensione_attiva', 'bot_sala_attiva', 'bot_pagamento_attivo',
-  'bot_email_attiva'];
+  'bot_email_attiva', 'bot_richiamo_attivo'];
 
 const NOMI_GIORNI_UI = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
 let simSessione = Date.now() % 100000;
@@ -6312,6 +6343,7 @@ async function salvaConfigBot(doveDirlo) {
 
 $('#pren-salva').addEventListener('click', () => salvaConfigBot('pren-salvato'));
 $('#promemoria-salva').addEventListener('click', () => salvaConfigBot('promemoria-salvato'));
+$('#meta-salva').addEventListener('click', () => salvaConfigBot('meta-salvato'));
 $('#recensioni-salva').addEventListener('click', () => salvaConfigBot('recensioni-salvato'));
 $('#sala-salva').addEventListener('click', () => salvaConfigBot('sala-salvato'));
 // I riquadri spostati fuori da «Orari e coperti» hanno ognuno il suo Salva:

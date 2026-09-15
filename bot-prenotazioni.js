@@ -58,6 +58,7 @@ function preparaDatabase(db) {
       passo TEXT NOT NULL DEFAULT 'inizio',
       dati TEXT NOT NULL DEFAULT '{}',
       aggiornata_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      richiamata_at TEXT,
       muto_fino TEXT,                          -- presa in carico o parola OPERATORE
       risposte_oggi INTEGER NOT NULL DEFAULT 0,
       giorno_risposte TEXT
@@ -206,6 +207,9 @@ function preparaDatabase(db) {
   // conversazione WhatsApp. Serve perché il numero non basta più — le chat in
   // formato `@lid` non lo contengono affatto, e per rispondere occorre
   // l'indirizzo così com'è arrivato.
+  // Quando gli è stato chiesto «sei ancora lì?». Una volta sola per
+  // conversazione: si azzera quando la conversazione riparte da capo.
+  try { db.exec('ALTER TABLE bot_conversazioni ADD COLUMN richiamata_at TEXT'); } catch {}
   try { db.exec("ALTER TABLE prenotazioni ADD COLUMN chat_id TEXT NOT NULL DEFAULT ''"); } catch {}
   try { db.exec("ALTER TABLE bot_richieste ADD COLUMN chat_id TEXT NOT NULL DEFAULT ''"); } catch {}
   // L'indirizzo della chat del personale, imparato la prima volta che scrive:
@@ -553,6 +557,26 @@ const PREDEFINITI = {
   bot_appello_ora: '23:30',
   bot_appello_senza_risposta: 'presentati',   // presentati|niente
 
+  // ---- La conversazione lasciata a metà ----
+  // Due meccanismi diversi, e il primo è quello che conta.
+  //
+  // ⚠️ Perché NON si azzera a tempo dopo pochi minuti: chi sta prenotando si
+  // distrae — guida, è al lavoro, chiede alla moglie quanti sono. Cinque minuti
+  // di silenzio in mezzo a una prenotazione sono la normalità. Azzerare al
+  // sesto vuol dire che scrive «4» e si sente rispondere «Ciao! Come posso
+  // aiutarti?», con giorno e ora già scelti buttati via. Quel cliente non
+  // ricomincia: se ne va. Una conversazione aperta non costa niente a nessuno,
+  // un tavolo perso costa una serata.
+  //
+  // Dopo quanti minuti di silenzio un SALUTO vale come «ricominciamo» invece
+  // che come risposta alla domanda in sospeso. È il cliente a decidere, con la
+  // sua parola: nessun timer butta via niente.
+  bot_riapre_minuti: '10',
+  // Il richiamo: dopo quanti minuti il bot chiede «sei ancora lì?». Una volta
+  // sola per conversazione, e solo dentro gli orari degli avvisi.
+  bot_richiamo_attivo: 'true',
+  bot_richiamo_minuti: '15',
+
   // Promemoria
   bot_promemoria_attivo: 'true',
   bot_promemoria_ora: '12:00',
@@ -643,6 +667,7 @@ const PREDEFINITI = {
   bot_t_rinuncia: 'OK! Non ho prenotato niente.\n\nSperiamo di poterti accogliere presto da {locale}. ✨',
   bot_t_lasciato: 'Va bene, non ho toccato niente: la tua prenotazione resta com\'era. ✨',
   bot_t_ricominciamo: 'Se preferisci, scrivi RICOMINCIA per ripartire da capo con la prenotazione, oppure OPERATORE per parlare con una persona.',
+  bot_t_richiamo: 'Sei ancora lì? 🙂\n\nEravamo rimasti a {cosa}: rispondi pure qui e finiamo in un attimo.\n\nSe preferisci ripartire da capo scrivi RICOMINCIA.',
   bot_t_ricominciato: 'Va bene, ricominciamo da capo!\n\nPer quante persone devo prenotare?\n',
   bot_t_annulla_quale: 'Sei sicuro di voler cancellare la prenotazione?\n\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nScrivi SÌ per confermare',
   bot_t_modificata: 'Ciao {nome}, abbiamo aggiornato la tua prenotazione:\n\n📅 {data} \n🕘 {ora} \n👥 {persone}\n\nA presto!\n',
@@ -1796,6 +1821,117 @@ function conversazioneScaduta(riga, adesso = new Date()) {
 }
 
 // ---------------------------------------------------------------------------
+//  La conversazione lasciata a metà
+// ---------------------------------------------------------------------------
+//  Due cose diverse, e vale la pena tenerle distinte:
+//
+//  A. il SALUTO RIAPRE — chi torna dopo un po' e scrive «ciao» vuole
+//     ricominciare, non rispondere alla domanda rimasta in sospeso. Prima
+//     quel «ciao» veniva letto come risposta e tornava indietro un «non ho
+//     capito la data». Nessun timer butta via niente: decide il cliente.
+//  B. il RICHIAMO — dopo un po' di silenzio il bot chiede «sei ancora lì?»,
+//     una volta sola. È l'unico dei due che RECUPERA prenotazioni invece di
+//     limitarsi a non rovinarle.
+
+// Minuti di silenzio su quella riga. null se non si sa.
+function minutiFermi(riga, adesso = new Date()) {
+  if (!riga || !riga.aggiornata_at) return null;
+  const quando = new Date(String(riga.aggiornata_at).replace(' ', 'T'));
+  if (Number.isNaN(quando.getTime())) return null;
+  return (adesso - quando) / 60000;
+}
+
+// ⚠️ I passi su cui il saluto riapre sono un elenco ESPLICITO, non «tutti
+// tranne inizio». Fuori restano di proposito:
+//  - «nome»: «Salvi» e «Salvo» sono cognomi veri, e scambiarli per un «salve»
+//    vorrebbe dire buttare via il nome di chi sta prenotando;
+//  - «note»: è testo libero, e «ciao» lì dentro potrebbe essere davvero la nota;
+//  - «attesa_*»: c'è un posto offerto che scade per conto suo, e riaprire
+//    vorrebbe dire far perdere l'offerta a chi stava per accettarla;
+//  - «sposta_*» e «annulla_*»: sono percorsi corti e voluti, non ci si perde;
+//  - «sala_*»: sono i comandi del locale, hanno una scadenza loro.
+const PASSI_CHE_RIAPRONO = ['persone', 'giorno', 'ora', 'telefono', 'email'];
+
+function riapreConUnSaluto(cfg, riga, testo, adesso = new Date()) {
+  if (!riga || !PASSI_CHE_RIAPRONO.includes(riga.passo)) return false;
+  const minuti = num(cfg.bot_riapre_minuti, 10);
+  if (minuti <= 0) return false;            // 0 = spento
+  const fermi = minutiFermi(riga, adesso);
+  if (fermi === null || fermi < minuti) return false;
+  return eSalutoStorto(testo);
+}
+
+// Cosa manca, detto a parole, per la frase del richiamo. Un «sei ancora lì?»
+// che non dice a cosa costringe a scorrere indietro la chat.
+const COSA_MANCA = {
+  persone: 'per quante persone',
+  giorno: 'per che giorno',
+  ora: "l'orario",
+  nome: 'il nome',
+  telefono: 'il numero di telefono',
+  note: 'se hai allergie o richieste particolari',
+  email: "l'indirizzo email",
+};
+const PASSI_DA_RICHIAMARE = Object.keys(COSA_MANCA);
+
+// Chi va richiamato adesso. NON manda niente: chi manda è il server, che è
+// l'unico posto che sa se WhatsApp è collegato.
+function daRichiamare(db, cfg, adesso = new Date()) {
+  if (!boolDi(cfg.bot_richiamo_attivo)) return [];
+  const minuti = num(cfg.bot_richiamo_minuti, 15);
+  if (minuti <= 0) return [];
+  // ⚠️ Non di notte. Un «sei ancora lì?» alle due del mattino è il modo più
+  // rapido di far bloccare il numero del ristorante.
+  if (!eOrarioAvvisi(cfg, adesso)) return [];
+  const righe = db.prepare(
+    'SELECT * FROM bot_conversazioni WHERE richiamata_at IS NULL'
+  ).all();
+  const adessoTesto = quandoLeggibile(adesso);
+  return righe.filter((r) => {
+    if (!PASSI_DA_RICHIAMARE.includes(r.passo)) return false;
+    // ⚠️ Mai su chi è in mano a una persona. Il silenzio dell'operatore è la
+    // colonna «muto_fino» su QUESTA STESSA riga: un richiamo lì vorrebbe dire
+    // il bot che parla sopra chi sta rispondendo a mano.
+    if (r.muto_fino && r.muto_fino > adessoTesto) return false;
+    // Chi ha scritto STOP non riceve più niente, e questo non fa eccezione.
+    if (haDettoBasta(db, r.telefono, r.telefono)) return false;
+    // Già scaduta: non è più una conversazione da riprendere, è roba vecchia.
+    if (conversazioneScaduta(r, adesso)) return false;
+    const fermi = minutiFermi(r, adesso);
+    return fermi !== null && fermi >= minuti;
+  }).map((r) => ({ ...r, cosa: COSA_MANCA[r.passo] || 'la tua prenotazione' }));
+}
+
+// Si lascia andare: passo a «inizio» e dati buttati. ⚠️ Passa da «scriviStato»
+// di proposito, che è l'unico posto che sa cosa NON si deve toccare su quella
+// riga — «muto_fino» sopra tutto.
+function lasciaAndare(db, telefono, adesso = new Date()) {
+  scriviStato(db, telefono, 'inizio', {}, adesso);
+}
+
+function segnaRichiamata(db, telefono, adesso = new Date()) {
+  db.prepare('UPDATE bot_conversazioni SET richiamata_at = ? WHERE telefono = ?')
+    .run(quandoLeggibile(adesso), telefono);
+}
+
+// ⚠️ Richiamato e ancora zitto: dopo un'altra attesa si lascia andare. Il
+// moltiplicatore è quattro, non uno: col richiamo a 15 minuti vuol dire un'ora,
+// che è quanto un ristoratore si aspetta da «poi lascia perdere». E non è mai
+// un'amnesia a sorpresa — a quel cliente il bot ha già chiesto «sei ancora lì?».
+const DOPO_IL_RICHIAMO = 4;
+
+function daLasciareAndare(db, cfg, adesso = new Date()) {
+  const minuti = num(cfg.bot_richiamo_minuti, 15);
+  if (minuti <= 0) return [];
+  return db.prepare('SELECT * FROM bot_conversazioni WHERE richiamata_at IS NOT NULL').all()
+    .filter((r) => {
+      if (!PASSI_DA_RICHIAMARE.includes(r.passo)) return false;
+      const fermi = minutiFermi(r, adesso);
+      return fermi !== null && fermi >= minuti * DOPO_IL_RICHIAMO;
+    });
+}
+
+// ---------------------------------------------------------------------------
 //  La lista d'attesa
 // ---------------------------------------------------------------------------
 //  Chi trova pieno lascia il nome. Ogni minuto il server chiede a
@@ -1984,8 +2120,18 @@ function statoDi(db, telefono, adesso) {
 // salvata può risultare vecchia di giorni. In prova salta subito; in esercizio
 // salterebbe fuori il giorno in cui l'ora del computer viene corretta.
 function scriviStato(db, telefono, passo, dati, adesso = new Date()) {
+  // ⚠️ Si tocca SOLO quello che riguarda il percorso. In particolare NON si
+  // tocca «muto_fino», che sta sulla stessa riga: è il silenzio di quando una
+  // persona sta rispondendo a mano, e azzerarlo qui vorrebbe dire il bot che
+  // ricomincia a parlare sopra di lei.
+  //
+  // Il richiamo invece si dimentica quando si riparte da capo: «una volta sola»
+  // vale per la conversazione, non per sempre. Senza questo, chi ha prenotato
+  // una volta non verrebbe più richiamato mai più.
   db.prepare(
-    'UPDATE bot_conversazioni SET passo = ?, dati = ?, aggiornata_at = ? WHERE telefono = ?'
+    'UPDATE bot_conversazioni SET passo = ?, dati = ?, aggiornata_at = ?'
+    + (passo === 'inizio' ? ', richiamata_at = NULL' : '')
+    + ' WHERE telefono = ?'
   ).run(passo, JSON.stringify(dati || {}), quandoLeggibile(adesso), telefono);
 }
 
@@ -3020,7 +3166,18 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   const risposte = [];
   const esito = { risposte, passaAUmano: false, prenotazione: null, annullata: null, spostata: null, attesa: null };
   const t = normalizza(testo);
-  const stato = statoDi(db, telefono, adesso);
+  let stato = statoDi(db, telefono, adesso);
+  // --- Il saluto che riapre una conversazione lasciata a metà ---
+  // ⚠️ Il guasto: si comincia a prenotare, ci si distrae, e mezz'ora dopo si
+  // torna e si scrive «ciao». Quel «ciao» veniva letto come risposta alla
+  // domanda in sospeso, e tornava indietro «non ho capito la data». Dopo
+  // qualche minuto di silenzio un saluto non è una risposta: è uno che
+  // ricomincia. Non butta via niente a tempo — decide il cliente, e solo sui
+  // passi dove un saluto non può essere una risposta vera.
+  if (riapreConUnSaluto(cfg, stato, testo, adesso)) {
+    scriviStato(db, telefono, 'inizio', {}, adesso);
+    stato = { ...stato, passo: 'inizio', dati: {} };
+  }
   const dati = stato.dati || {};
   const valori = {
     locale: cfg.bot_locale || 'noi',
@@ -3939,6 +4096,8 @@ module.exports = {
   boolDi,
   eSoloDaccordo,
   conversazioneScaduta, giorniAncoraBuoni,
+  riapreConUnSaluto, daRichiamare, segnaRichiamata, daLasciareAndare, lasciaAndare,
+  minutiFermi, PASSI_CHE_RIAPRONO, COSA_MANCA,
   prenotazioniDellaPersona, schedaPersona, cercaPersone,
   reportPrenotazioni, giorniFra, NOMI_SETTIMANA,
   interpretaGiorni,
