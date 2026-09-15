@@ -3313,7 +3313,15 @@ async function passaAUnaPersona(chatId, telefono, nomeChat, testo, opzioni = {})
   }
   for (const p of responsabili) {
     try {
-      await inviaConRitmo(p.chat_id || p.telefono, avviso);
+      // ⚠️ A chi sta GIÀ seguendo un altro cliente va detto chiaro: le sue
+      // righe senza codice vanno a quello, non a questo. È il momento in cui
+      // si risponde al cliente sbagliato, e va disinnescato qui, nell'avviso.
+      const altra = conversazioneAgganciata(p, new Date());
+      const nota = altra && altra.codice !== codice
+        ? `\n\n✍️ Stai seguendo ${altra.codice} (${altra.nome || 'cliente'}): quello che scrivi senza codice `
+          + `va a ${altra.nome ? altra.nome.split(' ')[0] : 'quel cliente'}. Per rispondere qui: ${codice} + la tua risposta.`
+        : '';
+      await inviaConRitmo(p.chat_id || p.telefono, avviso + nota);
       db.prepare("UPDATE bot_richieste SET avvisata_at = datetime('now','localtime') WHERE codice = ? AND stato = 'in_attesa'").run(codice);
     } catch (e) { console.error('Bot: avviso al personale non riuscito:', e.message); }
   }
@@ -3405,7 +3413,7 @@ async function mandaElenco(persona, parolaGiorno) {
     bot.elencoPrenotazioni(db, bot.config(db), giorno, adesso));
 }
 
-async function messaggioDelPersonale(persona, testo) {
+async function messaggioDelPersonale(persona, testo, msg) {
   const t = String(testo || '').trim();
 
   // «R7 la risposta» → inoltra al cliente dal numero del ristorante.
@@ -3688,10 +3696,22 @@ async function messaggioDelPersonale(persona, testo) {
     // ⚠️ La conferma c'è SEMPRE, a ogni messaggio. Senza, non c'è modo di sapere
     // se quel messaggio è uscito o è rimasto qui — ed è la sola cosa che rende
     // accettabile l'inoltro senza codice.
-    // Corta: «→ Angela» e basta. Il «LIBERA» è già stato detto quando la
-    // conversazione è diventata sua, e COMANDI lo ripete: ridirlo a ogni riga
-    // non è più una conferma, è rumore.
-    await inviaConRitmo(persona.chat_id || persona.telefono, `→ ${seguita.nome || seguita.codice}`);
+    // ⚠️ La conferma c'è SEMPRE, ma la sua forma dipende da quante
+    // conversazioni sono aperte. Con UNA sola, il nome a ogni riga è rumore: la
+    // conferma è una REAZIONE ✅ sul messaggio appena scritto — lo stesso
+    // segno delle spunte, e nessuna riga in più nella chat. Con più di una,
+    // invece, il nome è l'unica cosa che dice a CHI è andata: «→ Angela» resta,
+    // perché è lì che si sbaglia cliente. Se la reazione non riesce (versione
+    // vecchia di WhatsApp, messaggio non reagibile) si torna alla riga.
+    const altreAperte = db.prepare(
+      "SELECT COUNT(*) n FROM bot_richieste WHERE stato != 'chiusa' AND id != ?").get(seguita.id).n;
+    let confermato = false;
+    if (!altreAperte && msg && typeof msg.react === 'function') {
+      try { await msg.react('✅'); confermato = true; } catch (e) { console.error('Bot: reazione non riuscita:', e.message); }
+    }
+    if (!confermato) {
+      await inviaConRitmo(persona.chat_id || persona.telefono, `→ ${seguita.nome || seguita.codice}`);
+    }
     return;
   }
 
@@ -3857,7 +3877,7 @@ if (botDisponibile()) {
       const persona = personaCheScrive(telefono, chatId);
       if (persona) {
         annota('personale', `${persona.nome} — non è un cliente, non gli chiedo di prenotare`);
-        await messaggioDelPersonale(persona, testo);
+        await messaggioDelPersonale(persona, testo, msg);
         return;
       }
 
