@@ -6483,7 +6483,13 @@ const rottaVersionePrenotazioni = (req, res) => {
   // zero richieste in più, e le fa scoprire in quattro secondi di essere
   // vecchia invece che in cinque minuti. Sul tablet del bancone, cinque minuti
   // con una pagina vecchia sono cinque minuti di conti sbagliati.
-  res.json({ versione: Number((r && r.value) || 0), programma: versioneInstallata() });
+  // ⚠️ E per la stessa ragione ci viaggia lo STATO DI WHATSAPP. In sala è
+  // l'unica cosa che si deve sapere in quattro secondi e non in cinque minuti:
+  // con la linea caduta il bot non risponde a nessuno, e chi sta lavorando se
+  // ne accorgeva solo dai clienti che telefonano arrabbiati. È uno stato, non
+  // un dato di nessuno: dalla porta della sala può passare.
+  res.json({ versione: Number((r && r.value) || 0), programma: versioneInstallata(),
+             whatsapp: state.status });
 };
 app.get('/api/bot/prenotazioni/versione', rottaVersionePrenotazioni);
 
@@ -7413,6 +7419,9 @@ sala.get('/api/sala/stato', (req, res) => {
   // sul mini-PC, al prossimo avvio sul Mac.
   res.json({ locale: bot.leggi(db, 'bot_locale') || '', versione: versioneInstallata(),
              tema: bot.leggi(db, 'bot_sala_tema') || 'chiaro',
+             // Anche qui, per il primo disegno della spia: la rotta dei quattro
+             // secondi lo rinfresca dopo, ma all'apertura non è ancora passata.
+             whatsapp: state.status,
              aggiornamento: aggiornamentoDisponibile() });
 });
 
@@ -7422,6 +7431,28 @@ sala.get('/api/sala/stato', (req, res) => {
 // controlli dell'altra porta, password compresa.
 // Ogni riga aggiunta a questo elenco è una cosa in più che il tablet della sala
 // può fare: si aggiunge una per volta e di proposito, mai «tanto è comodo».
+// ⚠️ UNA PORTA IN PIÙ, e aggiunta di proposito. Il QR per riattaccare
+// WhatsApp. Il ragionamento è che il guasto succede DI SERA, quando in ufficio
+// non c'è nessuno: la linea cade, il bot smette di rispondere e la serata passa
+// così. Chi è in sala il telefono del locale ce l'ha in mano — è l'unica
+// persona che può rimediare, ed è l'unica che finora non poteva.
+//
+// ⚠️ Quel codice è una CHIAVE: chi lo scansiona collega il proprio telefono
+// come bot del locale. Quindi tre paletti, non uno:
+//   • sta dietro la password della sala, come tutto il resto di questa porta;
+//   • a WhatsApp COLLEGATO non esce: quando la linea va, quel codice non serve
+//     a nessuno e resta solo un modo di sbagliare;
+//   • ogni volta che qualcuno lo chiede resta scritto nel registro, con l'ora.
+//     Un accoppiamento non deve mai poter succedere senza che ne resti traccia.
+sala.get('/api/sala/qr', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  if (state.status === 'connesso') {
+    return res.json({ collegato: true, qr: null, stato: state.status });
+  }
+  if (state.qr) annota('sala', 'dalla sala hanno chiesto il QR per riattaccare WhatsApp');
+  res.json({ collegato: false, qr: state.qr, stato: state.status });
+});
+
 sala.get('/api/bot/settimana', rottaSettimana);
 // La ricerca in rubrica c'è anche in sala: chi prende una prenotazione al
 // telefono ha davanti un cliente che spesso è già in archivio, e riscriverne il

@@ -112,6 +112,27 @@
      su quella dopo: tre comandi in ordine sparso che nessuno collega più fra loro. */
   .frecce { display: flex; align-items: center; gap: 8px; }
   .conteggio { color: var(--grigio); font-size: .84rem; }
+  /* La spia: un pallino e una parola. Il pallino da solo non basta — chi non
+     distingue il rosso dal verde vedrebbe due tondi uguali — quindi il colore
+     non è mai l'unica cosa che lo dice. */
+  .spia { display: inline-flex; align-items: center; gap: 7px; }
+  .spia i { width: 9px; height: 9px; border-radius: 50%; background: var(--grigio);
+            flex: none; display: block; }
+  .spia.viva i { background: #34c759; }
+  .spia.giu i { background: var(--rosso); }
+  /* ⚠️ Quando è giù il tasto si vede da lontano: in sala, di sera, di sfuggita.
+     Quando va, resta un tasto qualunque — sennò è rumore fisso. */
+  .spia.giu { background: var(--rosso); border-color: var(--rosso); color: #fff; }
+  .spia.viva { cursor: default; }
+  #qr-velo { position: fixed; inset: 0; background: rgba(0,0,0,.55);
+             display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 60; }
+  #qr-velo[hidden] { display: none; }
+  #qr-riquadro { background: var(--carta); color: var(--testo); border-radius: 14px;
+                 padding: 20px; max-width: 420px; width: 100%; text-align: center;
+                 max-height: 92vh; overflow: auto; }
+  #qr-dove img { width: 100%; max-width: 280px; height: auto; border-radius: 10px;
+                 background: #fff; padding: 10px; margin: 6px auto; display: block; }
+  #qr-nota { margin-top: 10px; }
   /* In sala si tocca con le dita, spesso di fretta e con le mani occupate:
      i bersagli sono più grandi che sulla piattaforma, non per estetica. */
   /* ⚠️ Bianco sul verde chiaro del marchio fa 1,9:1 di contrasto, e in sala
@@ -524,8 +545,33 @@
   <!-- Il tema, a portata di pollice. Sta in sala e non solo in «Impostazioni»
        perché chi si accorge che lo schermo dà fastidio è chi è lì alle nove di
        sera, non chi apre la piattaforma la mattina dopo. Un tocco, tre modi. -->
+  <!-- ⚠️ La spia di WhatsApp. Si vede SEMPRE, anche quando va tutto bene: una
+       spia che compare solo nei guai non la si impara a guardare, e la prima
+       volta che appare nessuno sa cosa sia. Verde = il bot risponde. Rossa = no,
+       e allora si preme e si riattacca col QR. Il guasto succede di sera, quando
+       in ufficio non c'è nessuno: chi è in sala ha in mano il telefono del
+       locale ed è l'unico che può rimediare. -->
+  <button class="btn btn-piccolo spia" id="spia-wa" type="button" aria-live="polite"
+          title="WhatsApp"><i></i><span id="spia-wa-testo">WhatsApp</span></button>
   <button class="btn btn-piccolo" id="tema" type="button" aria-live="polite"></button>
 </header>
+
+<!-- La finestra del QR: si apre solo premendo la spia rossa. -->
+<div id="qr-velo" hidden>
+  <div id="qr-riquadro" role="dialog" aria-modal="true" aria-labelledby="qr-titolo">
+    <h2 id="qr-titolo">Ricollega WhatsApp</h2>
+    <p id="qr-spiega" class="conteggio">
+      Col telefono del locale: <b>WhatsApp</b> → <b>Impostazioni</b> →
+      <b>Dispositivi collegati</b> → <b>Collega un dispositivo</b>, e inquadra questo codice.
+    </p>
+    <div id="qr-dove"><p class="conteggio">Sto chiedendo il codice…</p></div>
+    <p class="conteggio" id="qr-nota">
+      ⚠️ Usa il telefono del <b>ristorante</b>: il numero che inquadra questo codice
+      diventa quello con cui il bot risponde ai clienti.
+    </p>
+    <button class="btn btn-secondario" id="qr-chiudi" type="button">Chiudi</button>
+  </div>
+</div>
 
 <main>
   <div class="card">
@@ -1550,6 +1596,11 @@ async function guardaSeCambiato() {
   // ⚠️ Il numero del programma viaggia con questa stessa risposta: la sala si
   // accorge di essere vecchia in quattro secondi invece che in cinque minuti.
   mostraVersione(d.programma);
+  // ⚠️ Lo stato di WhatsApp viaggia con questa stessa risposta: in sala si
+  // deve sapere in quattro secondi, non in cinque minuti. Con la linea caduta
+  // il bot non risponde a nessuno, e finora ce ne si accorgeva dai clienti che
+  // telefonano arrabbiati.
+  mostraSpiaWhatsApp(d.whatsapp);
   const versione = d.versione;
   // ⚠️ Il riferimento si fissa all'APERTURA, non al primo controllo: fissarlo
   // qui vorrebbe dire ingoiare tutto quello che è arrivato nei primi secondi —
@@ -1587,6 +1638,87 @@ function ricaricaSeNonScrive() {
   }, 400);
 }
 
+// ---------------------------------------------------------------------------
+//  La spia di WhatsApp, e il QR per riattaccarlo
+// ---------------------------------------------------------------------------
+//  ⚠️ La spia si vede SEMPRE, anche quando va tutto bene. Una spia che compare
+//  solo nei guai non la si impara a guardare: la prima volta che appare nessuno
+//  sa che cos'è, e succede proprio nella sera in cui non c'è tempo di capirlo.
+//  Vedere «verde» tutte le sere è quello che rende leggibile il rosso.
+//
+//  ⚠️ E il colore non è mai l'unica cosa che lo dice: accanto al pallino c'è
+//  la parola. Chi non distingue il rosso dal verde vedrebbe due tondi uguali.
+let whatsappGiu = false;
+let spiaDisegnata = null;
+function mostraSpiaWhatsApp(stato) {
+  if (stato === undefined || stato === null) return;
+  // ⚠️ Si tocca la pagina SOLO quando lo stato cambia davvero. Questo gira
+  // ogni quattro secondi: riscrivere ogni volta la stessa parola dentro un
+  // elemento con `aria-live` vuol dire far ripetere «WhatsApp» a un lettore di
+  // schermo quindici volte al minuto, per tutta la sera. E un tasto che si
+  // ridisegna di continuo è un tasto che sfugge sotto il dito.
+  if (stato === spiaDisegnata) return;
+  spiaDisegnata = stato;
+  const b = $('#spia-wa');
+  const t = $('#spia-wa-testo');
+  const collegato = stato === 'connesso';
+  whatsappGiu = !collegato;
+  b.classList.toggle('viva', collegato);
+  b.classList.toggle('giu', !collegato);
+  t.textContent = collegato ? 'WhatsApp' : 'WhatsApp giù';
+  b.title = collegato
+    ? 'WhatsApp è collegato: il bot risponde ai clienti'
+    : 'WhatsApp non è collegato: il bot non risponde. Premi per ricollegarlo.';
+  // Il tasto si preme solo quando serve davvero.
+  b.setAttribute('aria-disabled', collegato ? 'true' : 'false');
+}
+
+let giroQr = null;
+async function chiediQr() {
+  const dove = $('#qr-dove');
+  try {
+    const r = await fetch('/api/sala/qr');
+    if (r.status === 401) { sessioneFinita(); return; }
+    const d = await r.json();
+    if (d.collegato) {
+      // ⚠️ Riattaccato: lo si DICE e si chiude da sé. Restare a fissare un
+      // codice che ormai non serve più fa credere che non abbia funzionato.
+      dove.innerHTML = '<p style="color:var(--ok-testo);font-weight:600">✅ WhatsApp è ricollegato: il bot risponde di nuovo.</p>';
+      mostraSpiaWhatsApp('connesso');
+      clearInterval(giroQr); giroQr = null;
+      setTimeout(chiudiQr, 2500);
+      return;
+    }
+    if (d.qr) {
+      dove.innerHTML = '<img alt="Codice QR da inquadrare col telefono del ristorante" src="' + d.qr + '">';
+    } else {
+      // Non c'è ancora: WhatsApp lo prepara qualche secondo dopo l'avvio.
+      dove.innerHTML = '<p class="conteggio">Il codice non è ancora pronto. Resta qui: compare da solo appena c\'è.</p>';
+    }
+  } catch {
+    dove.innerHTML = '<p class="conteggio">Non riesco a parlare col computer del ristorante.</p>';
+  }
+}
+
+function apriQr() {
+  $('#qr-velo').hidden = false;
+  $('#qr-dove').innerHTML = '<p class="conteggio">Sto chiedendo il codice…</p>';
+  chiediQr();
+  // ⚠️ Si richiede a giro: il codice di WhatsApp SCADE dopo una ventina di
+  // secondi e ne esce uno nuovo. Senza, chi arriva col telefono trenta secondi
+  // dopo inquadra un codice morto e non capisce perché non succede niente.
+  clearInterval(giroQr);
+  giroQr = setInterval(chiediQr, 5000);
+}
+function chiudiQr() {
+  $('#qr-velo').hidden = true;
+  clearInterval(giroQr); giroQr = null;
+}
+$('#spia-wa').addEventListener('click', () => { if (whatsappGiu) apriQr(); });
+$('#qr-chiudi').addEventListener('click', chiudiQr);
+$('#qr-velo').addEventListener('click', (e) => { if (e.target === $('#qr-velo')) chiudiQr(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#qr-velo').hidden) chiudiQr(); });
+
 setInterval(guardaSeCambiato, OGNI);
 
 // ⚠️ RIPIEGO, non la strada principale. Il numero di versione arriva ormai col
@@ -1598,6 +1730,7 @@ setInterval(async () => {
     const s = await (await fetch('/api/sala/stato')).json();
     mostraVersione(s.versione);
     applicaTemaDiPartenza(s.tema);   // cambiato dalla piattaforma, se qui nessuno ha scelto
+    mostraSpiaWhatsApp(s.whatsapp);
     mostraAggiornamento(s.aggiornamento);
   } catch {}
 }, 5 * 60 * 1000);
@@ -1612,6 +1745,7 @@ window.addEventListener('focus', guardaSeCambiato);
     const s = await (await fetch('/api/sala/stato')).json();
     $('#quale-locale').textContent = s.locale || '';
     applicaTemaDiPartenza(s.tema);
+    mostraSpiaWhatsApp(s.whatsapp);
     mostraAggiornamento(s.aggiornamento);
     mostraVersione(s.versione);
   } catch {}
