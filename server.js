@@ -1465,6 +1465,223 @@ app.use('/comune', (req, res, next) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ---------------------------------------------------------------------------
+//  Il guardiano del collegamento
+// ---------------------------------------------------------------------------
+//  ⚠️ NON si aggancia all'evento «disconnected», e il motivo sta scritto più
+//  su, a proposito degli invii: in un registro vero c'erano 65 errori di pagina
+//  staccata e NEMMENO UNA riga «WhatsApp disconnesso». Quell'evento non scatta
+//  quasi mai. Qui si guarda `state.status`, che è l'unico posto dove tutte e
+//  quattro le strade — l'evento, l'errore durante un invio, il logout, il
+//  ripristino — vanno a finire. Un guardiano solo, e nessuna strada nuova che
+//  domani si dimentica di avvisare.
+//
+//  L'email va bene proprio perché WhatsApp è giù: la posta non c'entra niente
+//  col telefono, e resta l'unica via che funziona quando l'altra è caduta.
+let eraCollegato = null;          // null = non si è ancora visto niente
+let acceso = Date.now();
+let dettoCheNonParte = false;
+
+async function avvisaCollegamento(oggetto, testo) {
+  const dove = indirizzoAvvisi();
+  if (!dove) return false;
+  const transporter = buildTransporter();
+  if (!transporter) {
+    // ⚠️ Un avviso che non parte perché la posta non è configurata va DETTO,
+    // una volta: sennò si resta convinti di essere protetti da una rete che
+    // non c'è. È lo stesso errore dei promemoria che tacevano.
+    if (!dettoCheNonParte) {
+      dettoCheNonParte = true;
+      console.error('Avvisi: WhatsApp è cambiato di stato ma la posta non è configurata: nessuna email è partita.');
+      annota('errore', 'avviso via email non partito: la posta non è configurata');
+    }
+    return false;
+  }
+  try {
+    await transporter.sendMail({
+      from: getSetting('smtp_user'),
+      to: dove,
+      subject: oggetto,
+      text: testo,
+    });
+    return true;
+  } catch (e) {
+    console.error('Avvisi: email non riuscita:', e.message);
+    return false;
+  }
+}
+
+// Ogni minuto. Manda un'email SOLO quando lo stato CAMBIA: una ogni caduta,
+// non una al minuto finché dura — sennò diventa il rumore che si smette di
+// leggere, che è il guasto che si voleva curare.
+async function guardaIlCollegamento() {
+  if (!botDisponibile()) return;
+  const collegato = state.status === 'connesso';
+  const quando = new Date().toLocaleString('it-IT');
+  const chi = bot.leggi(db, 'bot_locale') || getSetting('smtp_from_name') || 'iStudio';
+
+  if (eraCollegato === null) {
+    // ⚠️ All'accensione non si grida: WhatsApp parte sempre «in
+    // inizializzazione», e un'email a ogni riavvio (che è a ogni aggiornamento)
+    // si smette di leggere in tre giorni. Ma se dopo dieci minuti non è ancora
+    // collegato, quello NON è l'avvio: è un mini-PC ripartito e rimasto a
+    // metà, ed è il caso silenzioso che costa una serata.
+    if (collegato) { eraCollegato = true; return; }
+    if (Date.now() - acceso < 10 * 60 * 1000) return;
+    eraCollegato = false;
+    await avvisaCollegamento(`⚠️ ${chi}: WhatsApp non si è collegato`,
+      `Il programma è ripartito ${new Date(acceso).toLocaleString('it-IT')} e dopo dieci minuti `
+      + `WhatsApp non risulta ancora collegato (stato: ${state.status}).\n\n`
+      + 'Finché resta così il bot non risponde ai clienti, non partono i promemoria e gli invii restano fermi.\n\n'
+      + 'Si riattacca dalla Dashboard di iStudio, scansionando il QR code.');
+    return;
+  }
+
+  if (eraCollegato && !collegato) {
+    eraCollegato = false;
+    annota('errore', `WhatsApp si è scollegato (stato: ${state.status})`);
+    await avvisaCollegamento(`⚠️ ${chi}: WhatsApp si è scollegato`,
+      `WhatsApp si è scollegato il ${quando} (stato: ${state.status}).\n\n`
+      + 'Finché resta così il bot non risponde ai clienti, non partono i promemoria e gli invii restano fermi.\n\n'
+      + 'Si riattacca dalla Dashboard di iStudio, scansionando il QR code.');
+    return;
+  }
+
+  if (!eraCollegato && collegato) {
+    eraCollegato = true;
+    annota('collegato', 'WhatsApp è tornato collegato');
+    await avvisaCollegamento(`✅ ${chi}: WhatsApp è tornato collegato`,
+      `WhatsApp è di nuovo collegato dal ${quando}. Il bot ha ripreso a rispondere.`);
+  }
+}
+
+// ⚠️ Il giro si registra insieme agli altri, molto più in basso: qui
+// «botDisponibile» non esiste ancora (è una const definita dopo), e iStudio
+// partiva senza il guardiano — restando muta proprio quando serviva.
+
+// ---------------------------------------------------------------------------
+//  Le notifiche
+// ---------------------------------------------------------------------------
+//  ⚠️ Non una tabella nuova: le cose da sapere ci sono GIÀ in archivio, sparse
+//  in cinque posti diversi, e il guasto è che nessuno le guarda tutte insieme.
+//  Un cliente che aspetta da un'ora sta in `bot_richieste`, una frase che il
+//  bot non ha capito in `bot_non_capite`, un invio fallito in
+//  `campaign_messages`: per accorgersene bisognava aprire tre schede e sapere
+//  cosa cercare. Qui si contano, e basta.
+//
+//  Una tabella di notifiche sarebbe stata una seconda verità da tenere
+//  allineata alla prima — e quando due verità divergono, quella che si guarda
+//  è sempre la sbagliata.
+function notifiche() {
+  const lista = [];
+  const adesso = new Date();
+  const quandoDa = (t) => {
+    if (!t) return '';
+    const d = new Date(String(t).replace(' ', 'T'));
+    if (Number.isNaN(d.getTime())) return '';
+    const min = Math.round((adesso - d) / 60000);
+    if (min < 60) return `${Math.max(1, min)} min fa`;
+    const ore = Math.round(min / 60);
+    if (ore < 24) return `${ore} ${ore === 1 ? 'ora' : 'ore'} fa`;
+    const gg = Math.round(ore / 24);
+    return `${gg} ${gg === 1 ? 'giorno' : 'giorni'} fa`;
+  };
+
+  // ⚠️ Per prima, sempre: se WhatsApp è staccato non funziona NIENTE — né il
+  // bot, né i promemoria, né gli invii. Tutte le altre righe qui sotto sono
+  // conseguenze di questa, e metterle allo stesso livello fa perdere tempo
+  // dietro ai sintomi.
+  if (botDisponibile() && state.status !== 'connesso') {
+    lista.push({
+      tipo: 'whatsapp', urgenza: 'alta', scheda: 'dashboard',
+      titolo: 'WhatsApp non è collegato',
+      dettaglio: state.status === 'qr'
+        ? 'C\'è un QR code da scansionare: fino ad allora il bot non risponde a nessuno.'
+        : 'Il bot non risponde ai clienti e non partono promemoria né invii.',
+    });
+  }
+
+  if (botDisponibile()) {
+    // Clienti che aspettano una risposta da una persona.
+    const attese = db.prepare(
+      "SELECT codice, nome, telefono, testo, avvisata_at, creata_at FROM bot_richieste "
+      + "WHERE stato = 'in_attesa' ORDER BY id").all();
+    for (const r of attese) {
+      lista.push({
+        tipo: 'attesa', urgenza: 'alta', scheda: 'prenotazioni',
+        titolo: `${r.nome || r.telefono} aspetta una risposta`,
+        dettaglio: `${r.codice} · «${String(r.testo || '').slice(0, 90)}»`,
+        quando: quandoDa(r.creata_at),
+      });
+    }
+    // Frasi che il bot non ha capito: ognuna è una risposta pronta che manca.
+    const nonCapite = db.prepare(
+      'SELECT testo, volte, ultima_at FROM bot_non_capite WHERE risolta = 0 ORDER BY volte DESC, id DESC LIMIT 20').all();
+    for (const r of nonCapite) {
+      lista.push({
+        tipo: 'frase', urgenza: 'bassa', scheda: 'prenotazioni', sotto: 'frasi',
+        titolo: `Non ho capito: «${String(r.testo || '').slice(0, 70)}»`,
+        dettaglio: r.volte > 1
+          ? `Chiesto ${r.volte} volte. Se ci metti una risposta pronta, il bot risponde da solo.`
+          : 'Se ci metti una risposta pronta, il bot risponde da solo.',
+        quando: quandoDa(r.ultima_at),
+      });
+    }
+  }
+
+  // Invii fermi o con messaggi non partiti. Si raggruppa per campagna: venti
+  // righe uguali dicono la stessa cosa venti volte.
+  const invii = db.prepare(
+    // ⚠️ `created_at` degli invii è in UTC (le altre tabelle sono in ora
+    // locale): senza convertirlo, un invio di adesso risultava fatto due ore fa.
+    "SELECT c.id, c.message, c.subject, c.status, c.pause_reason, c.channel, "
+    + "datetime(c.created_at, 'localtime') AS created_at, "
+    + "(SELECT COUNT(*) FROM campaign_messages m WHERE m.campaign_id = c.id AND m.status = 'errore') AS falliti "
+    // ⚠️ Nessun filtro sullo stato: gli stati sono sei e crescono
+    // ('in_pausa', 'in_corso', 'in_riposo', 'completata'…). Un elenco scritto
+    // qui invecchia in silenzio — è già successo con 'completato', che non
+    // esiste. Si guarda quello che conta: in pausa, oppure con dei falliti.
+    + "FROM campaigns c WHERE c.created_at >= datetime('now','-7 days') ORDER BY c.id DESC LIMIT 30").all();
+  for (const c of invii) {
+    const nome = String(c.subject || c.message || '').replace(/\s+/g, ' ').trim().slice(0, 60) || `invio ${c.id}`;
+    if (c.status === 'in_pausa') {
+      lista.push({
+        tipo: 'invio', urgenza: 'alta', scheda: 'storico',
+        titolo: `Invio in pausa: «${nome}»`,
+        dettaglio: String(c.pause_reason || 'In pausa.').slice(0, 160),
+        quando: quandoDa(c.created_at),
+      });
+    } else if (c.falliti) {
+      lista.push({
+        tipo: 'invio', urgenza: 'media', scheda: 'storico',
+        titolo: `${c.falliti} ${c.falliti === 1 ? 'messaggio non partito' : 'messaggi non partiti'}: «${nome}»`,
+        dettaglio: 'Dalla cronologia puoi riprovare solo quelli non riusciti.',
+        quando: quandoDa(c.created_at),
+      });
+    }
+  }
+
+  // Chi ha chiesto di non ricevere più niente e nessuno ha ancora sistemato.
+  const stop = db.prepare(
+    "SELECT COUNT(*) n FROM optout_requests WHERE stato = 'da_confermare'").get().n;
+  if (stop) {
+    lista.push({
+      tipo: 'stop', urgenza: 'media', scheda: 'anagrafiche',
+      titolo: `${stop} ${stop === 1 ? 'persona ha chiesto' : 'persone hanno chiesto'} di non ricevere più messaggi`,
+      dettaglio: 'Finché non li togli dagli invii continuano a ricevere.',
+    });
+  }
+
+  const peso = { alta: 0, media: 1, bassa: 2 };
+  lista.sort((a, b) => peso[a.urgenza] - peso[b.urgenza]);
+  return lista;
+}
+
+app.get('/api/notifiche', (req, res) => {
+  const lista = notifiche();
+  res.json({ lista, quante: lista.length, urgenti: lista.filter((n) => n.urgenza === 'alta').length });
+});
+
 app.get('/api/status', (req, res) => {
   // L'abbonamento viaggia qui perché questa rotta è già interrogata di continuo:
   // così l'avviso di scadenza compare da qualunque scheda, non solo dalla Dashboard.
@@ -1784,8 +2001,24 @@ app.get('/api/email/settings', (req, res) => {
     from_name: getSetting('smtp_from_name'),
     hasPassword: Boolean(getSetting('smtp_pass')),
     verified: getSetting('smtp_verified') === 'true',
+    avvisi_email: indirizzoAvvisi(),
   });
 });
+
+// ⚠️ L'indirizzo a cui arrivano gli avvisi tecnici — per adesso solo WhatsApp
+// che si scollega. Ha un valore di fabbrica, quello dell'assistenza: su una
+// copia appena installata nessuno lo imposterebbe mai, e sarebbe proprio quella
+// a restare muta il giorno in cui si scollega. Si cambia dalla pagina; scritto
+// vuoto, gli avvisi non partono più.
+const EMAIL_AVVISI_DI_FABBRICA = 'angellottidaniele@gmail.com';
+function indirizzoAvvisi() {
+  // ⚠️ Si guarda la RIGA, non `getSetting`: quella per una chiave che non
+  // c'è restituisce '' — identico a «scritto vuoto apposta». Con `getSetting`
+  // l'indirizzo di fabbrica non entrava in vigore mai, su nessuna copia nuova,
+  // e gli avvisi non sarebbero partiti proprio dove servivano di più.
+  const riga = db.prepare('SELECT value FROM settings WHERE key = ?').get('avvisi_email');
+  return riga ? String(riga.value).trim() : EMAIL_AVVISI_DI_FABBRICA;
+}
 
 app.post('/api/email/settings', (req, res) => {
   const { host, port, user, pass, from_name } = req.body;
@@ -1800,6 +2033,10 @@ app.post('/api/email/settings', (req, res) => {
     setSetting('smtp_pass', String(pass).replace(/\s+/g, ''));
   }
   setSetting('smtp_verified', 'false'); // le credenziali sono cambiate: va riprovata
+  // Può essere vuoto di proposito: vuol dire «non avvisarmi».
+  if (typeof req.body.avvisi_email === 'string') {
+    setSetting('avvisi_email', String(req.body.avvisi_email).trim());
+  }
   res.json({ ok: true });
 });
 
@@ -4372,6 +4609,11 @@ async function sollecitaChiAspetta(adesso = new Date()) {
 
 if (botDisponibile()) {
   setInterval(() => { sollecitaChiAspetta().catch(giroFallito('sollecito')); }, 60 * 1000);
+}
+
+// Il guardiano del collegamento (scritto molto più su, insieme alle notifiche).
+if (botDisponibile()) {
+  setInterval(() => { guardaIlCollegamento().catch(giroFallito('collegamento')); }, 60 * 1000);
 }
 
 // ---------- «Sei ancora lì?» ----------

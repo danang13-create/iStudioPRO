@@ -385,6 +385,35 @@
                   letter-spacing: .06em; color: var(--verde-testo);
                   margin: 26px 0 2px; padding-top: 14px; border-top: 1px solid var(--bordo); }
   .gruppo-frasi:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+  /* Il numero sulla campanella. Rosso solo per le cose urgenti: un pallino
+     sempre acceso è un pallino che si smette di vedere. */
+  #badge-notifiche { position: relative; }
+  #conta-notifiche[hidden] { display: none; }
+  #conta-notifiche {
+    position: absolute; top: -3px; right: -3px; min-width: 17px; height: 17px;
+    padding: 0 4px; border-radius: 9px; background: var(--grigio);
+    color: #fff; font-size: .68rem; font-weight: 700; line-height: 17px;
+    border: 2px solid var(--testata-btn-fondo, #fff);
+  }
+  #conta-notifiche.urgente { background: var(--rosso); }
+  /* Una notifica: tutta la riga si preme e porta dov'è il problema. */
+  .notifica {
+    display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left;
+    padding: 12px 14px; border: 1px solid var(--bordo); border-radius: 10px;
+    background: var(--carta); font: inherit; color: var(--testo); cursor: pointer;
+    margin-bottom: 8px;
+  }
+  .notifica:hover { border-color: var(--verde-testo); }
+  .notifica .segno { font-size: 1.1rem; line-height: 1.3; flex: none; }
+  .notifica .dentro { min-width: 0; flex: 1; }
+  /* ⚠️ `display: block` non è un vezzo: sono <span>, e su un elemento in
+     riga il `margin-top` non fa niente — titolo, spiegazione e orario finivano
+     appiccicati sulla stessa riga, illeggibili. */
+  .notifica .che { display: block; font-weight: 600; font-size: .93rem; }
+  .notifica .perche { display: block; color: var(--grigio); font-size: .85rem; margin-top: 3px; }
+  .notifica .quando { display: block; color: var(--grigio); font-size: .78rem; margin-top: 4px; }
+  .notifica.alta { border-left: 3px solid var(--rosso); }
+  .notifica.media { border-left: 3px solid var(--avviso-forte); }
   .barra-frasi { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
   .barra-frasi input { flex: 1; min-width: 200px; width: auto; }
   .gruppo { border-top: 1px solid var(--bordo); }
@@ -913,6 +942,17 @@
          programma. Sul telefono non c'è il passaggio del mouse, quindi resta
          solo il disegno — e l'omino è il simbolo più universale che ci sia per
          «il mio account». Chi usa un lettore di schermo sente «Profilo». -->
+    <!-- ⚠️ La campanella sta PRIMA del Profilo: è la cosa che si guarda venti
+         volte al giorno, l'altra quasi mai. Il numero sopra è rosso solo quando
+         c'è qualcosa di urgente — se fosse sempre rosso, il rosso non
+         vorrebbe più dire niente. -->
+    <button class="badge badge-tondo" id="badge-notifiche" title="Notifiche"
+            aria-label="Notifiche" style="display:none">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+      </svg><span id="conta-notifiche" hidden></span><span class="solo-per-chi-ascolta">Notifiche</span>
+    </button>
     <button class="badge badge-tondo" id="badge-profilo" title="Profilo — il tuo abbonamento e l'uscita"
             aria-label="Profilo — il tuo abbonamento e l'uscita" style="display:none">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="#fff" aria-hidden="true">
@@ -939,10 +979,28 @@
        è roba di account, non una scheda di lavoro. Questo pulsante resta nascosto
        sempre e serve solo a far funzionare il meccanismo delle schede. -->
   <button data-scheda="profilo" id="nav-profilo" style="display:none"></button>
+  <!-- Come il Profilo: ci si arriva dalla campanella in alto, non dal menu. -->
+  <button data-scheda="notifiche" id="nav-notifiche" style="display:none"></button>
 </nav>
 <main>
   <!-- IMPOSTAZIONI -->
   <!-- PROFILO — solo sulle copie con abbonamento -->
+  <!-- NOTIFICHE — ci si arriva dalla campanella in alto, non dal menu. -->
+  <section id="scheda-notifiche" class="scheda">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+        <h2 style="margin:0">Cosa richiede la tua attenzione</h2>
+        <span style="flex:1"></span>
+        <button class="btn btn-secondario btn-piccolo" id="notifiche-aggiorna">Aggiorna</button>
+      </div>
+      <p class="conteggio" style="margin:0 0 14px">
+        Non è un elenco a parte: sono le cose che il programma sa già, raccolte in un posto solo.
+        Ogni riga si preme e porta dov'è il problema.
+      </p>
+      <div id="elenco-notifiche"><p class="vuoto">Caricamento…</p></div>
+    </div>
+  </section>
+
   <section id="scheda-profilo" class="scheda">
     <div id="profilo-abbonamento" style="display:none">
     <div class="card">
@@ -1026,7 +1084,16 @@
         <div><label for="smtp-user">Indirizzo email *</label><input id="smtp-user" type="email" placeholder="nome@tuodominio.it"></div>
         <div><label for="smtp-pass">Password</label><input id="smtp-pass" type="password" placeholder="lascia vuoto per non cambiarla"></div>
         <div><label for="smtp-from">Nome mittente (facoltativo)</label><input id="smtp-from" placeholder="es. il tuo nome o studio"></div>
+        <div>
+          <label for="avvisi-email">Avvisami per email quando WhatsApp si scollega</label>
+          <input id="avvisi-email" type="email" placeholder="lascia vuoto per non ricevere avvisi">
+        </div>
       </div>
+      <p class="conteggio" style="margin:6px 0 10px">
+        A quell'indirizzo arriva un messaggio quando il collegamento con WhatsApp cade, e un
+        altro quando torna. L'avviso parte usando l'account di posta qui sopra: se l'email non
+        è configurata, l'avviso non può partire.
+      </p>
       <button class="btn" id="btn-salva-smtp">Salva impostazioni</button>
       <button class="btn btn-secondario" id="btn-test-smtp">Prova connessione</button>
       <span id="smtp-stato" class="conteggio" style="margin-left:8px"></span>
@@ -2834,6 +2901,75 @@ async function aggiornaProfilo() {
 
 // Il pulsante in alto a destra apre la scheda Profilo, che nel menu resta nascosta.
 $('#badge-profilo').addEventListener('click', () => vaiScheda('profilo'));
+
+// ---- Le notifiche ----
+// ⚠️ Non una tabella nuova: le cose da sapere sono GIÀ in archivio, sparse in
+// cinque posti. Il guasto era che nessuno le guardava tutte insieme — per
+// accorgersi di un cliente che aspetta da un'ora bisognava aprire tre schede e
+// sapere cosa cercare.
+const SEGNI_NOTIFICA = {
+  whatsapp: '📵', attesa: '💬', frase: '❓', invio: '📤', stop: '🚫',
+};
+
+async function caricaNotifiche() {
+  const box = $('#elenco-notifiche');
+  let d;
+  try {
+    d = await (await fetch('/api/notifiche')).json();
+  } catch {
+    box.innerHTML = '<p class="vuoto">Non riesco a leggere le notifiche.</p>';
+    return;
+  }
+  if (!d.lista || !d.lista.length) {
+    box.innerHTML = '<p class="vuoto">✅ Tutto a posto: non c\'è niente che richieda la tua attenzione.</p>';
+    return;
+  }
+  box.innerHTML = d.lista.map((n, i) => `
+    <button class="notifica ${n.urgenza}" data-riga="${i}">
+      <span class="segno">${SEGNI_NOTIFICA[n.tipo] || '•'}</span>
+      <span class="dentro">
+        <span class="che">${testoSicuro(n.titolo)}</span>
+        <span class="perche">${testoSicuro(n.dettaglio || '')}</span>
+        ${n.quando ? `<span class="quando">${testoSicuro(n.quando)}</span>` : ''}
+      </span>
+    </button>`).join('');
+  // ⚠️ La destinazione si legge dai DATI, non si scrive nell'HTML: un «onclick»
+  // costruito con dentro il testo del cliente è il modo classico di farsi
+  // portare via la pagina da una virgoletta.
+  box.querySelectorAll('.notifica').forEach((b) => {
+    const n = d.lista[Number(b.dataset.riga)];
+    b.addEventListener('click', () => {
+      if (!n || !n.scheda) return;
+      vaiScheda(n.scheda);
+      if (n.sotto) setTimeout(() => {
+        const t = document.querySelector(`#pren-sotto-nav button[data-sotto="${n.sotto}"]`);
+        if (t) t.click();
+      }, 60);
+    });
+  });
+}
+
+// Il numero sulla campanella. Gira da solo: le cose da sapere arrivano mentre
+// si sta guardando un'altra scheda, ed è lì che servono.
+async function aggiornaCampanella() {
+  try {
+    const d = await (await fetch('/api/notifiche')).json();
+    const b = $('#badge-notifiche');
+    const c = $('#conta-notifiche');
+    b.style.display = 'flex';
+    c.hidden = !d.quante;
+    c.textContent = d.quante > 99 ? '99+' : String(d.quante);
+    c.classList.toggle('urgente', d.urgenti > 0);
+    b.title = d.quante
+      ? `${d.quante} ${d.quante === 1 ? 'cosa' : 'cose'} da guardare`
+      : 'Notifiche — niente da guardare';
+  } catch {}
+}
+
+$('#badge-notifiche').addEventListener('click', () => { vaiScheda('notifiche'); caricaNotifiche(); });
+$('#notifiche-aggiorna').addEventListener('click', () => { caricaNotifiche(); aggiornaCampanella(); });
+aggiornaCampanella();
+setInterval(aggiornaCampanella, 60 * 1000);
 $('#btn-chiedi-rinnovo').addEventListener('click', apriRichiestaRinnovo);
 
 $('#btn-rinnova').addEventListener('click', async () => {
@@ -3900,6 +4036,7 @@ async function caricaImpostazioniEmail() {
   $('#smtp-port').value = s.port;
   $('#smtp-user').value = s.user;
   $('#smtp-from').value = s.from_name;
+  $('#avvisi-email').value = s.avvisi_email || '';
   $('#smtp-pass').placeholder = s.hasPassword ? 'salvata — lascia vuoto per non cambiarla' : 'inserisci la password';
   const st = $('#smtp-stato');
   if (s.verified) { st.textContent = '✓ verificata e funzionante'; st.style.color = 'var(--ok-testo)'; }
@@ -3927,6 +4064,7 @@ $('#btn-salva-smtp').addEventListener('click', async () => {
       host: $('#smtp-host').value, port: $('#smtp-port').value,
       user: $('#smtp-user').value, pass: $('#smtp-pass').value,
       from_name: $('#smtp-from').value,
+      avvisi_email: $('#avvisi-email').value,
     }),
   });
   const data = await res.json();
