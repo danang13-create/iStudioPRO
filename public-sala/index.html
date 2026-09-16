@@ -40,6 +40,7 @@
     --verde: #25d366; --verde-scuro: #128c7e; --verde-premuto: #0f7a6d;
     --sfondo: #f0f2f5; --carta: #ffffff; --testo: #111b21; --grigio: #667781;
     --rosso: #ea4335; --bordo: #e0e4e8;
+    --spia-viva: #1a9e4b;         /* il pallino della spia quando il bot risponde */
     --oggi: #eafff2;              /* il giorno di oggi, e il verde appena acceso */
     --avviso-fondo: #fff4e5; --avviso-bordo: #ffd8a8; --avviso-testo: #8a4b00;
     --nota-fondo: #fff4d6; --nota-testo: #5a4212; --nota-bordo: #e6d3a3;
@@ -67,6 +68,8 @@
     --verde: #2bd66b; --verde-scuro: #0e6b61; --verde-premuto: #0a554d;
     --sfondo: #10171c; --carta: #1a232a; --testo: #e6edf3; --grigio: #9bacb8;
     --rosso: #ff6b5e; --bordo: #2b3740;
+    /* Col fondo scuro il verde di iOS sparisce: qui ne serve uno più chiaro. */
+    --spia-viva: #3ddc84;
     --oggi: #12332a;
     --avviso-fondo: #3a2d18; --avviso-bordo: #6b5220; --avviso-testo: #ffc978;
     --nota-fondo: #3a2f14; --nota-testo: #f0dfb0; --nota-bordo: #6b5a24;
@@ -112,18 +115,40 @@
      su quella dopo: tre comandi in ordine sparso che nessuno collega più fra loro. */
   .frecce { display: flex; align-items: center; gap: 8px; }
   .conteggio { color: var(--grigio); font-size: .84rem; }
+  .solo-per-chi-ascolta {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  #nuova { display: inline-flex; align-items: center; gap: 7px; }
+  #nuova svg { width: 17px; height: 17px; flex: none; }
   /* La spia: un pallino e una parola. Il pallino da solo non basta — chi non
      distingue il rosso dal verde vedrebbe due tondi uguali — quindi il colore
      non è mai l'unica cosa che lo dice. */
   .spia { display: inline-flex; align-items: center; gap: 7px; }
   .spia i { width: 9px; height: 9px; border-radius: 50%; background: var(--grigio);
             flex: none; display: block; }
-  .spia.viva i { background: #34c759; }
+  .spia.viva i { background: var(--spia-viva); }
   .spia.giu i { background: var(--rosso); }
-  /* ⚠️ Quando è giù il tasto si vede da lontano: in sala, di sera, di sfuggita.
-     Quando va, resta un tasto qualunque — sennò è rumore fisso. */
-  .spia.giu { background: var(--rosso); border-color: var(--rosso); color: #fff; }
+  /* ⚠️ La pastiglia NON è più l'allarme: quello lo fa la barra appiccicata in
+     cima. Qui basta il pallino e una parola. Riempirla di rosso mangiava metà
+     della testata e accorciava il nome del locale a «VER…» per dire una cosa
+     che la barra dice già meglio e più in grande. */
+  .spia.giu { border-color: var(--rosso); color: var(--rosso); font-weight: 700; }
   .spia.viva { cursor: default; }
+  /* Non sappiamo come sta: il computer del ristorante non risponde. */
+  .spia.muta i { background: var(--grigio); }
+  .spia.muta { opacity: .75; cursor: default; }
+  #wa-giu[hidden] { display: none; }
+  #wa-giu {
+    position: sticky; top: 0; z-index: 200; display: flex; gap: 12px; align-items: center;
+    flex-wrap: wrap; justify-content: center; background: var(--giu-fondo); color: var(--giu-testo);
+    border-bottom: 1px solid var(--giu-bordo); padding: 10px 14px; font-size: .88rem;
+    font-weight: 600;
+  }
+  #wa-giu button {
+    border: 1px solid var(--giu-bordo); background: var(--carta); color: var(--giu-testo); border-radius: 8px;
+    padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer; min-height: 44px;
+  }
   #qr-velo { position: fixed; inset: 0; background: rgba(0,0,0,.55);
              display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 60; }
   #qr-velo[hidden] { display: none; }
@@ -380,22 +405,42 @@
        riga. Con «flex: 1» i due tasti si dividevano la riga con il titolo, e
        «+ Nuova» restava largo quanto una parola e alto due righe: «+» sopra e
        «Nuova» sotto — visto in una foto dalla sala.
-       Adesso le righe sono due, e ognuna ha un mestiere:
-         riga 1   «Prenotazioni»  «VERO Omakase»  ·  [A]
-         riga 2   [         + Nuova, tutta larga         ]
-       Il nome del locale si accorcia con i puntini invece di spingere fuori il
-       quadratino; il tasto che si preme cento volte a sera è una barra intera,
-       alta 48, che si prende col pollice senza guardare. */
-    header { row-gap: 10px; }
+       Dal 16 settembre 2026 la riga è UNA, per scelta sua: titolo, nome del
+       locale, spia di WhatsApp, «nuova» e tema tutti in linea. Ci sta solo
+       togliendo la PAROLA a «Nuova prenotazione» — ne restano 350 di larghezza
+       utile e con l'etichetta ne servivano 490. Il prezzo è dichiarato: un
+       disegno da solo non dice cosa aggiunge. Perciò restano il bersaglio
+       grande, il nome per chi ascolta e il nome toccando e tenendo.
+       ⚠️ E il nome del locale è l'unica cosa che si accorcia: ha «flex: 1» e i
+       puntini, quindi cede lui invece di spingere fuori un tasto. Le due volte
+       che questa testata è andata storta — il quadratino su una terza riga,
+       «+» sopra e «Nuova» sotto — era sempre per la stessa ragione: qualcosa
+       che non cede. */
+    /* ⚠️ Meno cornice e meno spazi: a 360 — un Android comunissimo — mancavano
+       DUE pixel e la riga andava a capo lo stesso. Venti pixel di imbottitura
+       per lato su uno schermo da 360 sono la prima cosa da cui prenderli. */
+    header { row-gap: 10px; gap: 6px; padding-left: 14px; padding-right: 14px; }
     header h1 { font-size: 1.05rem; }
-    /* Il nome si accorcia già da sé (regola qui sopra); qui sparisce solo lo
-       spaziatore, che su due righe non serve più. */
     header .spazio { display: none; }
-    /* Qui «Nuova» sta su un'altra riga: il quadratino non deve più stargli
-       pari, e da solo accanto al titolo può essere un bersaglio pieno. */
-    #tema { order: 4; height: 44px; }
-    header #nuova { order: 5; flex: 0 0 100%; width: 100%;
-                    min-height: 48px; padding: 13px; font-size: 1rem; }
+    #tema { height: 44px; }
+    /* ⚠️ Bersaglio pieno anche senza parola: si preme cento volte a sera, di
+       fretta, spesso con l'altra mano occupata. Rimpicciolirlo perché «tanto
+       è un'icona» sarebbe pagare due volte la stessa scelta. */
+    header #nuova { flex: 0 0 auto; width: 48px; min-width: 48px; height: 48px;
+                    padding: 0; justify-content: center; }
+    header #nuova .etichetta { position: absolute; width: 1px; height: 1px;
+                               overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    header #nuova svg { width: 22px; height: 22px; }
+    /* La spia accanto: parola corta, che a 390 ogni pixel conta. */
+    #spia-wa { padding: 6px 9px; }
+    /* ⚠️ La barra dell'allarme andava a capo TRE volte: la frase su due righe
+       e «Ricollega» su una terza, tutta sola in mezzo — 109 pixel per dire una
+       cosa sola. Il testo si prende quello che resta, il tasto gli sta accanto.
+       La frase NON si accorcia: «il bot non risponde ai clienti» è la parte che
+       dice perché importa, ed è quella che fa alzare qualcuno dalla sedia. */
+    #wa-giu, #sala-giu { justify-content: space-between; gap: 10px; padding: 9px 14px; text-align: left; }
+    #wa-giu > span, #sala-giu > span { flex: 1; min-width: 0; }
+    #wa-giu button, #sala-giu button { flex: 0 0 auto; padding: 8px 12px; }
     /* La striscia della settimana sul telefono sta in comune/planning.css:
        vale per la sala e per la piattaforma, che avevano lo stesso problema. */
     /* Meno cornice, più contenuto: 18px di imbottitura per lato su 390 di
@@ -537,11 +582,30 @@
   <span id="sala-giu-testo"></span>
   <button type="button" id="sala-giu-aggiorna">Aggiorna</button>
 </div>
+<!-- ⚠️ L'allarme di WhatsApp. Sta QUI, appiccicato in cima, e non in testata:
+     la testata scorre via, e durante il servizio il tablet sta giù sull'elenco
+     della serata — cioè la spia sparirebbe proprio mentre si lavora. Una
+     rassicurazione può scorrere via, un allarme no. Stesso posto e stessi
+     colori della barra qui sopra: chi ci lavora impara UN punto da guardare. -->
+<div id="wa-giu" hidden role="alert">
+  <span>⚠️ WhatsApp non è collegato: il bot non risponde ai clienti.</span>
+  <button type="button" id="wa-giu-ricollega">Ricollega</button>
+</div>
 <header>
   <h1>Prenotazioni</h1>
   <span class="quale" id="quale-locale"></span>
   <span class="spazio"></span>
-  <button class="btn btn-piccolo" id="nuova">Nuova prenotazione</button>
+  <!-- ⚠️ Sul telefono resta la sola icona, e la parola si nasconde AGLI OCCHI,
+       non a chi ascolta: il nome del tasto se lo porta dentro. È il tasto più
+       premuto della pagina e un disegno da solo non dice cosa aggiunge, quindi
+       il bersaglio resta grande (48×48) e il nome esce toccando e tenendo. -->
+  <button class="btn btn-piccolo" id="nuova" title="Nuova prenotazione">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/>
+      <path d="M12 12.5v5M9.5 15h5"/>
+    </svg><span class="etichetta">Nuova prenotazione</span>
+  </button>
   <!-- Il tema, a portata di pollice. Sta in sala e non solo in «Impostazioni»
        perché chi si accorge che lo schermo dà fastidio è chi è lì alle nove di
        sera, non chi apre la piattaforma la mattina dopo. Un tocco, tre modi. -->
@@ -1523,6 +1587,8 @@ function segnalaLineaViva() {
   rientrato = true;
   const barra = $('#sala-giu');
   if (barra) barra.hidden = true;
+  // Torniamo a saperlo: la spia riprende a dire qualcosa di vero.
+  ridisegnaSpia();
 }
 
 function segnalaBuco() {
@@ -1531,6 +1597,19 @@ function segnalaBuco() {
   if (buchiDiFila < BUCHI_PRIMA_DI_DIRLO) return;
   laLineaEGiu = true;
   scriviLineaGiu();
+  // ⚠️ Da adesso non sappiamo più come sta WhatsApp: via la barra e spia in
+  // grigio. Sennò resterebbe un allarme acceso su un dato vecchio, accanto a
+  // un altro allarme — e chi legge non saprebbe a quale credere.
+  ridisegnaSpia();
+}
+
+// Ridisegna con l'ULTIMO stato conosciuto: serve quando a cambiare non è lo
+// stato di WhatsApp ma il fatto che lo si possa sapere o no.
+function ridisegnaSpia() {
+  const ultimo = spiaDisegnata ? String(spiaDisegnata).split('|')[0] : null;
+  if (ultimo === null) return;
+  spiaDisegnata = null;
+  mostraSpiaWhatsApp(ultimo);
 }
 
 function scriviLineaGiu() {
@@ -1657,20 +1736,37 @@ function mostraSpiaWhatsApp(stato) {
   // elemento con `aria-live` vuol dire far ripetere «WhatsApp» a un lettore di
   // schermo quindici volte al minuto, per tutta la sera. E un tasto che si
   // ridisegna di continuo è un tasto che sfugge sotto il dito.
-  if (stato === spiaDisegnata) return;
-  spiaDisegnata = stato;
+  // ⚠️ Nel conto entra anche la linea col computer: la stessa risposta
+  // «non collegato» va disegnata in due modi diversi a seconda che noi lo
+  // sappiamo o no.
+  const chiave = `${stato}|${laLineaEGiu}`;
+  if (chiave === spiaDisegnata) return;
+  spiaDisegnata = chiave;
   const b = $('#spia-wa');
   const t = $('#spia-wa-testo');
   const collegato = stato === 'connesso';
-  whatsappGiu = !collegato;
-  b.classList.toggle('viva', collegato);
-  b.classList.toggle('giu', !collegato);
-  t.textContent = collegato ? 'WhatsApp' : 'WhatsApp giù';
-  b.title = collegato
-    ? 'WhatsApp è collegato: il bot risponde ai clienti'
-    : 'WhatsApp non è collegato: il bot non risponde. Premi per ricollegarlo.';
+  // ⚠️ Se il computer del ristorante non risponde, quello che sappiamo di
+  // WhatsApp è VECCHIO: dire «non è collegato» sarebbe affermare una cosa che
+  // non possiamo sapere — e sarebbero due barre rosse impilate per due guasti
+  // di cui uno inventato. Si dice «non lo so», che è la verità.
+  const sappiamo = !laLineaEGiu;
+  whatsappGiu = !collegato && sappiamo;
+  b.classList.toggle('viva', collegato && sappiamo);
+  b.classList.toggle('giu', whatsappGiu);
+  b.classList.toggle('muta', !sappiamo);
+  // ⚠️ Niente «giù»: si legge come «WhatsApp (il servizio) è fuori uso», che
+  // è un'altra cosa e col QR non si risolve. E la parola cambia comunque fra i
+  // due stati: se dicessero lo stesso, l'unica differenza resterebbe il colore.
+  t.textContent = !sappiamo ? 'WhatsApp' : (collegato ? 'WhatsApp' : 'Ricollega');
+  b.title = !sappiamo
+    ? 'Non si sa: il computer del ristorante non risponde'
+    : (collegato
+      ? 'WhatsApp è collegato: il bot risponde ai clienti'
+      : 'WhatsApp non è collegato: il bot non risponde. Premi per ricollegarlo.');
   // Il tasto si preme solo quando serve davvero.
-  b.setAttribute('aria-disabled', collegato ? 'true' : 'false');
+  b.setAttribute('aria-disabled', whatsappGiu ? 'false' : 'true');
+  // E l'allarme vero: la barra in cima, che non scorre via.
+  $('#wa-giu').hidden = !whatsappGiu;
 }
 
 let giroQr = null;
@@ -1715,6 +1811,7 @@ function chiudiQr() {
   clearInterval(giroQr); giroQr = null;
 }
 $('#spia-wa').addEventListener('click', () => { if (whatsappGiu) apriQr(); });
+$('#wa-giu-ricollega').addEventListener('click', apriQr);
 $('#qr-chiudi').addEventListener('click', chiudiQr);
 $('#qr-velo').addEventListener('click', (e) => { if (e.target === $('#qr-velo')) chiudiQr(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#qr-velo').hidden) chiudiQr(); });
