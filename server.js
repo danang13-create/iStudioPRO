@@ -3667,15 +3667,32 @@ async function messaggioDelPersonale(persona, testo, msg) {
       return;
     }
     const cfg = bot.config(db);
-    // Il prefisso presenta chi scrive, e si manda SOLO la prima volta: dalla
+    // La presentazione dice chi scrive, e si manda SOLO la prima volta: dalla
     // seconda in poi il cliente sa già con chi sta parlando, e rivederselo a
     // ogni riga fa sembrare che dall'altra parte non ci sia nessuno.
     const giaSua = rich.presa_da === (persona.chat_id || persona.telefono);
-    const prefisso = giaSua
+    const presentazione = giaSua
       ? '' : bot.riempi(cfg.bot_t_prefisso_umano, { nome: persona.nome, locale: cfg.bot_locale });
+    // ⚠️ DUE messaggi, non uno solo con la presentazione incollata sopra.
+    // Attaccata con un «a capo» sembrava che l'operatore avesse scritto tutto
+    // insieme — «Sei in contatto con Daniele del team VERO Omakase. / ciao» in
+    // una bolla sola — e la sua prima parola si perdeva dentro un cartello del
+    // programma. Su WhatsApp la bolla è l'unità di lettura: l'annuncio è del
+    // sistema, la risposta è della persona, e sono due cose diverse.
+    if (presentazione) {
+      // ⚠️ Se l'annuncio non parte, la risposta deve partire LO STESSO: è
+      // quella che il cliente sta aspettando. Perdere il contenuto per colpa
+      // della cornice sarebbe il baratto sbagliato.
+      try {
+        await rispondiConRitmo(rich.chat_id || rich.telefono, presentazione);
+      } catch (e) {
+        console.error('Bot: la presentazione non è partita:', e.message);
+        annota('avviso', `${codice}: presentazione non partita, la risposta parte comunque`);
+      }
+    }
     // Si risponde all'INDIRIZZO della conversazione, non a un numero
     // ricomposto: è l'unico modo che funziona con tutti i formati di WhatsApp.
-    await rispondiConRitmo(rich.chat_id || rich.telefono, prefisso ? `${prefisso}\n${risposta}` : risposta);
+    await rispondiConRitmo(rich.chat_id || rich.telefono, risposta);
     db.prepare("UPDATE bot_richieste SET stato = 'risposta', risposta = ?, risposta_at = datetime('now','localtime'), risposta_da = ? WHERE id = ?")
       .run(risposta, persona.nome, rich.id);
     // Chi ha risposto ha preso in carico la conversazione: il bot tace.
