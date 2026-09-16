@@ -3317,10 +3317,25 @@ function annota(evento, dettaglio) {
 //
 //  E non è un danno che si recupera: il promemoria di una serata lo si manda
 //  il giorno prima o mai più.
-function motivoPerCuiNonSiManda() {
+// ⚠️ DUE cancelli, e vanno tenuti distinti. Questo qui è quello che ferma
+// TUTTO, su qualunque strada: il motore che non c'è, l'abbonamento che non
+// comprende il bot, il bot spento dal ristorante. Sono decisioni, non guasti
+// passeggeri, e non si aggirano.
+function motivoPerCuiNonSiFaNiente() {
   if (!botDisponibile()) return 'il motore del bot non è caricato';
   if (!botConcesso()) return "il bot non è compreso in questo abbonamento, o l'abbonamento è scaduto";
   if (!bot.boolDi(bot.leggi(db, 'bot_attivo'))) return 'il bot è spento';
+  return '';
+}
+
+// Questo invece è il cancello di WHATSAPP: comprende quello qui sopra e ci
+// aggiunge lo stato della linea. Chi manda un messaggio in chat passa di qui.
+// ⚠️ Chi manda un'EMAIL no: la posta non c'entra niente col telefono, e
+// resta l'unica via che funziona quando l'altra è caduta — lo stesso
+// ragionamento dell'avviso di scollegamento.
+function motivoPerCuiNonSiManda() {
+  const sempre = motivoPerCuiNonSiFaNiente();
+  if (sempre) return sempre;
   // ⚠️ L'avvio NON è un guasto. Nei primi secondi dopo un riavvio WhatsApp è
   // sempre «in inizializzazione»: dirlo vorrebbe dire un falso allarme nel
   // registro a ogni accensione, e un registro che grida al lupo non lo legge
@@ -4438,7 +4453,11 @@ async function fermaTutto(chiave, telefono, nomeChat) {
 // confonderli vorrebbe dire far perdere il tavolo a chi non voleva la
 // pubblicità. Chi ha scritto STOP a QUESTO bot, invece, no: a lui è stato
 // promesso che non gli si scrive più.
-function promemoriaDaMandare(cfg, adesso) {
+// `conEmail` dice se in questo momento un'email di promemoria può davvero
+// partire. Se non può, quel canale non conta come «ancora da fare»: sennò ogni
+// prenotazione già avvisata su WhatsApp resterebbe candidata per sempre, e il
+// giro del minuto la ripescherebbe all'infinito senza mai combinare niente.
+function promemoriaDaMandare(cfg, adesso, conEmail = false) {
   if (!bot.boolDi(cfg.bot_promemoria_attivo)) return [];
 
   // Non prima dell'ora scelta. Un promemoria alle 7 del mattino non lo legge
@@ -4468,9 +4487,15 @@ function promemoriaDaMandare(cfg, adesso) {
   // sempre: il giorno dopo non era nemmeno più candidato, e nessuno lo sapeva.
   // Adesso si prende tutta la finestra da oggi al giorno giusto, e più sotto si
   // decide chi è nei tempi e chi è da recuperare.
+  // ⚠️ «Ancora da fare» vuol dire: manca WhatsApp, OPPURE manca l'email a chi
+  // l'indirizzo ce l'ha. Con una condizione sola su `promemoria_at`, un invio
+  // WhatsApp riuscito faceva sparire la riga e l'email non partiva mai.
+  const daFare = conEmail
+    ? "(promemoria_at IS NULL OR (COALESCE(email, '') <> '' AND promemoria_email_at IS NULL))"
+    : 'promemoria_at IS NULL';
   const righe = db.prepare(
     "SELECT * FROM prenotazioni WHERE data >= ? AND data <= ? AND stato = 'confermata' "
-    + "AND promemoria_at IS NULL AND creata_at <= ? ORDER BY data, ora, id"
+    + `AND ${daFare} AND creata_at <= ? ORDER BY data, ora, id`
   ).all(oggiStr, quando, nonAppena);
   if (!righe.length) return [];
 
@@ -4501,9 +4526,13 @@ function promemoriaDaMandare(cfg, adesso) {
       if (r.data === oggiStr && bot.inMinuti(r.ora) - adessoMin < ANTICIPO_RECUPERO) continue;
       r.inRitardo = true;
     } else if (giorni === 0 && bot.inMinuti(r.ora) - adessoMin < ANTICIPO_MINIMO) continue;
-    // Senza un indirizzo non si manda niente: è una prenotazione presa al
-    // banco senza numero. Non è un guasto, ma va detto — vedi mandaPromemoria.
-    if (!r.chat_id && !r.telefono && !r.telefono_contatto) continue;
+    // Senza NESSUN recapito non si manda niente: è una prenotazione presa al
+    // banco senza niente. Non è un guasto, ma va detto — vedi mandaPromemoria.
+    // ⚠️ L'email conta come recapito: chi ha lasciato solo l'indirizzo è
+    // raggiungibile eccome, e prima veniva scartato qui senza che nessuno lo
+    // sapesse.
+    const haEmail = conEmail && String(r.email || '').trim() !== '';
+    if (!r.chat_id && !r.telefono && !r.telefono_contatto && !haEmail) continue;
     if (bot.haDettoBasta(db, r.chat_id || r.telefono, r.telefono_contatto || r.telefono)) continue;
     // Lo stesso numero alla stessa ora dello stesso giorno è una prenotazione
     // doppia, non due tavoli: un messaggio solo. Due tavoli a ore diverse — o
@@ -4513,7 +4542,12 @@ function promemoriaDaMandare(cfg, adesso) {
     // finestra copre più giorni, e senza il giorno la cena di domani dello
     // stesso cliente veniva scambiata per un doppione di quella di stasera —
     // e il suo promemoria non partiva. Trovato da una prova, non da un cliente.
-    const chiave = `${normalizePhone(r.telefono_contatto || r.telefono || r.chat_id)}@${r.data}@${r.ora}`;
+    // ⚠️ Chi ha lasciato solo l'email non ha un numero da normalizzare: senza
+    // il ripiego sull'indirizzo, due clienti diversi allo stesso turno avevano
+    // la stessa chiave («@data@ora») e il secondo spariva.
+    const recapito = normalizePhone(r.telefono_contatto || r.telefono || r.chat_id)
+      || String(r.email || '').trim().toLowerCase();
+    const chiave = `${recapito}@${r.data}@${r.ora}`;
     if (gia.has(chiave)) continue;
     gia.add(chiave);
     scelte.push(r);
@@ -4521,12 +4555,65 @@ function promemoriaDaMandare(cfg, adesso) {
   return scelte;
 }
 
+// L'email che ricorda il tavolo. Stesso testo di WhatsApp — è la stessa cosa
+// da dire — dentro la stessa cornice dell'email di riepilogo, così chi ha messo
+// il logo e il modello se li ritrova anche qui senza fare niente.
+// Torna `true` se è partita, `'lascia perdere'` se non partirà MAI (indirizzo
+// scritto male), `false` se magari più tardi sì.
+// ⚠️ La distinzione non è pedanteria: questo gira ogni minuto. Un indirizzo
+// scritto male non diventerà buono da solo, e senza «lascia perdere» quella
+// riga sarebbe stata ripescata sessanta volte all'ora, per sempre, senza che
+// partisse niente e senza che nessuno lo sapesse.
+async function emailDiPromemoria(cfg, p, testo) {
+  const dove = String(p.email || '').trim();
+  if (!dove) return 'lascia perdere';
+  if (!EMAIL_RE.test(dove)) {
+    annota('errore', `promemoria: l'email di ${bot.nomeInSala(p)} è scritta male (${dove})`);
+    return 'lascia perdere';
+  }
+  const transporter = buildTransporter();
+  if (!transporter) return false;
+  const valori = {
+    nome: p.nome || '', cognome: p.cognome || '',
+    data: bot.dataItaliana(p.data), ora: p.ora || '', persone: p.persone,
+    locale: cfg.bot_locale || '',
+  };
+  const oggetto = bot.riempi(cfg.bot_t_promemoria_oggetto, valori).replace(/\n/g, ' ').trim()
+    || 'Promemoria della tua prenotazione';
+  const logo = leggiImmagine(cfg.bot_email_logo);
+  await transporter.sendMail({
+    from: (getSetting('smtp_from_name') || cfg.bot_locale)
+      ? `"${getSetting('smtp_from_name') || cfg.bot_locale}" <${getSetting('smtp_user')}>`
+      : getSetting('smtp_user'),
+    to: dove,
+    subject: oggetto,
+    text: testo,
+    html: corpoEmailRiepilogo(cfg, valori, testo, !!logo),
+    attachments: logo
+      ? [{ filename: 'logo.png', content: Buffer.from(logo.base64, 'base64'), cid: 'logo-istudio' }]
+      : undefined,
+  });
+  return true;
+}
+
 async function mandaPromemoria(adesso = new Date()) {
+  // ⚠️ Il cancello di WhatsApp non ferma più TUTTO. Quello che ferma tutto
+  // è l'altro — motore, abbonamento, bot spento — e si guarda per primo.
+  const mai = motivoPerCuiNonSiFaNiente();
+  if (mai) { lavoriFermi(mai); return 0; }
   const perche = motivoPerCuiNonSiManda();
-  if (perche) { lavoriFermi(perche); return 0; }
-  lavoriRipartiti();
+  const whatsappVa = !perche;
+  if (perche) lavoriFermi(perche); else lavoriRipartiti();
+
   const cfg = bot.config(db);
-  const scelte = promemoriaDaMandare(cfg, adesso);
+  // L'email di promemoria segue l'interruttore delle email di prenotazione: è
+  // lo stesso canale, e due interruttori per la stessa cosa si contraddicono.
+  const emailVa = bot.boolDi(cfg.bot_email_attiva) && Boolean(buildTransporter());
+  // ⚠️ Se tutte e due le strade sono chiuse non si fa un giro a vuoto: senza
+  // questo, a WhatsApp scollegato e email spenta il programma avrebbe riletto
+  // ogni prenotazione ogni minuto per non mandare niente.
+  if (!whatsappVa && !emailVa) return 0;
+  const scelte = promemoriaDaMandare(cfg, adesso, emailVa);
   if (!scelte.length) return 0;
 
   // ⚠️ Niente tetto giornaliero, al contrario della recensione. Là il tetto
@@ -4534,23 +4621,46 @@ async function mandaPromemoria(adesso = new Date()) {
   // riceve, e saltarne uno vuol dire un tavolo vuoto. Il ritmo lo mette
   // inviaConRitmo, che è dove deve stare.
   const segna = db.prepare("UPDATE prenotazioni SET promemoria_at = datetime('now','localtime') WHERE id = ?");
+  const segnaEmail = db.prepare("UPDATE prenotazioni SET promemoria_email_at = datetime('now','localtime') WHERE id = ?");
   let mandati = 0;
   let falliti = 0;
   let recuperati = 0;
+  let perEmail = 0;
+  let emailFallite = 0;
   for (const r of scelte) {
     const testo = bot.riempi(cfg.bot_t_promemoria, {
       nome: r.nome || '', cognome: r.cognome || '',
       locale: cfg.bot_locale || 'noi', assistente: cfg.bot_assistente || '',
       data: bot.dataItaliana(r.data), ora: r.ora, persone: r.persone,
     });
-    try {
-      await inviaConRitmo(r.chat_id || r.telefono, testo);
-      // Si segna solo DOPO l'invio riuscito: segnarlo prima vorrebbe dire
-      // perdere per sempre il promemoria di chi non l'ha mai ricevuto.
-      segna.run(r.id);
-      mandati++;
-      if (r.inRitardo) recuperati++;
-    } catch (e) { falliti++; console.error('Bot:', e.message); }
+    // ⚠️ WhatsApp: si guarda anche `telefono_contatto`. Il filtro più su
+    // teneva buona una prenotazione che aveva SOLO quello, e poi qui si
+    // spediva a `chat_id || telefono` — cioè a una stringa vuota. Il
+    // promemoria risultava «non partito» e nessuno capiva perché: il numero
+    // c'era, scritto in un'altra colonna.
+    const aChi = r.chat_id || r.telefono || r.telefono_contatto;
+    if (whatsappVa && !r.promemoria_at && aChi) {
+      try {
+        await inviaConRitmo(aChi, testo);
+        // Si segna solo DOPO l'invio riuscito: segnarlo prima vorrebbe dire
+        // perdere per sempre il promemoria di chi non l'ha mai ricevuto.
+        segna.run(r.id);
+        mandati++;
+        if (r.inRitardo) recuperati++;
+      } catch (e) { falliti++; console.error('Bot:', e.message); }
+    }
+    // ⚠️ E l'email, che è una strada a parte: ha la sua colonna e i suoi
+    // guasti. Va anche a chi ha già ricevuto WhatsApp — è la scelta fatta, la
+    // stessa dell'email di riepilogo — e parte pure a linea caduta.
+    if (emailVa && !r.promemoria_email_at && String(r.email || '').trim()) {
+      try {
+        const esito = await emailDiPromemoria(cfg, r, testo);
+        // Si segna anche il «lascia perdere»: non è partita e non partirà, e
+        // lasciarla in sospeso vorrebbe dire riprovarla ogni minuto per sempre.
+        if (esito) segnaEmail.run(r.id);
+        if (esito === true) perEmail++;
+      } catch (e) { emailFallite++; console.error('Bot: promemoria via email:', e.message); }
+    }
   }
   // ⚠️ Quelli che non sono partiti vanno DETTI. Un promemoria che non arriva è
   // esattamente il tavolo che poi non si presenta, e il locale deve poter
@@ -4568,7 +4678,15 @@ async function mandaPromemoria(adesso = new Date()) {
       + 'quel giorno il promemoria non era partito');
   }
   if (falliti) annota('errore', `${falliti} promemoria non partiti: quei tavoli non sono stati avvisati`);
-  return mandati;
+  if (perEmail) annota('promemoria', `e ${perEmail} anche via email`);
+  // ⚠️ Un'email di promemoria che non parte va detta come le altre. È il
+  // guasto più silenzioso di tutti: su WhatsApp il messaggio non arriva e
+  // qualcuno se ne accorge, di una casella che rifiuta non si accorge nessuno.
+  if (emailFallite) {
+    annota('errore', `${emailFallite} promemoria via email non partiti: `
+      + 'quei clienti non sono stati avvisati per posta');
+  }
+  return mandati + perEmail;
 }
 
 if (botDisponibile()) {

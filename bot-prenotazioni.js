@@ -263,6 +263,11 @@ function preparaDatabase(db) {
   // sessione: senza, l'elenco dei pagamenti sarebbe un mucchio di incassi senza
   // sapere di chi sono.
   try { db.exec("ALTER TABLE prenotazioni ADD COLUMN pagamento_id TEXT NOT NULL DEFAULT ''"); } catch {}
+  // ⚠️ Il promemoria via email ha la SUA colonna. Con una sola, un invio
+  // WhatsApp riuscito avrebbe chiuso la partita anche per l'email (e
+  // viceversa): i due canali cadono per ragioni diverse — la linea di WhatsApp
+  // e la casella di posta — e uno non deve coprire il buco dell'altro.
+  try { db.exec('ALTER TABLE prenotazioni ADD COLUMN promemoria_email_at TEXT'); } catch {}
   // «chiusura» o «pieno». Le righe già scritte sono chiusure: è quello che
   // voleva dire questa tabella prima che il sold out esistesse.
   try { db.exec("ALTER TABLE bot_chiusure ADD COLUMN tipo TEXT NOT NULL DEFAULT 'chiusura'"); } catch {}
@@ -755,6 +760,10 @@ const PREDEFINITI = {
   bot_t_quale_sposta: 'Quale prenotazione vuoi cambiare?\n\n{elenco}\n\nRispondi con il numero indicato.\n',
   bot_t_gia_prenotato: '{saluto} {nome}! \nHai già una prenotazione confermata:\n\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nCosa vuoi fare?\n\n• Per spostarla a un altro giorno, scrivi CAMBIA.\n• Per annullarla, scrivi CANCELLA.\n• Per prenotare un altro tavolo, scrivi NUOVA.',
   bot_t_promemoria: 'Ciao {nome}! ✨\n\nTi ricordiamo la tua prenotazione: {data} alle {ora}, per {persone} persone.\n\nTi aspettiamo!\n{locale}',
+  // L'oggetto dell'email di promemoria. Il TESTO è lo stesso di WhatsApp qui
+  // sopra: è la stessa cosa da dire, e tenerla in due posti vorrebbe dire
+  // cambiarne uno e dimenticare l'altro.
+  bot_t_promemoria_oggetto: 'Promemoria: la tua prenotazione da {locale} — {data}',
   bot_t_recensione: 'Ciao {nome}! ✨\n\nGrazie per aver scelto {locale} e per aver condiviso con noi la tua esperienza.\n\nSe ti sei trovato bene, ci farebbe davvero piacere ricevere una recensione: il tuo parere è prezioso per noi. ❤️\n\n{link}\n\nSe non vuoi più ricevere messaggi come questo, scrivi STOP.\n\nSe invece c’è qualcosa che non è andato come avresti desiderato, scrivici direttamente qui. Saremo felici di ascoltarti.',
   bot_t_nonho_aperto: 'Non sono sicura di aver capito la tua richiesta. 😊\n\nTi metto subito in contatto con un operatore, che potrà aiutarti.',
   bot_t_nonho_chiuso: 'Non ho capito la tua richiesta. 😊\n\nHo passato il messaggio a un operatore, che ti risponderà alla riapertura del ristorante.\n\nA presto! ✨',
