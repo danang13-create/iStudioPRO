@@ -105,7 +105,20 @@
                   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   main { max-width: 1000px; margin: 0 auto;
          padding: 18px 16px calc(60px + env(safe-area-inset-bottom)); }
-  header { padding-top: calc(14px + env(safe-area-inset-top)); }
+  /* ⚠️ LO SPAZIO DELLA TACCA, e perché ha un nome. Su un telefono con la tacca
+     (o l'isola) la prima cosa in cima finisce SOTTO l'orologio e la batteria.
+     Finora ci pensava la testata, che era la prima; da quando sopra ci sono le
+     barre degli allarmi, la prima non è più lei — e la barra andava a finire
+     sotto l'orologio, col tasto «Ricollega» dietro la batteria. Visto in una
+     foto dalla sala, e NON vedibile da qui: in un browser da scrivania
+     `env(safe-area-inset-top)` vale zero, quindi la prova non poteva
+     accorgersene. Col nome, una prova può dargli un valore finto e misurare. */
+  :root { --su: env(safe-area-inset-top); }
+  header { padding-top: calc(14px + var(--su)); }
+  /* ⚠️ …e quando in cima c'è una barra, la testata NON lo deve aggiungere di
+     nuovo: lo spazio della tacca è uno solo. Contandolo due volte restava un
+     vuoto verde alto un dito sopra «Prenotazioni». */
+  body.con-barra header { padding-top: 14px; }
   .card { background: var(--carta); border: 1px solid var(--bordo); border-radius: 12px;
           padding: 18px; margin-bottom: 16px; }
   h2 { font-size: 1rem; margin-bottom: 12px; }
@@ -141,6 +154,7 @@
   #wa-giu[hidden] { display: none; }
   #wa-giu {
     position: sticky; top: 0; z-index: 200; display: flex; gap: 12px; align-items: center;
+    padding-top: calc(10px + var(--su));
     flex-wrap: wrap; justify-content: center; background: var(--giu-fondo); color: var(--giu-testo);
     border-bottom: 1px solid var(--giu-bordo); padding: 10px 14px; font-size: .88rem;
     font-weight: 600;
@@ -433,12 +447,19 @@
     header #nuova svg { width: 22px; height: 22px; }
     /* La spia accanto: parola corta, che a 390 ogni pixel conta. */
     #spia-wa { padding: 6px 9px; }
+    /* ⚠️ Col telefono, quando la barra è in cima la pastiglia se ne va: diceva
+       «Ricollega» a due centimetri da un altro tasto «Ricollega», e su 390 pixel
+       due volte la stessa cosa è spazio rubato al nome del locale. Non si perde
+       niente — in quel momento è la BARRA a dire lo stato, a parole e in
+       grande. Sul tablet restano tutte e due: lì lo spazio c'è. */
+    body.con-barra #spia-wa { display: none; }
     /* ⚠️ La barra dell'allarme andava a capo TRE volte: la frase su due righe
        e «Ricollega» su una terza, tutta sola in mezzo — 109 pixel per dire una
        cosa sola. Il testo si prende quello che resta, il tasto gli sta accanto.
        La frase NON si accorcia: «il bot non risponde ai clienti» è la parte che
        dice perché importa, ed è quella che fa alzare qualcuno dalla sedia. */
-    #wa-giu, #sala-giu { justify-content: space-between; gap: 10px; padding: 9px 14px; text-align: left; }
+    #wa-giu, #sala-giu { justify-content: space-between; gap: 10px;
+                         padding: calc(9px + var(--su)) 14px 9px; text-align: left; }
     #wa-giu > span, #sala-giu > span { flex: 1; min-width: 0; }
     #wa-giu button, #sala-giu button { flex: 0 0 auto; padding: 8px 12px; }
     /* La striscia della settimana sul telefono sta in comune/planning.css:
@@ -516,6 +537,7 @@
   #sala-giu[hidden] { display: none; }
   #sala-giu {
     position: sticky; top: 0; z-index: 201; display: flex; gap: 12px; align-items: center;
+    padding-top: calc(10px + var(--su));
     flex-wrap: wrap; justify-content: center; background: var(--giu-fondo); color: var(--giu-testo);
     border-bottom: 1px solid var(--giu-bordo); padding: 10px 14px; font-size: .88rem;
     font-weight: 600;
@@ -1587,6 +1609,7 @@ function segnalaLineaViva() {
   rientrato = true;
   const barra = $('#sala-giu');
   if (barra) barra.hidden = true;
+  aggiornaCima();
   // Torniamo a saperlo: la spia riprende a dire qualcosa di vero.
   ridisegnaSpia();
 }
@@ -1601,6 +1624,18 @@ function segnalaBuco() {
   // grigio. Sennò resterebbe un allarme acceso su un dato vecchio, accanto a
   // un altro allarme — e chi legge non saprebbe a quale credere.
   ridisegnaSpia();
+}
+
+// ⚠️ Lo spazio della tacca lo prende chi sta davvero in cima. Una funzione
+// sola che guarda TUTTE E DUE le barre: con una strada per ciascuna, una si
+// dimentica e resta un vuoto verde alto un dito — o peggio, il testo sotto
+// l'orologio. Si chiama da ogni punto che accende o spegne una barra.
+function aggiornaCima() {
+  const barre = ['sala-giu', 'wa-giu'].some((id) => {
+    const e = document.getElementById(id);
+    return e && !e.hidden;
+  });
+  document.body.classList.toggle('con-barra', barre);
 }
 
 // Ridisegna con l'ULTIMO stato conosciuto: serve quando a cambiare non è lo
@@ -1626,6 +1661,10 @@ function scriviLineaGiu() {
     : '⚠️ Non riesco a parlare col computer del ristorante.')
     + quando + ' Potrebbero esserci prenotazioni che qui non compaiono.';
   barra.hidden = false;
+  // ⚠️ DOPO averla mostrata, non prima: `aggiornaCima` guarda `hidden`, e
+  // chiamata un attimo prima leggerebbe lo stato vecchio — la barra comparirebbe
+  // senza lo spazio della tacca, cioè sotto l'orologio, proprio la prima volta.
+  aggiornaCima();
 }
 
 // Il tasto della barra. ⚠️ NON è «location.reload()»: ricaricare mentre il
@@ -1767,6 +1806,7 @@ function mostraSpiaWhatsApp(stato) {
   b.setAttribute('aria-disabled', whatsappGiu ? 'false' : 'true');
   // E l'allarme vero: la barra in cima, che non scorre via.
   $('#wa-giu').hidden = !whatsappGiu;
+  aggiornaCima();
 }
 
 let giroQr = null;
