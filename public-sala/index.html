@@ -139,20 +139,22 @@
   /* La spia: un pallino e una parola. Il pallino da solo non basta — chi non
      distingue il rosso dal verde vedrebbe due tondi uguali — quindi il colore
      non è mai l'unica cosa che lo dice. */
-  .spia { display: inline-flex; align-items: center; gap: 7px; }
-  .spia i { width: 9px; height: 9px; border-radius: 50%; background: var(--grigio);
-            flex: none; display: block; }
-  .spia.viva i { background: var(--spia-viva); }
-  .spia.giu i { background: var(--rosso); }
-  /* ⚠️ La pastiglia NON è più l'allarme: quello lo fa la barra appiccicata in
-     cima. Qui basta il pallino e una parola. Riempirla di rosso mangiava metà
-     della testata e accorciava il nome del locale a «VER…» per dire una cosa
-     che la barra dice già meglio e più in grande. */
-  .spia.giu { border-color: var(--rosso); color: var(--rosso); font-weight: 700; }
+  .spia { display: inline-flex; align-items: center; justify-content: center; }
+  /* ⚠️ ON / OFF al posto del pallino. Un tondo colorato si legge da lontano
+     ma non dice NIENTE a chi non distingue il rosso dal verde: da qui in poi il
+     colore è un rinforzo, e la parola è la cosa che porta il significato. Sta
+     dentro il quadrato come la «A» del tema, così i due restano una coppia. */
+  .spia .acceso { font-weight: 800; font-size: .72rem; letter-spacing: .02em; line-height: 1; }
+  .spia.viva .acceso { color: var(--spia-viva); }
+  .spia.giu .acceso { color: var(--rosso); }
+  .spia.muta .acceso { color: var(--grigio); }
+  /* ⚠️ La pastiglia NON è l'allarme: quello lo fa la barra appiccicata in
+     cima. Riempirla di rosso mangiava metà della testata e accorciava il nome
+     del locale a «VER…» per dire una cosa che la barra dice già più in grande. */
+  .spia.giu { border-color: var(--rosso); }
   .spia.viva { cursor: default; }
   /* Non sappiamo come sta: il computer del ristorante non risponde. */
-  .spia.muta i { background: var(--grigio); }
-  .spia.muta { opacity: .75; cursor: default; }
+  .spia.muta { opacity: .8; cursor: default; }
   #wa-giu[hidden] { display: none; }
   #wa-giu {
     position: sticky; top: 0; z-index: 200; display: flex; gap: 12px; align-items: center;
@@ -650,8 +652,10 @@
        e allora si preme e si riattacca col QR. Il guasto succede di sera, quando
        in ufficio non c'è nessuno: chi è in sala ha in mano il telefono del
        locale ed è l'unico che può rimediare. -->
-  <button class="btn btn-piccolo spia" id="spia-wa" type="button" aria-live="polite"
-          title="WhatsApp"><i></i><span class="parola" id="spia-wa-testo">WhatsApp</span></button>
+  <button class="btn btn-piccolo spia" id="spia-wa" type="button" aria-live="polite" title="WhatsApp">
+    <b class="acceso" id="spia-wa-onoff" aria-hidden="true">ON</b>
+    <span class="parola" id="spia-wa-testo">WhatsApp</span>
+  </button>
   <button class="btn btn-piccolo" id="tema" type="button" aria-live="polite"></button>
 </header>
 
@@ -1810,6 +1814,10 @@ function mostraSpiaWhatsApp(stato) {
   // è un'altra cosa e col QR non si risolve. E la parola cambia comunque fra i
   // due stati: se dicessero lo stesso, l'unica differenza resterebbe il colore.
   t.textContent = !sappiamo ? 'WhatsApp' : (collegato ? 'WhatsApp' : 'Ricollega');
+  // ⚠️ Tre stati, tre scritte: ON, OFF e «?». Il terzo non è un vezzo —
+  // quando il computer del ristorante non risponde non sappiamo se WhatsApp sia
+  // acceso o spento, e scrivere OFF sarebbe dire una cosa che non si può sapere.
+  $('#spia-wa-onoff').textContent = !sappiamo ? '?' : (collegato ? 'ON' : 'OFF');
   b.title = !sappiamo
     ? 'Non si sa: il computer del ristorante non risponde'
     : (collegato
