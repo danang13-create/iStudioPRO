@@ -192,7 +192,7 @@
   header .spazio { flex: 1; }
   /* L'ordine è scritto a mano perché sul telefono cambia: lì il quadratino del
      tema resta in alto a destra e «Nuova» scende su una riga tutta sua. */
-  header #nuova { order: 4; }
+  header #nuova { order: 3; }
   /* Quadrato, e largo come è alto: è un'icona sola, e allargarlo lo farebbe
      sembrare un secondo «Nuova».
      ⚠️ E ALTO COME «Nuova», non di più. Con 44 fissi era il tasto più grande
@@ -205,8 +205,20 @@
      ⚠️ «align-self: stretch» sembrava la strada elegante — l'altezza la
      prendeva davvero dalla riga — ma «aspect-ratio» senza un'altezza scritta
      non dà la larghezza: veniva 12 pixel per 30. Misurato. */
-  #tema { order: 5; height: 30px; width: auto; aspect-ratio: 1;
-          padding: 0; font-size: 1.05rem; line-height: 1; }
+  /* ⚠️ LA COPPIA. Spia e tema sono due quadrati IDENTICI, stessa altezza e
+     stessa larghezza, a ogni larghezza di schermo: stanno accanto e fanno lo
+     stesso mestiere — dicono uno stato e si premono. La misura sta scritta UNA
+     volta sola: se domani cambia l'altezza del tema, la spia la segue da sé
+     invece di restare indietro di quattro pixel.
+     ⚠️ La spia perde la parola ANCHE sul tablet, e non perde niente: quando
+     WhatsApp è giù c'è la BARRA a dirlo a parole, a ogni larghezza. La parola
+     resta dentro il tasto per chi ascolta, e cambia con lo stato. */
+  #tema, #spia-wa { height: 30px; width: auto; aspect-ratio: 1;
+                    padding: 0; justify-content: center; font-size: 1.05rem; line-height: 1; }
+  #tema { order: 5; }
+  #spia-wa { order: 4; }
+  #spia-wa .parola { position: absolute; width: 1px; height: 1px;
+                     overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   #tema svg { width: 18px; height: 18px; }
   #tema .lettera { font-weight: 700; font-size: 1rem; }
   header .btn:hover { background: var(--oggi); color: var(--verde-scuro); }
@@ -224,7 +236,7 @@
   @media (pointer: coarse), (max-width: 900px) {
     .btn { min-height: 44px; }
     .btn-piccolo { min-height: 40px; }
-    #tema { height: 40px; }
+    #tema, #spia-wa { height: 40px; }
     [data-togli-attesa] { min-width: 40px; min-height: 40px; }
     /* Le frecce della settimana: un carattere solo, larghe trenta pixel. */
     #sett-indietro, #sett-avanti { min-width: 44px; }
@@ -421,49 +433,39 @@
        riga. Con «flex: 1» i due tasti si dividevano la riga con il titolo, e
        «+ Nuova» restava largo quanto una parola e alto due righe: «+» sopra e
        «Nuova» sotto — visto in una foto dalla sala.
-       Dal 16 settembre 2026 la riga è UNA, per scelta sua: titolo, nome del
-       locale, spia di WhatsApp, «nuova» e tema tutti in linea. Ci sta solo
-       togliendo la PAROLA a «Nuova prenotazione» — ne restano 350 di larghezza
-       utile e con l'etichetta ne servivano 490. Il prezzo è dichiarato: un
-       disegno da solo non dice cosa aggiunge. Perciò restano il bersaglio
-       grande, il nome per chi ascolta e il nome toccando e tenendo.
-       ⚠️ E il nome del locale è l'unica cosa che si accorcia: ha «flex: 1» e i
-       puntini, quindi cede lui invece di spingere fuori un tasto. Le due volte
-       che questa testata è andata storta — il quadratino su una terza riga,
-       «+» sopra e «Nuova» sotto — era sempre per la stessa ragione: qualcosa
-       che non cede. */
+       Dal 17 settembre 2026 le righe sono due, e ognuna ha un mestiere:
+         riga 1   «Prenotazioni»  «VERO Omakase»  ·  [●]  [A]
+         riga 2   [      📅+ Nuova prenotazione, tutta larga      ]
+       Il tasto più premuto riprende la sua PAROLA — un disegno da solo non dice
+       cosa aggiunge — e in cambio la riga sopra respira: spia e tema restano
+       due quadrati IDENTICI, e il nome del locale ci sta per intero.
+       ⚠️ E il nome del locale resta l'unica cosa che si accorcia: ha «flex: 1»
+       e i puntini, quindi cede lui invece di spingere fuori un tasto. Le due
+       volte che questa testata è andata storta — il quadratino su una terza
+       riga, «+» sopra e «Nuova» sotto — era sempre per la stessa ragione:
+       qualcosa che non cede. */
     /* ⚠️ Meno cornice e meno spazi: a 360 — un Android comunissimo — mancavano
        DUE pixel e la riga andava a capo lo stesso. Venti pixel di imbottitura
        per lato su uno schermo da 360 sono la prima cosa da cui prenderli. */
     header { row-gap: 10px; gap: 6px; padding-left: 14px; padding-right: 14px; }
     header h1 { font-size: 1.05rem; }
     header .spazio { display: none; }
-    #tema { height: 44px; }
-    /* ⚠️ Bersaglio pieno anche senza parola: si preme cento volte a sera, di
-       fretta, spesso con l'altra mano occupata. Rimpicciolirlo perché «tanto
-       è un'icona» sarebbe pagare due volte la stessa scelta. */
-    header #nuova { flex: 0 0 auto; width: 48px; min-width: 48px; height: 48px;
-                    padding: 0; justify-content: center; }
-    header #nuova .etichetta { position: absolute; width: 1px; height: 1px;
-                               overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-    header #nuova svg { width: 22px; height: 22px; }
-    /* La spia accanto: parola corta, che a 390 ogni pixel conta. */
-    #spia-wa { padding: 6px 9px; }
-    /* ⚠️ Col telefono, quando la barra è in cima la pastiglia se ne va: diceva
-       «Ricollega» a due centimetri da un altro tasto «Ricollega», e su 390 pixel
-       due volte la stessa cosa è spazio rubato al nome del locale. Non si perde
-       niente — in quel momento è la BARRA a dire lo stato, a parole e in
-       grande. Sul tablet restano tutte e due: lì lo spazio c'è. */
-    body.con-barra #spia-wa { display: none; }
-    /* ⚠️ …e quando la barra NON c'è, alla pastiglia resta il solo pallino.
-       Sul telefono quella pastiglia ha UN solo stato — collegato — perché
-       nell'altro sparisce e parla la barra: la parola non deve più distinguere
-       niente da niente, e costava 70 pixel al nome del locale, che ne chiede 97
-       e ne riceveva 42 (dodici su un telefono da 360). Il nome resta dentro per
-       chi ascolta, ed esce toccando e tenendo. */
-    #spia-wa .parola { position: absolute; width: 1px; height: 1px;
-                       overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-    #spia-wa { padding: 6px 10px; }
+    #tema, #spia-wa { height: 44px; }
+    /* ⚠️ Il tasto più premuto riprende la sua riga e la sua parola: si preme
+       cento volte a sera, di fretta, spesso con l'altra mano occupata. Una
+       barra intera alta 48 si prende col pollice senza guardare.
+       ⚠️ E il suo `order` è più ALTO di quello del tema, non uguale. Con lo
+       stesso numero decide l'ordine nel file: «nuova» veniva prima, largo tutta
+       la riga, e spingeva il quadratino del tema su una TERZA riga da solo —
+       il guasto storico di questa testata, tornato identico. Misurato, non
+       immaginato: tema a 181 invece che a 77. */
+    header #nuova { order: 9; flex: 0 0 100%; width: 100%; min-height: 48px;
+                    padding: 13px; font-size: 1rem; justify-content: center; }
+    header #nuova svg { width: 20px; height: 20px; }
+    /* ⚠️ La pastiglia NON sparisce più quando c'è la barra. Spariva perché
+       diceva «Ricollega» a due centimetri da un altro tasto «Ricollega»; ora
+       che è un pallino non ripete più niente, e farla sparire sposterebbe solo
+       il tasto del tema sotto il dito di chi sta per premerlo. */
     /* ⚠️ La barra dell'allarme andava a capo TRE volte: la frase su due righe
        e «Ricollega» su una terza, tutta sola in mezzo — 109 pixel per dire una
        cosa sola. Il testo si prende quello che resta, il tasto gli sta accanto.
