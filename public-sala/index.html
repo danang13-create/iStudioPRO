@@ -114,7 +114,9 @@
      `env(safe-area-inset-top)` vale zero, quindi la prova non poteva
      accorgersene. Col nome, una prova può dargli un valore finto e misurare. */
   :root { --su: env(safe-area-inset-top); }
-  header { padding-top: calc(14px + var(--su)); }
+  /* ⚠️ `max`, non `+`: la tacca è già uno stacco. Sommandole il margine
+     restavano 87px di verde vuoto sopra il titolo, il doppio del necessario. */
+  header { padding-top: max(14px, var(--su)); }
   /* ⚠️ …e quando in cima c'è una barra, la testata NON lo deve aggiungere di
      nuovo: lo spazio della tacca è uno solo. Contandolo due volte restava un
      vuoto verde alto un dito sopra «Prenotazioni». */
@@ -154,7 +156,7 @@
   #wa-giu[hidden] { display: none; }
   #wa-giu {
     position: sticky; top: 0; z-index: 200; display: flex; gap: 12px; align-items: center;
-    padding-top: calc(10px + var(--su));
+    padding-top: max(10px, var(--su));
     flex-wrap: wrap; justify-content: center; background: var(--giu-fondo); color: var(--giu-testo);
     border-bottom: 1px solid var(--giu-bordo); padding: 10px 14px; font-size: .88rem;
     font-weight: 600;
@@ -453,13 +455,22 @@
        niente — in quel momento è la BARRA a dire lo stato, a parole e in
        grande. Sul tablet restano tutte e due: lì lo spazio c'è. */
     body.con-barra #spia-wa { display: none; }
+    /* ⚠️ …e quando la barra NON c'è, alla pastiglia resta il solo pallino.
+       Sul telefono quella pastiglia ha UN solo stato — collegato — perché
+       nell'altro sparisce e parla la barra: la parola non deve più distinguere
+       niente da niente, e costava 70 pixel al nome del locale, che ne chiede 97
+       e ne riceveva 42 (dodici su un telefono da 360). Il nome resta dentro per
+       chi ascolta, ed esce toccando e tenendo. */
+    #spia-wa .parola { position: absolute; width: 1px; height: 1px;
+                       overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    #spia-wa { padding: 6px 10px; }
     /* ⚠️ La barra dell'allarme andava a capo TRE volte: la frase su due righe
        e «Ricollega» su una terza, tutta sola in mezzo — 109 pixel per dire una
        cosa sola. Il testo si prende quello che resta, il tasto gli sta accanto.
        La frase NON si accorcia: «il bot non risponde ai clienti» è la parte che
        dice perché importa, ed è quella che fa alzare qualcuno dalla sedia. */
     #wa-giu, #sala-giu { justify-content: space-between; gap: 10px;
-                         padding: calc(9px + var(--su)) 14px 9px; text-align: left; }
+                         padding: max(9px, var(--su)) 14px 9px; text-align: left; }
     #wa-giu > span, #sala-giu > span { flex: 1; min-width: 0; }
     #wa-giu button, #sala-giu button { flex: 0 0 auto; padding: 8px 12px; }
     /* La striscia della settimana sul telefono sta in comune/planning.css:
@@ -537,7 +548,7 @@
   #sala-giu[hidden] { display: none; }
   #sala-giu {
     position: sticky; top: 0; z-index: 201; display: flex; gap: 12px; align-items: center;
-    padding-top: calc(10px + var(--su));
+    padding-top: max(10px, var(--su));
     flex-wrap: wrap; justify-content: center; background: var(--giu-fondo); color: var(--giu-testo);
     border-bottom: 1px solid var(--giu-bordo); padding: 10px 14px; font-size: .88rem;
     font-weight: 600;
@@ -638,7 +649,7 @@
        in ufficio non c'è nessuno: chi è in sala ha in mano il telefono del
        locale ed è l'unico che può rimediare. -->
   <button class="btn btn-piccolo spia" id="spia-wa" type="button" aria-live="polite"
-          title="WhatsApp"><i></i><span id="spia-wa-testo">WhatsApp</span></button>
+          title="WhatsApp"><i></i><span class="parola" id="spia-wa-testo">WhatsApp</span></button>
   <button class="btn btn-piccolo" id="tema" type="button" aria-live="polite"></button>
 </header>
 
