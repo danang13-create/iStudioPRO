@@ -1741,7 +1741,10 @@
           <strong>Attenzione al telefono di casa</strong>: se scrive il figlio per la madre, il bot
           usa il nome dell'ultima volta. Al riepilogo gli basta rispondere <b>«non sono io»</b>
           — o direttamente «a nome di Anna» — e il nome cambia senza perdere persone, giorno
-          e ora. Spenta, il nome si chiede a tutti ogni volta, come prima.
+          e ora; il bot chiede poi il numero di Anna (si può dire NO), così Anna ha una voce sua
+          fra i Clienti e, se scrive lei dal suo telefono, la riconosce. Il telefono resta di
+          Marco: la volta dopo è lui a essere salutato. Spenta, il nome si chiede a tutti ogni
+          volta, come prima.
         </p>
         <div class="barra-salva">
           <button class="btn" id="domande-salva">Salva</button>
@@ -4798,6 +4801,7 @@ const TESTI_BOT = [
   ['bot_t_benvenuto', 'Il primo messaggio', 'Quello che vede chi ti scrive per la prima volta. È il più importante di tutti.'],
   ['bot_t_domanda_no', 'Il cliente fa una DOMANDA, non una prenotazione', '⚠️ «È possibile parcheggiare», «accettate la carta?». Prima gli si rispondeva «dimmi per quante persone vuoi prenotare» — cioè parlando d\'altro. Qui la prenotazione sta in fondo fra parentesi, e davanti c\'è come si ottiene una risposta vera. <b>La strada migliore però sono le risposte pronte</b> (qui sotto, «Domande frequenti»): se ci metti «parcheggio», il bot risponde da solo e nessuno viene disturbato.'],
   ['bot_t_primo_no', 'Primo messaggio non capito', 'Quello che si sente dire chi apre la conversazione con una parola storta («cioa») o con una domanda che il bot non conosce. Serve a non chiamare una persona per un errore di battitura: nomina sempre OPERATORE, altrimenti chi voleva chiedere altro resta senza via d\'uscita.'],
+  ['bot_t_bentornato', 'Chi torna: «che bello rivederti»', 'Sostituisce il primo messaggio per chi ha già prenotato da te (spunta «Riconoscere chi ha già prenotato»): non ci si ripresenta a chi ci conosce. <b>{nome}</b> è solo il nome, senza cognome.'],
   ['bot_t_quante', 'Chiede le persone a chi conosce già', 'Sostituisce il primo messaggio quando la conversazione è già aperta: chi scrive NUOVA, o chi ha già un tavolo da te. Non ci si ripresenta a chi ha appena letto un nostro messaggio.'],
   ['bot_t_persone_no', 'Non ha capito quante persone', ''],
   [null, 'Il giorno'],
@@ -4832,7 +4836,9 @@ const TESTI_BOT = [
   ['bot_t_daccordo', 'Quando il cliente dice solo «ok»', 'La risposta a un cenno del capo — «ok», «va bene», «perfetto» — da chi ha già una prenotazione. Deve restare CORTA: ripetere l\'elenco delle cose da fare sarebbe un muro, e il cliente lo ha appena letto.'],
   ['bot_t_email', 'Riepilogo che chiede l\'email', 'Sostituisce il riepilogo qui sopra quando la domanda dell\'email è accesa: il cliente conferma scrivendo il suo indirizzo invece di «SÌ», e l\'indirizzo resta sulla prenotazione. Valgono gli stessi segnaposto.'],
   ['bot_t_email_no', 'Email non capita', 'Vale sia per chi ha battuto male l\'indirizzo sia per chi scrive «SÌ» per abitudine: la frase deve andar bene a tutti e due.'],
-  ['bot_t_nome_nostro', 'Avviso quando il nome lo abbiamo messo noi', 'Si attacca in fondo al riepilogo, e <b>solo</b> a chi il nome non l\'ha appena scritto: c\'era già dall\'ultima volta (spunta «Riconoscere chi ha già prenotato»). ⚠️ È quello che salva il telefono di casa: senza questa riga il figlio che prenota per la madre non sa di poter correggere, e l\'unica strada che vede è il NO, che gli cancella tutto. Lascia vuoto per non dire niente.'],
+  ['bot_t_nome_nostro', 'Avviso quando il nome lo abbiamo messo noi', 'Si attacca in fondo al riepilogo, e <b>solo</b> a chi il nome non l\'ha appena scritto: c\'era già dall\'ultima volta (spunta «Riconoscere chi ha già prenotato»). ⚠️ È quello che salva il telefono di casa: senza questa riga il figlio che prenota per la madre non sa di poter correggere, e l\'unica strada che vede è il NO, che gli cancella tutto. Dopo la correzione il bot chiede il numero della persona, e la prenotazione resta «per un altro»: il telefono non cambia titolare. Lascia vuoto per non dire niente.'],
+  ['bot_t_nome_altro', '«Non sono io»: propone il nome dell\'altra volta', 'Quando da quel numero si è già prenotato per qualcun altro: «Per Anna Bianchi, come l\'altra volta?». Un SÌ e ha finito; un nome nuovo e vale quello. <b>{nome}</b> è nome e cognome.'],
+  ['bot_t_telefono_altro', '«Non sono io»: chiede il numero della persona', 'Il numero di chi viene a cena resta sulla prenotazione e nella scheda Clienti — e se poi è lei a scrivere, dal suo telefono, il bot la riconosce. Con NO si lascia il numero di chi ha scritto: una prenotazione non si blocca per questo.'],
   [null, 'Il pagamento'],
   ['bot_t_pagamento', 'Chiede il pagamento', 'Sostituisce la conferma quando il pagamento è OBBLIGATORIO. ⚠️ Non deve mai contenere la parola «confermata»: chi la legge capisce di avere un tavolo e sabato sera si presenta. Tieni la riga che dice di tornare in chat: dopo aver pagato il cliente atterra sulla pagina di ritorno, che della sua prenotazione non sa niente, e la conferma gliela scriviamo qui. I segnaposto: {importo}, {resto}, {link}, {scadenza}.'],
   ['bot_t_pagamento_lento', 'Il collegamento non è pronto', 'Solo quando Stripe non risponde: il posto resta tenuto ed è il collegamento che manca. Non dire «riprova»: non c\'è niente che il cliente possa riprovare.'],

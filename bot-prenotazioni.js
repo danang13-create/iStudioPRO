@@ -243,6 +243,11 @@ function preparaDatabase(db) {
   // cercare una prenotazione, per riconoscere chi è già stato qui, e perché la
   // rubrica di iStudio tiene nome e cognome separati da sempre.
   try { db.exec("ALTER TABLE prenotazioni ADD COLUMN cognome TEXT NOT NULL DEFAULT ''"); } catch {}
+  // «Per un altro»: la prenotazione è nata correggendo il nome al riepilogo
+  // («non sono io», «è per mia madre»). Il numero da cui è arrivata resta di
+  // chi ha scritto, non di chi cena: questa riga non fa mai diventare «Anna»
+  // il nome del telefono di Marco, e nella scheda dei clienti Anna sta da sola.
+  try { db.exec('ALTER TABLE prenotazioni ADD COLUMN per_altri INTEGER NOT NULL DEFAULT 0'); } catch {}
   // L'email del cliente, chiesta come ultimo passo della prenotazione. Sta
   // sulla RIGA e non in rubrica: è l'indirizzo che quella persona ha dato per
   // quella sera, e chi legge la prenotazione lo deve trovare lì.
@@ -742,6 +747,9 @@ const PREDEFINITI = {
   bot_t_riepilogo: 'Perfetto! ✨ \nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n📝 Note: {note}\n\nConfermi la prenotazione?\n\nScrivi SÌ per confermare',
   // Esce SOLO quando il nome l'abbiamo messo noi, riconoscendo il numero. A
   // chi il nome l'ha appena scritto questa riga non serve, ed è solo rumore.
+  bot_t_bentornato: 'Che bello rivederti, {nome}! ✨\n\nPer quante persone desideri prenotare? (esempio: 2)\n',
+  bot_t_nome_altro: 'Per {nome}, come l\'altra volta?\n\nScrivi SÌ, oppure scrivimi il nome giusto.',
+  bot_t_telefono_altro: 'A quale numero possiamo contattare {nome}, se serve?\n\nScrivi NO se preferisci che chiamiamo te.',
   bot_t_nome_nostro: '\n\n(Ho usato il nome dell\'ultima volta. Se prenoti per un\'altra persona, scrivimi il nome giusto.)',
   // ⚠️ Il bot NON dice di sì al posto del ristorante. «Si può avere una torta?»
   // seguito da «OK, grazie» è una promessa che il locale non ha fatto, e quel
@@ -1181,10 +1189,8 @@ function eSalutoStorto(testo) {
 // diventa «Buonasera Marco» in tutte le frasi che già usano {saluto}, comprese
 // quelle che un ristorante si è riscritto a modo suo. Un segnaposto nuovo
 // avrebbe funzionato solo per chi non ha mai toccato niente.
-function salutoOra(adesso = new Date(), nome = '') {
-  const ora = adesso.getHours() < 14 ? 'Buongiorno' : 'Buonasera';
-  const chi = String(nome || '').trim().split(/\s+/)[0] || '';
-  return chi ? `${ora} ${chi}` : ora;
+function salutoOra(adesso = new Date()) {
+  return adesso.getHours() < 14 ? 'Buongiorno' : 'Buonasera';
 }
 
 // Divide quello che il cliente scrive in nome e cognome.
@@ -1414,6 +1420,14 @@ function nonSonoIo(testo, cfg) {
   // campo svuotato per sbaglio non deve togliere al cliente l'unica via per
   // correggere un nome sbagliato.
   return elencoParole((cfg || PREDEFINITI).bot_parole_altro_nome).includes(t);
+}
+
+// Alla domanda sul numero dell'altra persona: chi non lo sa, o non vuole
+// darlo, lo dice in questi modi. Non è un numero storto, e non va contato
+// come un equivoco.
+function nonCeLHa(testo) {
+  return /^(non (ce )?l ?ho|non lo so|non so|non ce l ?ho|salta|lascia( stare| perdere)?|nessuno|niente)\b/
+    .test(normalizza(testo).replace(/'/g, ' '));
 }
 
 // Il nome dentro la stessa frase: «a nome di Anna Bianchi», «è per Marco».
@@ -2152,6 +2166,12 @@ const COSA_MANCA = {
   telefono: 'il numero di telefono',
   note: 'se hai allergie o richieste particolari',
   email: "l'indirizzo email",
+  // I passi di «non sono io» — sennò chi correggeva il nome e si distraeva
+  // non veniva richiamato, a differenza di chi era rimasto su una domanda
+  // qualsiasi.
+  nome_nuovo: 'il nome',
+  nome_altro: 'a che nome segnarla',
+  telefono_altro: 'il numero di telefono della persona per cui prenoti',
 };
 const PASSI_DA_RICHIAMARE = Object.keys(COSA_MANCA);
 
@@ -2559,7 +2579,16 @@ function chiaviDellaPersona(chiave, numero) {
 // sono tanti, e unirli vorrebbe dire raccontare a uno la serata di un altro.
 function chiaviStoriche(riga) {
   const chiavi = new Set();
-  for (const v of [riga.chat_id, riga.telefono, riga.telefono_contatto]) {
+  // ⚠️ Una prenotazione fatta PER UN ALTRO appartiene a chi cena, non a chi
+  // ha scritto: le sue facce sono il numero lasciato come contatto, e basta.
+  // Sennò la madre finiva nella scheda del figlio, e la scheda della madre
+  // — aperta dalla sua prenotazione — si portava dietro tutte le sere del
+  // figlio. Se un numero suo non c'è (il figlio ha detto «no»), resta legata
+  // a chi ha scritto: meglio nella scheda sbagliata che sparita.
+  const facce = riga.per_altri && String(riga.telefono_contatto || '').trim()
+    ? [riga.telefono_contatto]
+    : [riga.chat_id, riga.telefono, riga.telefono_contatto];
+  for (const v of facce) {
     for (const k of chiaviDellaPersona(v, '')) chiavi.add(k);
   }
   return [...chiavi];
@@ -2605,7 +2634,11 @@ function prenotazioniDellaPersona(db, id, massimo = 200) {
     if (chiavi.size) {
       const lista = [...chiavi];
       const seg = lista.map(() => '?').join(',');
-      parti.push(`chat_id IN (${seg})`, `telefono IN (${seg})`, `telefono_contatto IN (${seg})`);
+      // Per chat e numero contano solo le righe che uno ha fatto PER SÉ: la
+      // prenotazione per la madre non è una sera del figlio. Per il numero di
+      // contatto invece contano tutte: lì c'è scritto chi cena.
+      parti.push(`((chat_id IN (${seg}) OR telefono IN (${seg})) AND per_altri = 0)`,
+        `telefono_contatto IN (${seg})`);
       valori.push(...lista, ...lista, ...lista);
     }
     if (email.size) {
@@ -2738,7 +2771,11 @@ function cercaPersone(db, testo, massimo = 8) {
   // La riga senza nessun aggancio non si fonde con niente: resta una voce sua.
   return gruppi.slice(0, massimo).map(({ righe: g }) => ({
     id: g[0].id,
-    nome: [g[0].nome, g[0].cognome].filter(Boolean).join(' ') || '—',
+    // Il nome è di chi ha scritto per sé, non l'ultimo passato di lì: se il
+    // figlio ha prenotato per la madre senza lasciarne il numero, la voce
+    // resta intestata al figlio.
+    nome: (() => { const mio = g.find((r) => !r.per_altri) || g[0];
+      return [mio.nome, mio.cognome].filter(Boolean).join(' ') || '—'; })(),
     // Il numero e l'email si prendono dalla prima riga che ce li ha: la più
     // recente può essere quella in cui il cliente non li ha lasciati.
     telefono: (g.find((r) => r.telefono_contatto) || {}).telefono_contatto
@@ -2798,11 +2835,27 @@ function prenotazioniFuture(db, chiave, adesso, massimo = 5, numero = '') {
 function ultimoNomeDi(db, chiave, numero = '') {
   const chiavi = chiaviDellaPersona(chiave, numero);
   if (!chiavi.length) return null;
+  const seg = chiavi.map(() => '?').join(',');
+  // ⚠️ Il TITOLARE del numero è chi ha scritto il nome di suo pugno. Una
+  // prenotazione nata da «non sono io» (`per_altri`) è un'eccezione — il figlio
+  // che prenota per la madre — e non cambia mai di chi è il telefono: si
+  // scarta anche se è l'ultima, anche se è quella con la data più avanti.
+  // Fra le sue vince l'ULTIMA CONVERSAZIONE (id), non la data più lontana.
   const r = db.prepare(
-    `SELECT nome, cognome FROM prenotazioni WHERE ${dovePersona(chiavi)} `
-    + "AND TRIM(COALESCE(nome, '')) <> '' ORDER BY data DESC, ora DESC, id DESC LIMIT 1"
+    `SELECT nome, cognome FROM prenotazioni WHERE ${dovePersona(chiavi)} AND per_altri = 0 `
+    + "AND TRIM(COALESCE(nome, '')) <> '' ORDER BY id DESC LIMIT 1"
   ).get(...chiavi, ...chiavi);
   if (r) return { nome: String(r.nome || '').trim(), cognome: String(r.cognome || '').trim() };
+  // Poi: qualcuno ha prenotato lasciando QUESTO numero come contatto. Chi
+  // scrive adesso è la persona nominata su quella prenotazione — la madre,
+  // dal suo telefono — e va riconosciuta con il suo nome. Si escludono le
+  // righe che quel numero le ha scritte lui stesso: lì è già passato sopra.
+  const c = db.prepare(
+    `SELECT nome, cognome FROM prenotazioni WHERE telefono_contatto IN (${seg}) `
+    + `AND chat_id NOT IN (${seg}) AND telefono NOT IN (${seg}) `
+    + "AND TRIM(COALESCE(nome, '')) <> '' ORDER BY id DESC LIMIT 1"
+  ).get(...chiavi, ...chiavi, ...chiavi);
+  if (c) return { nome: String(c.nome || '').trim(), cognome: String(c.cognome || '').trim() };
   // Ripiego: la rubrica del locale, dove il nome l'ha scritto il ristorante.
   // ⚠️ Si guarda prima se la tabella c'è: il motore del bot gira anche su
   // archivi senza le tabelle della piattaforma (è il caso delle prove), e una
@@ -2824,6 +2877,34 @@ function ultimoNomeDi(db, chiave, numero = '') {
     return null;
   }
   return null;
+}
+
+// Per chi da questo numero ha già prenotato per qualcun altro: i nomi usati,
+// dal più recente, senza doppioni. Serve al riepilogo — «Per Anna, come
+// l'altra volta?» — così la seconda volta non si ribatte nemmeno il nome.
+function altriNomiDi(db, chiave, numero = '') {
+  const chiavi = chiaviDellaPersona(chiave, numero);
+  if (!chiavi.length) return [];
+  const righe = db.prepare(
+    `SELECT nome, cognome, telefono_contatto FROM prenotazioni WHERE ${dovePersona(chiavi)} `
+    + "AND per_altri = 1 AND TRIM(COALESCE(nome, '')) <> '' ORDER BY id DESC LIMIT 20"
+  ).all(...chiavi, ...chiavi);
+  const visti = new Set();
+  const fuori = [];
+  for (const r of righe) {
+    const nome = String(r.nome || '').trim();
+    const cognome = String(r.cognome || '').trim();
+    const k = normalizza(`${nome} ${cognome}`);
+    if (visti.has(k)) continue;
+    visti.add(k);
+    // Il numero lasciato l'altra volta si ripropone insieme al nome, ma solo
+    // se era davvero un numero SUO: se il figlio aveva detto «no», lì c'è il
+    // numero del figlio, e riproporlo come «quello di Anna» sarebbe una bugia.
+    const suo = String(r.telefono_contatto || '').trim();
+    const telefono = suo && !chiavi.includes(suo) && !chiavi.includes(numeroConfrontabile(suo)) ? suo : '';
+    fuori.push({ nome, cognome, telefono });
+  }
+  return fuori;
 }
 
 const FRASE_NON_PIU_ATTIVA = 'Quella prenotazione non è più attiva: nel frattempo è cambiata. '
@@ -3506,7 +3587,12 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   const giaVisto = boolDi(cfg.bot_riconosci) ? ultimoNomeDi(db, telefono, contesto.numero) : null;
   const valori = {
     locale: cfg.bot_locale || 'noi',
-    saluto: salutoOra(adesso, giaVisto ? giaVisto.nome : ''),
+    // ⚠️ Il saluto resta «Buonasera» e basta: per un giorno il nome stava qui
+    // dentro, e a chi aveva già un tavolo usciva «Buonasera Marco Marco Rossi!»
+    // — perché quella frase il nome lo mette da sé. Il nome di chi torna sta
+    // in una frase sua (`bot_t_bentornato`), e in {nome}: solo il nome.
+    saluto: salutoOra(adesso),
+    nome: giaVisto ? giaVisto.nome : '',
     assistente: cfg.bot_assistente || '',
     apertura: cfg.bot_avvisi_da || '',
   };
@@ -3967,9 +4053,9 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       // Il benvenuto è il PRIMO messaggio, e vale per chi arriva davvero la
       // prima volta. Chi ha già un tavolo da noi ci ha già parlato: gli si fa
       // la domanda e basta. Chi ci scrisse mesi fa e oggi non ha più niente di
-      // attivo si risente il benvenuto — ma non più da sconosciuto: il saluto
-      // lo chiama per nome (vedi `giaVisto`), che era metà del problema.
-      risposte.push(di(gia ? 'bot_t_quante' : 'bot_t_benvenuto'));
+      // attivo non si sente ripresentare l'assistente — lo conosce già: gli
+      // si dice «che bello rivederti», col nome (vedi `giaVisto`).
+      risposte.push(di(gia ? 'bot_t_quante' : (giaVisto ? 'bot_t_bentornato' : 'bot_t_benvenuto')));
       return esito;
     }
     return passoPersone(persone);
@@ -4179,7 +4265,73 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     if (!nome) {
       return nonCapito('nome_nuovo', dati, di('bot_t_nome'));
     }
-    return vaiAlRiepilogo({ ...avanzato(dati), nome, cognome }, true);
+    return chiediNumeroAltro({ ...avanzato(dati), nome, cognome });
+  }
+
+  // «Per Anna, come l'altra volta?» — a chi da questo numero ha già prenotato
+  // per qualcun altro. Un SÌ e ha finito; un nome nuovo e vale quello; un NO
+  // e si chiede il nome come a chiunque.
+  if (stato.passo === 'nome_altro') {
+    const { proposto, ...resto } = dati;
+    const scelta = interpretaSiNo(testo);
+    if (scelta === true && proposto && proposto.nome) {
+      const d = { ...avanzato(resto), nome: proposto.nome, cognome: proposto.cognome || '' };
+      // Il numero dell'altra volta, se era davvero il suo, si tiene senza
+      // richiederlo: è la seconda domanda in meno.
+      if (proposto.telefono) return vaiAlRiepilogo({ ...d, telefono: proposto.telefono, perAltri: true }, true);
+      return chiediNumeroAltro(d);
+    }
+    if (scelta === false) {
+      salvaStato(db, telefono, 'nome_nuovo', resto);
+      risposte.push(di('bot_t_nome'));
+      return esito;
+    }
+    const { nome, cognome } = dividiNome(testo);
+    if (!nome) {
+      return nonCapito('nome_altro', dati, di('bot_t_nome'));
+    }
+    return chiediNumeroAltro({ ...avanzato(resto), nome, cognome });
+  }
+
+  // Il numero della persona per cui si prenota. Un SÌ, un NO, un «non ce
+  // l'ho» vogliono dire la stessa cosa: lascia il mio. Non si insiste — una
+  // prenotazione non si blocca per un numero che il figlio non vuole dare.
+  if (stato.passo === 'telefono_altro') {
+    if (interpretaSiNo(testo) !== null || nonCeLHa(testo)) return vaiAlRiepilogo(avanzato(dati), true);
+    const numero = interpretaTelefono(testo);
+    if (!numero) {
+      return nonCapito('telefono_altro', dati, di('bot_t_telefono_no'));
+    }
+    return vaiAlRiepilogo({ ...avanzato(dati), telefono: numero }, true);
+  }
+
+  // «Non sono io» al riepilogo: si tiene tutto e si cambia solo la persona.
+  // Tre strade, dalla più corta: il nome è già nella frase («è per Anna
+  // Bianchi»); da questo numero si è già prenotato per qualcuno («per Anna,
+  // come l'altra volta?»); sennò si chiede il nome. Da qui in poi la
+  // prenotazione è PER UN ALTRO, e non cambia di chi è il telefono.
+  function nonSonoIoAlRiepilogo(d, frase) {
+    const { nomeNostro, nome, cognome, ...resto } = d;
+    const detto = nomeDentro(frase);
+    if (detto) return chiediNumeroAltro({ ...resto, nome: detto.nome, cognome: detto.cognome });
+    const altri = altriNomiDi(db, telefono, contesto.numero);
+    if (altri.length) {
+      salvaStato(db, telefono, 'nome_altro', { ...resto, proposto: altri[0] });
+      risposte.push(di('bot_t_nome_altro', { nome: [altri[0].nome, altri[0].cognome].filter(Boolean).join(' ') }));
+      return esito;
+    }
+    salvaStato(db, telefono, 'nome_nuovo', resto);
+    risposte.push(di('bot_t_nome'));
+    return esito;
+  }
+
+  // Il numero della persona per cui si prenota resta sulla prenotazione e
+  // nella scheda dei clienti: se poi è lei a scrivere, dal suo telefono, il
+  // bot la riconosce col suo nome (vedi `ultimoNomeDi`).
+  function chiediNumeroAltro(d) {
+    salvaStato(db, telefono, 'telefono_altro', { ...d, perAltri: true });
+    risposte.push(di('bot_t_telefono_altro', { nome: d.nome }));
+    return esito;
   }
 
   if (stato.passo === 'telefono') {
@@ -4291,14 +4443,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     // accesa il riepilogo non si conferma con un SÌ ma scrivendo l'indirizzo:
     // senza questo ramo chi deve correggere il nome resterebbe con il solo NO,
     // che gli cancella persone, giorno e ora. Stessa via di «conferma».
-    if (dati.nomeNostro && nonSonoIo(testo, cfg)) {
-      const { nomeNostro, nome, cognome, ...resto } = dati;
-      const detto = nomeDentro(testo);
-      if (detto) return vaiAlRiepilogo({ ...resto, nome: detto.nome, cognome: detto.cognome }, true);
-      salvaStato(db, telefono, 'nome_nuovo', resto);
-      risposte.push(di('bot_t_nome'));
-      return esito;
-    }
+    if (dati.nomeNostro && nonSonoIo(testo, cfg)) return nonSonoIoAlRiepilogo(dati, testo);
     // «NO» resta la via d'uscita: chi ha cambiato idea non dev'essere
     // costretto a dare un indirizzo per potersene andare.
     if (interpretaSiNo(testo) === false) {
@@ -4328,17 +4473,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     // ramo l'unica via sarebbe «NO», che butta via persone, giorno e ora e lo
     // rimanda all'inizio — cioè la comodità si rovescia in un fastidio.
     // Si tiene tutto il resto e si chiede SOLO il nome.
-    if (dati.nomeNostro && nonSonoIo(testo, cfg)) {
-      const { nomeNostro, nome, cognome, ...resto } = dati;
-      // Se il nome giusto è già nella stessa frase («è per mia madre, Anna») si
-      // prende quello e non si chiede niente: una domanda in meno, e l'ha già
-      // risposta lei.
-      const detto = nomeDentro(testo);
-      if (detto) return vaiAlRiepilogo({ ...resto, nome: detto.nome, cognome: detto.cognome }, true);
-      salvaStato(db, telefono, 'nome_nuovo', resto);
-      risposte.push(di('bot_t_nome'));
-      return esito;
-    }
+    if (dati.nomeNostro && nonSonoIo(testo, cfg)) return nonSonoIoAlRiepilogo(dati, testo);
     const scelta = interpretaSiNo(testo);
     if (scelta === null) {
       return nonCapito('conferma', dati, 'Non ho capito: scrivi SÌ per confermare o NO per annullare.');
@@ -4382,10 +4517,10 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     const blocca = bloccaLaPrenotazione(cfg, d.persone);
     const info = db.prepare(
       'INSERT INTO prenotazioni (telefono, nome, cognome, data, ora, persone, note, telefono_contatto, email, '
-      + 'stato, importo_dovuto, importo_totale, pagamento_scade_at) '
-      + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      + 'per_altri, stato, importo_dovuto, importo_totale, pagamento_scade_at) '
+      + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(telefono, d.nome || '', d.cognome || '', d.data, d.ora, d.persone,
-          d.note || '', recapito, d.email || '',
+          d.note || '', recapito, d.email || '', d.perAltri ? 1 : 0,
           blocca ? 'attesa_pagamento' : 'confermata',
           // Gli importi si scrivono comunque: anche una caparra facoltativa è
           // un conto che il locale deve poter vedere e ritrovare.
@@ -4508,7 +4643,7 @@ module.exports = {
   interpretaTelefono,
   colTelefono,
   nomeInSala,
-  ultimoNomeDi,
+  ultimoNomeDi, altriNomiDi,
   segnaBasta,
   haDettoBasta,
   dividiNome,
