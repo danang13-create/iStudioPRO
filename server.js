@@ -3219,6 +3219,57 @@ function ridaiLaParola(...valori) {
   return cambiate;
 }
 
+// «Ti risponde una persona»: per chi risponde dal telefono del locale, o dalla
+// scheda Chat. Lì nessuno scrive un codice e nessuno si presenta: lo fa il bot
+// per lui, UNA volta per presa in carico, subito DOPO la sua prima risposta —
+// non prima, perché quando il bot se ne accorge la risposta è già partita.
+// Mai a chi ha scritto STOP. Con la frase vuota il passaggio non si nota.
+async function annunciaLaPersona(chatId, telefono, ore) {
+  if (!botDisponibile()) return false;
+  const cfg = bot.config(db);
+  const testo = bot.riempi(cfg.bot_t_ingresso_locale || '', { locale: cfg.bot_locale || 'noi' });
+  if (!testo.trim()) return false;
+  // Già detto in questa presa in carico — da qui, o col codice R: un cliente
+  // che se lo sente dire due volte pensa che ci siano due persone.
+  const chiavi = chiaviStessaConversazione(chatId, telefono);
+  if (chiavi.some((k) => bot.personaAnnunciata(db, k, ore, new Date()))) return false;
+  if (bot.haDettoBasta(db, chatId, telefono)) return false;
+  for (const k of chiavi) bot.segnaPersona(db, k, new Date());
+  try {
+    await rispondiConRitmo(chatId, testo);
+    return true;
+  } catch (e) {
+    console.error('Bot: annuncio della persona non partito:', e.message);
+    return false;
+  }
+}
+
+// Quando il bot viene riattivato DALLA PIATTAFORMA — «Riattiva il bot» o
+// «Sblocca» — al cliente si dice che la persona ha finito, come su LIBERA, e
+// con gli stessi paletti: solo negli orari in cui qualcuno legge, mai a chi
+// ha scritto STOP, e solo se un silenzio c'era davvero. Mai sulle scadenze
+// automatiche: quelle restano mute (arriverebbe di notte, su una cosa già
+// dimenticata). Con la frase vuota non si dice niente.
+async function salutaIlRitorno(chiave) {
+  if (!botDisponibile()) return false;
+  const chiavi = chiaviStessaConversazione(chiave);
+  for (const k of chiavi) bot.scordaPersona(db, k);
+  const cfg = bot.config(db);
+  const testo = bot.riempi(cfg.bot_t_uscita_locale || '',
+    { locale: cfg.bot_locale || 'noi', assistente: cfg.bot_assistente || '' });
+  if (!testo.trim()) return false;
+  if (!bot.eOrarioAvvisi(cfg, new Date())) return false;
+  const cifre = String(chiave).replace(/@.*$/, '').replace(/\D/g, '');
+  if (bot.haDettoBasta(db, chiave, numeroPlausibile(cifre, chiave) ? cifre : '')) return false;
+  try {
+    await inviaBot(chiave, testo);
+    return true;
+  } catch (e) {
+    console.error('Bot: saluto di ritorno non riuscito:', e.message);
+    return false;
+  }
+}
+
 // Chi è questa conversazione, per mostrarla nell'elenco di quelle su cui il
 // bot tace — senza questo si vedrebbe solo un indirizzo tecnico illeggibile
 // («98071434281145@lid»), e non si capirebbe MAI di chi si tratta.
@@ -3788,6 +3839,9 @@ async function messaggioDelPersonale(persona, testo, msg) {
     // programma. Su WhatsApp la bolla è l'unità di lettura: l'annuncio è del
     // sistema, la risposta è della persona, e sono due cose diverse.
     if (presentazione) {
+      // Conta come annuncio fatto anche per la strada del telefono del locale:
+      // se poi risponde da lì, il cliente non si sente presentare due persone.
+      for (const k of chiaviStessaConversazione(rich.chat_id, rich.telefono)) bot.segnaPersona(db, k, new Date());
       // ⚠️ Se l'annuncio non parte, la risposta deve partire LO STESSO: è
       // quella che il cliente sta aspettando. Perdere il contenuto per colpa
       // della cornice sarebbe il baratto sbagliato.
@@ -3854,6 +3908,7 @@ async function messaggioDelPersonale(persona, testo, msg) {
     // chiudiConversazioniFinite): lì il messaggio arriverebbe ore dopo, di
     // notte, per una conversazione che il cliente ha già dimenticato.
     const dovePuntare = rich.chat_id || rich.telefono;
+    for (const k of chiaviStessaConversazione(rich.chat_id, rich.telefono)) bot.scordaPersona(db, k);
     const cfgLibera = bot.config(db);
     if (rich.risposta_da && bot.eOrarioAvvisi(cfgLibera, new Date())
         && !bot.haDettoBasta(db, dovePuntare, rich.telefono)) {
@@ -4359,7 +4414,7 @@ if (botDisponibile()) {
   // non ha mandato il bot, vuol dire che una persona sta rispondendo a mano.
   // Il bot tace su quella conversazione, senza che nessuno debba ricordarsi un
   // comando: durante il servizio non se lo ricorda nessuno.
-  client.on('message_create', (msg) => {
+  client.on('message_create', async (msg) => {
     try {
       if (!botAcceso() || !msg.fromMe) return;
       const a = String(msg.to || '');
@@ -4377,6 +4432,8 @@ if (botDisponibile()) {
         bot.zittisci(db, chiave, ore, new Date());
       }
       annota('presa in carico', `hai risposto a mano: il bot tace per ${ore} ore su ${telefono ? '+' + telefono : a}`);
+      // E al cliente si dice che adesso gli risponde una persona — una volta.
+      await annunciaLaPersona(a, telefono, ore);
     } catch { /* la presa in carico non deve mai far cadere niente */ }
   });
 }
@@ -5934,7 +5991,7 @@ app.get('/api/bot/conversazione', (req, res) => {
 // inceppamento, è una persona che ha chiesto di essere lasciata in pace, e
 // rimetterla in lista con un tasto sarebbe la cosa peggiore che questa pagina
 // possa fare.
-app.post('/api/bot/conversazione/sblocca', (req, res) => {
+app.post('/api/bot/conversazione/sblocca', async (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const chi = String((req.body && req.body.chi) || '').trim();
   if (!chi) return res.status(400).json({ error: 'Manca il numero o l\'indirizzo da sbloccare' });
@@ -5943,7 +6000,11 @@ app.post('/api/bot/conversazione/sblocca', (req, res) => {
   const chiavi = prima.chiavi;
   const fatto = [];
 
-  if (ridaiLaParola(chi)) fatto.push('tolto il silenzio');
+  if (ridaiLaParola(chi)) {
+    fatto.push('tolto il silenzio');
+    // Stessa cosa di «Riattiva il bot»: la persona ha finito, e al cliente si dice.
+    if (await salutaIlRitorno(chi)) fatto.push('detto al cliente che la persona ha finito');
+  }
 
   let azzerate = 0;
   for (const k of chiavi) {
@@ -5986,13 +6047,19 @@ app.post('/api/bot/conversazione/sblocca', (req, res) => {
 // «Azzera le prove». È la differenza fra «questo cliente ha già ripreso a
 // scrivere a un umano e va bene così» e «tutti gli altri, che nel frattempo
 // stavano prenotando tranquilli, restano dove erano».
-app.post('/api/bot/silenziate/riattiva', (req, res) => {
+app.post('/api/bot/silenziate/riattiva', async (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const chiave = String((req.body && req.body.chiave) || '');
   if (!chiave) return res.status(400).json({ error: 'Manca la conversazione da riattivare' });
   const cambiate = ridaiLaParola(chiave);
-  if (cambiate) annota('riattivata', `il bot torna a rispondere su ${identitaPerChiave(chiave).nome || chiave}`);
-  res.json({ ok: true, cambiate });
+  // Al cliente si dice che la persona ha finito — solo se un silenzio c'era:
+  // riattivare un bot che rispondeva già non è un'uscita di nessuno.
+  const salutato = cambiate ? await salutaIlRitorno(chiave) : false;
+  if (cambiate) {
+    annota('riattivata', `il bot torna a rispondere su ${identitaPerChiave(chiave).nome || chiave}`
+      + (salutato ? ' (al cliente si è detto che la persona ha finito)' : ''));
+  }
+  res.json({ ok: true, cambiate, salutato });
 });
 
 // Rimette il bot come appena installato. Durante le prove ci si incastra di

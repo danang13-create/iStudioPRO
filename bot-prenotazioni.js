@@ -214,6 +214,10 @@ function preparaDatabase(db) {
   // Quando gli è stato chiesto «sei ancora lì?». Una volta sola per
   // conversazione: si azzera quando la conversazione riparte da capo.
   try { db.exec('ALTER TABLE bot_conversazioni ADD COLUMN richiamata_at TEXT'); } catch {}
+  // Quando al cliente è stato detto che gli risponde una PERSONA. Serve a dirlo
+  // una volta sola per presa in carico: chi risponde dal telefono del locale
+  // scrive dieci righe, e l'annuncio va davanti alla prima, non a tutte.
+  try { db.exec('ALTER TABLE bot_conversazioni ADD COLUMN persona_at TEXT'); } catch {}
   try { db.exec('ALTER TABLE bot_richieste ADD COLUMN presa_da TEXT'); } catch {}
   try { db.exec('ALTER TABLE bot_richieste ADD COLUMN presa_at TEXT'); } catch {}
   try { db.exec("ALTER TABLE prenotazioni ADD COLUMN chat_id TEXT NOT NULL DEFAULT ''"); } catch {}
@@ -810,6 +814,13 @@ const PREDEFINITI = {
   // sola, detta senza equivoci: quella persona ha finito.
   bot_t_umano_finito: '✅ La conversazione con {nome} è conclusa — grazie di averci scritto!\n\nDa qui in avanti ti risponde di nuovo l’assistente virtuale: posso aiutarti con le prenotazioni.\nSe ti serve di nuovo una persona, scrivi OPERATORE.',
   bot_t_prefisso_umano: '👋 Sei in contatto con {nome} del team {locale}.',
+  // Chi risponde dal telefono del locale (o dalla scheda Chat) non ha un
+  // codice e non si presenta: lo fa il bot per lui, subito DOPO la sua prima
+  // risposta. Senza nome, perché da quel telefono non si sa chi scrive.
+  bot_t_ingresso_locale: '👋 Da qui ti risponde una persona di {locale}.',
+  // Quando il bot viene riattivato dalla piattaforma («Riattiva il bot»,
+  // «Sblocca»): la persona ha finito, e va detto — come su LIBERA.
+  bot_t_uscita_locale: '✅ La persona ha finito — grazie di averci scritto!\n\nDa qui in avanti ti risponde di nuovo l\'assistente virtuale: posso aiutarti con le prenotazioni.\nSe ti serve di nuovo una persona, scrivi OPERATORE.',
   bot_t_troppe: 'Per aiutarti al meglio, ti passo a un operatore.\n\nTi risponderà appena possibile. ✨\n',
 };
 
@@ -2459,7 +2470,34 @@ function azzeraStato(db, telefono) {
 // LOCALE nel formato 'sv-SE', come il resto del progetto.
 function zittisci(db, telefono, ore, adesso = new Date()) {
   const fino = new Date(adesso.getTime() + ore * 3600 * 1000).toLocaleString('sv-SE');
+  // ⚠️ La riga si CREA se manca. Era un UPDATE e basta: a chi non aveva mai
+  // scritto al bot — il locale gli risponde a mano per primo — il silenzio non
+  // si salvava, e al suo primo messaggio il bot gli parlava sopra alla
+  // persona. Trovato dalla prova sull'annuncio della persona, non in sala.
+  db.prepare('INSERT OR IGNORE INTO bot_conversazioni (telefono) VALUES (?)').run(telefono);
   db.prepare('UPDATE bot_conversazioni SET muto_fino = ? WHERE telefono = ?').run(fino, telefono);
+}
+
+// L'annuncio «ti risponde una persona»: quando è stato fatto, se è recente,
+// e come si dimentica quando la persona ha finito. Vale per tutte le strade
+// con cui una persona entra (codice R, telefono del locale, scheda Chat): un
+// cliente che se lo sente dire due volte pensa che ci siano due persone.
+function segnaPersona(db, telefono, adesso = new Date()) {
+  db.prepare('INSERT OR IGNORE INTO bot_conversazioni (telefono) VALUES (?)').run(telefono);
+  db.prepare('UPDATE bot_conversazioni SET persona_at = ? WHERE telefono = ?')
+    .run(adesso.toLocaleString('sv-SE'), telefono);
+}
+
+function personaAnnunciata(db, telefono, ore, adesso = new Date()) {
+  const r = db.prepare('SELECT persona_at FROM bot_conversazioni WHERE telefono = ?').get(telefono);
+  if (!r || !r.persona_at) return false;
+  const limite = new Date(adesso.getTime() - Math.max(1, ore) * 3600 * 1000).toLocaleString('sv-SE');
+  return r.persona_at > limite;
+}
+
+function scordaPersona(db, telefono) {
+  return db.prepare('UPDATE bot_conversazioni SET persona_at = NULL WHERE telefono = ? AND persona_at IS NOT NULL')
+    .run(telefono).changes;
 }
 
 function eMuto(db, telefono, adesso) {
@@ -4706,7 +4744,7 @@ module.exports = {
   statoDi,
   azzeraStato,
   zittisci,
-  eMuto,
+  eMuto, segnaPersona, personaAnnunciata, scordaPersona,
   eOrarioAvvisi, qualcunoLegge, prossimaLettura,
   eSaluto,
   eSalutoStorto,
