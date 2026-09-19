@@ -615,15 +615,47 @@
      l'unico canale libero per dire qualcos'altro. Il verde scuro fa 4,1:1 sul
      bianco: una barra si vede anche su uno schermo storto, di giorno, in sala.
      Il verde chiaro del marchio si ferma a 1,98 e per una barra non basta. */
+  .rep-testa { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
   .rep-filtri { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
-  .rep-filtri input[type=date] { max-width: 165px; }
+  /* Le date a mano: chiuse dietro «Altre date», e quando si aprono cambiano
+     il report da sole — un tasto «Guarda» in più era un passo che nessuno
+     capiva perché servisse. */
+  .rep-date { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin: -6px 0 16px; }
+  /* ⚠️ «display: flex» vince sull'attributo hidden: senza questa riga le date
+     si vedevano sempre, e «Altre date» non nascondeva niente. */
+  .rep-date[hidden] { display: none; }
+  .rep-date label { display: flex; flex-direction: column; gap: 3px; font-size: .8rem; color: var(--grigio); }
+  .rep-date input[type=date] { max-width: 165px; }
   .rep-periodo { padding: 6px 12px; border: 1px solid var(--bordo); background: var(--bianco);
                  border-radius: 999px; font: inherit; font-size: .86rem; cursor: pointer; }
   .rep-periodo.scelto { background: var(--verde-scuro); border-color: var(--verde-scuro); color: #fff; }
-  .rep-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 14px; }
-  .rep-kpi .n { font-size: 1.9rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
-  .rep-kpi .t { font-size: .82rem; color: var(--grigio); }
-  .rep-kpi .p { font-size: .78rem; color: var(--grigio); }
+  /* I conti: riquadri, con sotto il confronto col periodo prima. Un numero da
+     solo non dice se è tanto o poco; «▲ 12% rispetto ai 30 giorni prima» sì. */
+  .rep-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .rep-kpi > div { background: var(--carta-2); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+  .rep-kpi .n { font-size: 1.8rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .rep-kpi .t { font-size: .82rem; color: var(--grigio); margin-top: 2px; }
+  .rep-kpi .p { font-size: .76rem; color: var(--grigio); margin-top: 4px; }
+  .rep-kpi .d { font-size: .78rem; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .rep-kpi .d.su { color: var(--ok-testo); }
+  .rep-kpi .d.giu { color: var(--rosso); }
+  .rep-kpi .d.pari { color: var(--grigio); }
+  /* Le sezioni su due colonne dal computer in su: lo scorrimento si dimezza e
+     «per orario» e «per giorno» si leggono insieme. */
+  .rep-griglia { display: grid; grid-template-columns: 1fr; gap: 0 28px; }
+  @media (min-width: 900px) { .rep-griglia { grid-template-columns: 1fr 1fr; } }
+  .rep-sezione { margin-top: 22px; min-width: 0; }
+  .rep-sezione h3 { font-size: .95rem; margin: 0 0 2px; }
+  /* Una quota in due parti — il bot e la mano, i nuovi e chi torna — con le
+     due parti scritte: una barra sola col vuoto accanto non diceva cos'era
+     il vuoto. */
+  .rep-split { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: var(--sfondo); }
+  .rep-split i { display: block; height: 100%; }
+  .rep-split i.a { background: var(--verde-scuro); }
+  .rep-split i.b { background: var(--bordo-2, var(--bordo)); }
+  .rep-legenda { display: flex; gap: 14px; flex-wrap: wrap; font-size: .86rem; margin-top: 8px; }
+  .rep-legenda span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--verde-scuro); }
+  .rep-legenda span.b::before { background: var(--bordo-2, var(--bordo)); }
   /* Le barre: nome a sinistra, barra, valore in punta. È già una tabella —
      chi non distingue i colori legge i numeri, non deve indovinarli. */
   .rep-barre { display: grid; grid-template-columns: auto 1fr auto; gap: 7px 12px; align-items: center; }
@@ -644,7 +676,15 @@
   .rep-scala { display: flex; justify-content: space-between; align-items: center; gap: 8px;
                font-size: .76rem; color: var(--grigio); }
   .rep-scala hr { flex: 1; border: none; border-top: 1px solid var(--bordo); }
-  .rep-serie { display: flex; align-items: flex-end; gap: 2px; height: 130px; margin-top: 0; }
+  .rep-serie { display: flex; align-items: flex-end; gap: 2px; height: 130px; margin-top: 0; position: relative; }
+  /* La media: una riga tratteggiata attraverso le colonne. Dice a colpo
+     d'occhio quali sere sono andate sopra e quali sotto. */
+  /* ⚠️ «.rep-serie > div» è la regola delle colonne, e prendeva anche questa:
+     la media usciva verde, larga come una colonna, con la scritta a capo. */
+  .rep-serie > div.rep-media { position: absolute; left: 0; right: 0; flex: none; height: 0; min-height: 0; z-index: 1;
+                               background: none; border-radius: 0; border-top: 1px dashed var(--grigio); pointer-events: none; }
+  .rep-media span { position: absolute; right: 0; top: -17px; font-size: .72rem; color: var(--grigio);
+                    background: var(--bianco); padding: 0 4px; white-space: nowrap; }
   .rep-serie > div { flex: 1; background: var(--verde-scuro); border-radius: 4px 4px 0 0;
                      min-height: 2px; position: relative; }
   .rep-serie > div:hover { background: var(--verde-premuto); }
@@ -850,6 +890,8 @@
     /* Le frecce della settimana: un carattere solo, larghe trenta pixel. */
     #sett-indietro, #sett-avanti { min-width: 44px; }
     .rep-periodo { min-height: 40px; }
+    /* Il report sul telefono: i conti su due colonne, la testata in colonna. */
+    .rep-kpi { grid-template-columns: repeat(2, 1fr); }
     /* I riquadri di testo che hanno un corpo loro (le frasi, l'HTML
        dell'email): sotto i 16 pixel iOS ingrandisce la pagina quando ci si
        entra, e poi non la rimpicciolisce più. */
@@ -1892,25 +1934,29 @@
       </div>
     </div>
 
+    <!-- REPORT. In cima il periodo scritto a parole: chi legge deve vedere
+         subito COSA sta guardando, prima di leggere quanto. Le date a mano
+         stanno chiuse dietro «Altre date»: in vista erano cinque righe di
+         campi sul telefono, per una cosa che si fa una volta al mese. -->
     <div id="sotto-report" class="sotto-scheda">
       <div class="card">
-        <h2 style="font-size:1rem;margin:0 0 6px">Report delle prenotazioni</h2>
-        <p class="conteggio" style="margin:0 0 12px">
-          Scegli un periodo e guarda com'è andata: quanti coperti, quale orario riempie di più,
-          quale serata tira, quanto si riempie la sala. Le prenotazioni annullate non contano nei coperti.
-        </p>
-        <!-- I filtri stanno in una riga sola sopra i numeri: chi legge deve
-             vedere subito COSA sta guardando, prima di leggere quanto. -->
+        <div class="rep-testa">
+          <div>
+            <h2 style="font-size:1rem;margin:0">Report</h2>
+            <div id="rep-quando" class="conteggio" style="margin:2px 0 0"></div>
+          </div>
+          <a class="btn btn-secondario btn-piccolo" id="rep-csv" href="#" style="text-decoration:none">Scarica in Excel</a>
+        </div>
         <div class="rep-filtri">
           <button class="rep-periodo" data-periodo="30">Ultimi 30 giorni</button>
           <button class="rep-periodo" data-periodo="mese">Questo mese</button>
           <button class="rep-periodo" data-periodo="scorso">Mese scorso</button>
           <button class="rep-periodo" data-periodo="anno">Quest'anno</button>
-          <input type="date" id="rep-dal" autocomplete="off">
-          <span class="conteggio" style="margin:0">→</span>
-          <input type="date" id="rep-al" autocomplete="off">
-          <button class="btn btn-secondario" id="rep-vai" type="button" style="padding:6px 14px">Guarda</button>
-          <a class="btn btn-secondario" id="rep-csv" href="#" style="padding:6px 14px;text-decoration:none">Scarica in Excel</a>
+          <button class="rep-periodo" data-periodo="altro">Altre date</button>
+        </div>
+        <div class="rep-date" id="rep-date" hidden>
+          <label>Dal<input type="date" id="rep-dal" autocomplete="off"></label>
+          <label>Al<input type="date" id="rep-al" autocomplete="off"></label>
         </div>
         <div id="rep-corpo"></div>
       </div>
@@ -5845,38 +5891,90 @@ function segnaPeriodoScelto(quale) {
   document.querySelectorAll('.rep-periodo').forEach((b) => {
     b.classList.toggle('scelto', b.dataset.periodo === quale);
   });
+  // Le date a mano si vedono solo quando servono.
+  $('#rep-date').hidden = quale !== 'altro';
 }
 
 document.querySelectorAll('.rep-periodo').forEach((b) => {
   b.addEventListener('click', () => {
+    segnaPeriodoScelto(b.dataset.periodo);
+    if (b.dataset.periodo === 'altro') return;   // si aprono le date, si aspetta la scelta
     const [dal, al] = periodoDi(b.dataset.periodo);
     $('#rep-dal').value = dal;
     $('#rep-al').value = al;
-    segnaPeriodoScelto(b.dataset.periodo);
     caricaReport();
   });
 });
-// Scegliendo le date a mano nessun tasto è più «quello scelto»: lasciarne uno
-// acceso direbbe che si sta guardando un periodo diverso da quello vero.
+// Le date cambiate a mano ricaricano da sole: un tasto «Guarda» in più era un
+// passo che nessuno capiva perché servisse.
 for (const c of ['#rep-dal', '#rep-al']) {
-  $(c).addEventListener('change', () => segnaPeriodoScelto(''));
+  $(c).addEventListener('change', () => { segnaPeriodoScelto('altro'); caricaReport(); });
 }
-$('#rep-vai').addEventListener('click', caricaReport);
+
+// Il periodo scritto a parole, in cima: «dal 21 agosto al 19 settembre · 30 giorni».
+function descriviPeriodo(dal, al) {
+  const giorni = Math.round((new Date(al + 'T12:00:00') - new Date(dal + 'T12:00:00')) / 86400000) + 1;
+  const stessoAnno = dal.slice(0, 4) === al.slice(0, 4) && dal.slice(0, 4) === String(new Date().getFullYear());
+  const conAnno = (iso) => `${dataItalianaUI(iso)}${stessoAnno ? '' : ' ' + iso.slice(0, 4)}`;
+  return `dal ${conAnno(dal)} al ${conAnno(al)} · ${giorni} ${giorni === 1 ? 'giorno' : 'giorni'}`;
+}
+
+// Il periodo PRIMA, lungo uguale e attaccato: è il termine di paragone dei
+// conti. Per gli ultimi 30 giorni sono i 30 prima; per settembre è agosto.
+function periodoPrima(dal, al) {
+  const giorni = Math.round((new Date(al + 'T12:00:00') - new Date(dal + 'T12:00:00')) / 86400000) + 1;
+  const iso = (d) => d.toLocaleDateString('sv-SE');
+  const fine = new Date(dal + 'T12:00:00'); fine.setDate(fine.getDate() - 1);
+  const inizio = new Date(fine); inizio.setDate(inizio.getDate() - giorni + 1);
+  return [iso(inizio), iso(fine)];
+}
+
+// «▲ 12% rispetto a prima», «▼ 5%», «come prima». Con zero prima non c'è un
+// confronto da fare, e dirlo è meglio di una percentuale infinita.
+// `come` dice come leggere il numero: 'percento' (default), 'punti' per una
+// quota che è già una percentuale (8% → 12% sono «4 punti», non «+50%»), e
+// 'inverso' per le annullate, dove salire è la notizia brutta.
+function deltaTesto(ora, prima, giorni, come = 'percento') {
+  const rispetto = `rispetto ai ${giorni} giorni prima`;
+  if (!Number.isFinite(ora) || !Number.isFinite(prima)) return '';
+  const inverso = come === 'inverso';
+  let diff, testo;
+  if (come === 'punti') {
+    diff = ora - prima;
+    testo = `${Math.abs(diff)} ${Math.abs(diff) === 1 ? 'punto' : 'punti'}`;
+  } else {
+    if (!prima) return ora ? `<div class="d pari">nei ${giorni} giorni prima: niente</div>` : '';
+    diff = Math.round(((ora - prima) / prima) * 100);
+    testo = `${Math.abs(diff)}%`;
+  }
+  if (diff === 0) return `<div class="d pari">= come nei ${giorni} giorni prima</div>`;
+  const bene = inverso ? diff < 0 : diff > 0;
+  return `<div class="d ${bene ? 'su' : 'giu'}">${diff > 0 ? '▲' : '▼'} ${testo} ${rispetto}</div>`;
+}
 
 async function caricaReport() {
   const dal = $('#rep-dal').value;
   const al = $('#rep-al').value;
   const box = $('#rep-corpo');
   if (!dal || !al) { box.innerHTML = '<p class="conteggio" style="margin:0">Scegli un periodo.</p>'; return; }
+  if (al < dal) { box.innerHTML = '<p class="conteggio" style="margin:0">La fine viene prima dell\'inizio: controlla le date.</p>'; return; }
   $('#rep-csv').href = `/api/bot/report/csv?dal=${dal}&al=${al}`;
+  $('#rep-quando').textContent = descriviPeriodo(dal, al);
   box.innerHTML = '<p class="conteggio" style="margin:0">Un momento…</p>';
-  let d;
+  let d, prima = null;
   try { d = await (await fetch(`/api/bot/report?dal=${dal}&al=${al}`)).json(); }
   catch { box.innerHTML = '<p class="conteggio" style="margin:0">Non sono riuscito a leggere il report.</p>'; return; }
   // ⚠️ L'errore del server si fa leggere: una pagina che resta uguale fa
   // credere che in quel periodo non ci sia stato nessuno.
   if (d.error) { box.innerHTML = `<p class="conteggio" style="margin:0">${testoSicuro(d.error)}</p>`; return; }
-  box.innerHTML = disegnaReport(d);
+  // Il periodo prima, per il confronto. Se non si legge, il report esce lo
+  // stesso: il confronto è la cornice, non il contenuto.
+  try {
+    const [pDal, pAl] = periodoPrima(dal, al);
+    const r = await (await fetch(`/api/bot/report?dal=${pDal}&al=${pAl}`)).json();
+    if (!r.error) prima = r;
+  } catch { prima = null; }
+  box.innerHTML = disegnaReport(d, prima);
   collegaTabelle();
 }
 
@@ -5893,27 +5991,41 @@ function barre(voci, unita = 'coperti') {
 }
 
 function riquadro(titolo, dentro, sotto = '') {
-  return `<div style="margin-top:22px">
-    <h3 style="font-size:.95rem;margin:0 0 2px">${titolo}</h3>
+  return `<div class="rep-sezione">
+    <h3>${titolo}</h3>
     ${sotto ? `<p class="conteggio" style="margin:0 0 8px">${sotto}</p>` : '<div style="height:8px"></div>'}
     ${dentro}</div>`;
 }
 
-function disegnaReport(d) {
+// Una quota in due parti, scritte tutte e due: «il bot 63 (77%) · a mano 19».
+function quotaDoppia(a, b, nomeA, nomeB) {
+  const tot = a + b;
+  const pa = tot ? Math.round((a / tot) * 100) : 0;
+  return `<div class="rep-split"><i class="a" style="width:${pa}%"></i><i class="b" style="width:${tot ? 100 - pa : 0}%"></i></div>
+    <div class="rep-legenda"><span class="a"><b>${a}</b> ${testoSicuro(nomeA)} (${pa}%)</span>
+    <span class="b"><b>${b}</b> ${testoSicuro(nomeB)}</span></div>`;
+}
+
+function disegnaReport(d, prima = null) {
   const t = d.totale;
   const perc = (n, su) => (su ? Math.round((n / su) * 100) : 0);
+  const pt = prima ? prima.totale : null;
+  const conf = (ora, chiave, come) => (pt ? deltaTesto(ora, chiave === 'riempimento' ? prima.riempimento.quota : pt[chiave], d.giorni, come) : '');
   const kpi = [
-    ['Prenotazioni', t.prenotazioni, ''],
-    ['Coperti', t.coperti, t.prenotazioni ? `${t.mediaCoperti} a tavolo` : ''],
-    ['Riempimento', d.riempimento.quota + '%', `su ${d.riempimento.possibili} coperti in ${d.riempimento.aperti} giorni aperti`],
-    ['Annullate', t.annullate, t.annullate ? `${t.copertiPersi} coperti persi · ${perc(t.annullate, t.prenotazioni + t.annullate)}%` : ''],
-    ['Clienti', d.clienti.totali, `${d.clienti.diRitorno} già stati qui`],
+    ['Prenotazioni', t.prenotazioni, '', conf(t.prenotazioni, 'prenotazioni')],
+    ['Coperti', t.coperti, t.prenotazioni ? `${t.mediaCoperti} a tavolo` : '', conf(t.coperti, 'coperti')],
+    ['Riempimento', d.riempimento.quota + '%', `su ${d.riempimento.possibili} coperti in ${d.riempimento.aperti} giorni aperti`,
+      conf(d.riempimento.quota, 'riempimento', 'punti')],
+    ['Annullate', t.annullate, t.annullate ? `${t.copertiPersi} coperti persi · ${perc(t.annullate, t.prenotazioni + t.annullate)}%` : '',
+      conf(t.annullate, 'annullate', 'inverso')],
+    ['Clienti', d.clienti.totali, `${d.clienti.diRitorno} già stati qui`,
+      prima ? deltaTesto(d.clienti.totali, prima.clienti.totali, d.giorni) : ''],
   ];
-  if (d.soldOut) kpi.push(['Giorni sold out', d.soldOut, '']);
+  if (d.soldOut) kpi.push(['Giorni sold out', d.soldOut, '', '']);
 
-  let html = '<div class="rep-kpi">' + kpi.map(([nome, n, p]) => `
+  let html = '<div class="rep-kpi">' + kpi.map(([nome, n, p, delta]) => `
     <div><div class="n">${n}</div><div class="t">${nome}</div>
-    ${p ? `<div class="p">${testoSicuro(p)}</div>` : ''}</div>`).join('') + '</div>';
+    ${p ? `<div class="p">${testoSicuro(p)}</div>` : ''}${delta || ''}</div>`).join('') + '</div>';
 
   if (!t.prenotazioni) {
     return html + '<p class="conteggio" style="margin:20px 0 0">In questo periodo non ci sono prenotazioni.</p>';
@@ -5928,6 +6040,7 @@ function disegnaReport(d) {
     con ${d.giornoTop.coperti} coperti.`);
   html += `<p style="margin:18px 0 0;font-size:.95rem;line-height:1.55">${frasi.join(' ')}</p>`;
 
+  html += '<div class="rep-griglia">';
   html += riquadro('Coperti per orario', barre(d.perTurno.map((x) => ({
     nome: x.ora, valore: x.coperti, extra: `${x.prenotazioni} pren.`,
   }))), 'Quale turno porta più gente.');
@@ -5941,23 +6054,18 @@ function disegnaReport(d) {
     valore: x.prenotazioni, extra: x.coperti ? `${x.coperti} coperti` : '',
   })), 'prenotazioni'), 'Per sapere come apparecchiare.');
 
+  html += riquadro('Chi le prende',
+    quotaDoppia(d.origine.bot, d.origine.manuale, 'dal bot', 'segnate a mano'),
+    'Quante prenotazioni sono arrivate da sole, senza che nessuno rispondesse.')
+    + riquadro('Clienti nuovi e di ritorno',
+      quotaDoppia(d.clienti.diRitorno, d.clienti.nuovi, 'già stati qui', 'nuovi'),
+      'Se il locale sta crescendo o sta girando sugli stessi.');
+  html += '</div>';
+
   html += riquadro(`Andamento nel tempo`, serieNelTempo(d.serie),
-    d.serie.passo === 'giorno' ? 'Coperti giorno per giorno.'
+    d.serie.passo === 'giorno' ? 'Coperti giorno per giorno, con la media tratteggiata.'
       : d.serie.passo === 'settimana' ? 'Coperti settimana per settimana — il periodo è troppo lungo per i singoli giorni.'
       : 'Coperti mese per mese.');
-
-  const tot = d.origine.bot + d.origine.manuale;
-  html += riquadro('Chi le prende', `
-    <div class="rep-quota"><i style="width:${perc(d.origine.bot, tot)}%"></i></div>
-    <p style="margin:8px 0 0;font-size:.9rem">Il bot ne ha prese <b>${d.origine.bot}</b>
-      (${perc(d.origine.bot, tot)}%), a mano ne sono state segnate ${d.origine.manuale}.</p>`,
-    'Quante prenotazioni sono arrivate da sole, senza che nessuno rispondesse.');
-
-  html += riquadro('Clienti nuovi e di ritorno', `
-    <div class="rep-quota"><i style="width:${perc(d.clienti.diRitorno, d.clienti.totali)}%"></i></div>
-    <p style="margin:8px 0 0;font-size:.9rem"><b>${d.clienti.diRitorno}</b> erano già stati qui prima
-      (${perc(d.clienti.diRitorno, d.clienti.totali)}%), ${d.clienti.nuovi} sono nuovi.</p>`,
-    'Se il locale sta crescendo o sta girando sugli stessi.');
   return html;
 }
 
@@ -5972,8 +6080,11 @@ function serieNelTempo(serie) {
     ? `${NOMI_MESI_LUNGHI[+p.chiave.slice(5, 7) - 1]} ${p.chiave.slice(0, 4)}`
     : serie.passo === 'settimana' ? `settimana del ${dataStoricaUI(p.chiave)}`
     : dataStoricaUI(p.chiave));
+  const media = Math.round(punti.reduce((n, p) => n + p.coperti, 0) / punti.length);
   return `<div class="rep-scala"><span>${massimo} coperti</span><hr></div>`
-    + `<div class="rep-serie">` + punti.map((p) => `
+    + `<div class="rep-serie">`
+    + (punti.length > 1 ? `<div class="rep-media" style="bottom:${Math.round((media / massimo) * 100)}%"><span>media ${media}</span></div>` : '')
+    + punti.map((p) => `
       <div style="height:${Math.max(Math.round((p.coperti / massimo) * 100), 2)}%"
            title="${testoSicuro(etichetta(p))}: ${p.coperti} coperti, ${p.prenotazioni} prenotazioni"></div>`).join('')
     + `</div><div class="rep-asse"><span>${testoSicuro(etichetta(punti[0]))}</span>`
