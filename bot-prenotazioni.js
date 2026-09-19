@@ -2746,6 +2746,23 @@ function cercaPersone(db, testo, massimo = 8) {
     ? [come, come, come, come, `%${soloCifre}%`, `%${soloCifre}%`]
     : [come, come, come, come]));
 
+  return raggruppaPersone(righe, massimo);
+}
+
+// TUTTI i clienti, per l'elenco della scheda Clienti: le stesse voci della
+// ricerca, senza cercare niente. È da qui che il locale mette in rubrica chi
+// ha prenotato — cioè il motivo per cui la piattaforma esiste.
+// Il tetto è alto ma c'è: un archivio di anni non deve bloccare la pagina.
+function elencoPersone(db, adesso = new Date(), massimo = 3000) {
+  const righe = db.prepare('SELECT * FROM prenotazioni ORDER BY data DESC, id DESC LIMIT 20000').all();
+  return raggruppaPersone(righe, massimo, adesso);
+}
+
+// Le righe di una stessa persona diventano una voce sola. Una funzione per la
+// ricerca e per l'elenco intero: due modi di raggruppare sarebbero due elenchi
+// in cui lo stesso Rossi compare in modo diverso.
+function raggruppaPersone(righe, massimo, adesso = new Date()) {
+  const oggi = comeData(adesso);
   // ⚠️ Raggruppare per «il primo aggancio disponibile» spezzava la stessa
   // persona in due voci: quella con l'email da una parte e quella col solo
   // numero dall'altra. Si uniscono invece i gruppi che condividono ANCHE UNA
@@ -2769,13 +2786,18 @@ function cercaPersone(db, testo, massimo = 8) {
     }
   }
   // La riga senza nessun aggancio non si fonde con niente: resta una voce sua.
-  return gruppi.slice(0, massimo).map(({ righe: g }) => ({
-    id: g[0].id,
+  return gruppi.slice(0, massimo).map(({ righe: g }) => {
     // Il nome è di chi ha scritto per sé, non l'ultimo passato di lì: se il
     // figlio ha prenotato per la madre senza lasciarne il numero, la voce
     // resta intestata al figlio.
-    nome: (() => { const mio = g.find((r) => !r.per_altri) || g[0];
-      return [mio.nome, mio.cognome].filter(Boolean).join(' ') || '—'; })(),
+    const mio = g.find((r) => !r.per_altri) || g[0];
+    return {
+    id: g[0].id,
+    nome: [mio.nome, mio.cognome].filter(Boolean).join(' ') || '—',
+    // Nome e cognome anche separati: l'elenco dei clienti li mostra in due
+    // colonne, e la rubrica li tiene separati da sempre.
+    nomeProprio: String(mio.nome || '').trim(),
+    cognome: String(mio.cognome || '').trim(),
     // Il numero e l'email si prendono dalla prima riga che ce li ha: la più
     // recente può essere quella in cui il cliente non li ha lasciati.
     telefono: (g.find((r) => r.telefono_contatto) || {}).telefono_contatto
@@ -2786,9 +2808,10 @@ function cercaPersone(db, testo, massimo = 8) {
     // archivio: con una prenotazione futura in mezzo, l'elenco diceva «ultima
     // 8 settembre» di una sera che deve ancora arrivare. Le due cose si dicono
     // separate, che sono due notizie diverse.
-    ultima: (g.find((r) => r.data < comeData(new Date()) && r.stato !== 'annullata') || {}).data || '',
-    prossima: [...g].reverse().find((r) => r.data >= comeData(new Date()) && r.stato !== 'annullata')?.data || '',
-  }));
+    ultima: (g.find((r) => r.data < oggi && r.stato !== 'annullata') || {}).data || '',
+    prossima: [...g].reverse().find((r) => r.data >= oggi && r.stato !== 'annullata')?.data || '',
+    };
+  });
 }
 
 // Il pezzo di SQL che cerca la persona in entrambe le colonne, con tutte le
@@ -4703,7 +4726,7 @@ module.exports = {
   conversazioneScaduta, giorniAncoraBuoni,
   riapreConUnSaluto, daRichiamare, segnaRichiamata, daLasciareAndare, lasciaAndare,
   minutiFermi, PASSI_CHE_RIAPRONO, COSA_MANCA,
-  prenotazioniDellaPersona, schedaPersona, cercaPersone,
+  prenotazioniDellaPersona, schedaPersona, cercaPersone, elencoPersone,
   reportPrenotazioni, giorniFra, NOMI_SETTIMANA,
   interpretaGiorni,
   giornoBloccato, eBloccato, eChiuso, ePieno, giorniPieni, segnaPieno, togliPieno,

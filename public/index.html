@@ -657,6 +657,19 @@
   .rep-tabella { width: 100%; border-collapse: collapse; font-size: .86rem; }
   .rep-tabella th, .rep-tabella td { text-align: left; padding: 5px 8px; border-top: 1px solid var(--bordo); }
   .rep-tabella td.n, .rep-tabella th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  /* L'elenco dei clienti: una tabella sul computer, e sul telefono una riga
+     per cliente con le etichette davanti — sei colonne su 390 pixel non si
+     leggono, e una tabella che scorre di lato porta via lo zoom col dito. */
+  .cli-tabella { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  .cli-tabella th, .cli-tabella td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--bordo); vertical-align: middle; }
+  .cli-tabella th { font-size: .78rem; color: var(--grigio); font-weight: 600; border-top: 0; white-space: nowrap; }
+  .cli-apri { border: 0; background: none; font: inherit; font-weight: 600; color: var(--verde-testo); cursor: pointer; padding: 0; text-align: left; }
+  @media (max-width: 600px) {
+    .cli-tabella thead { display: none; }
+    .cli-tabella tr { display: block; border-top: 1px solid var(--bordo); padding: 8px 0; }
+    .cli-tabella td { display: flex; gap: 8px; align-items: center; border: 0; padding: 3px 0; }
+    .cli-tabella td::before { content: attr(data-col); flex: 0 0 84px; color: var(--grigio); font-size: .78rem; }
+  }
   .riga-strumenti { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
   /* Sotto-schede dentro Prenotazioni. Volutamente piu' leggere della barra
      principale: devono leggersi come «dove sono dentro questa scheda», non
@@ -1893,6 +1906,25 @@
         </p>
         <input id="cli-cerca" autocomplete="off" placeholder="nome, cognome, numero o email…" style="max-width:420px">
         <div id="cli-trovati" style="margin-top:12px"></div>
+      </div>
+
+      <!-- TUTTI I CLIENTI, e il tasto per metterli in rubrica. È il passaggio
+           che trasforma una serata in un cliente a cui poter scrivere: uno per
+           uno, di proposito — chi prenota un tavolo non ha chiesto le novità. -->
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+          <h2 style="font-size:1rem;margin:0">Tutti i clienti</h2>
+          <span style="flex:1"></span>
+          <span id="cli-conto" class="conteggio" style="margin:0"></span>
+        </div>
+        <p class="conteggio" style="margin:0 0 10px">
+          Chi ha prenotato almeno una volta, dall'ultima visita in giù. <b>Salva in rubrica</b> lo
+          mette fra i contatti per gli invii WhatsApp e la newsletter — uno per uno, perché chi
+          prenota un tavolo non ha chiesto le novità del locale. Chi ha scritto STOP resta fuori
+          dagli invii, e qui lo si vede.
+        </p>
+        <input id="cli-filtro" autocomplete="off" placeholder="filtra per nome, cognome, numero o email…" style="max-width:420px">
+        <div id="cli-elenco" style="margin-top:12px"></div>
       </div>
     </div>
 
@@ -4974,7 +5006,7 @@ async function caricaSottoScheda(nome) {
     await caricaReport();
     return;
   }
-  if (nome === 'clienti') return;   // qui non c'è niente da caricare: si cerca
+  if (nome === 'clienti') { await caricaElencoClienti(); return; }
   if (nome === 'diagnostica') { await caricaRegistroBot(); return; }
 }
 
@@ -5652,6 +5684,7 @@ $('#pann-in-rubrica').addEventListener('click', async () => {
     // ricaricare, riaprendo il pannello il pulsante ricomparirebbe.
     caricaServizio();
     if (typeof caricaContatti === 'function') caricaContatti();
+    if (clientiTutti.length) caricaElencoClienti();
   } finally { tasto.disabled = false; }
 });
 $('#pren-pannello').addEventListener('click', (e) => { if (e.target.id === 'pren-pannello') chiudiPannello(); });
@@ -6281,6 +6314,93 @@ async function cercaClienti() {
   box.querySelectorAll('[data-scheda]').forEach((b) => {
     b.addEventListener('click', () => apriScheda(b.dataset.scheda));
   });
+}
+
+// ---- Tutti i clienti ----
+let clientiTutti = [];
+async function caricaElencoClienti() {
+  const box = $('#cli-elenco');
+  let d;
+  try { d = await (await fetch('/api/bot/clienti')).json(); }
+  catch { box.innerHTML = '<span class="conteggio" style="margin:0">Non sono riuscito a leggere l\'elenco.</span>'; return; }
+  if (d.error) { box.innerHTML = `<span class="conteggio" style="margin:0">${testoSicuro(d.error)}</span>`; return; }
+  clientiTutti = d.clienti || [];
+  disegnaElencoClienti();
+}
+
+$('#cli-filtro').addEventListener('input', disegnaElencoClienti);
+
+function disegnaElencoClienti() {
+  const box = $('#cli-elenco');
+  const filtro = $('#cli-filtro').value.trim().toLowerCase();
+  const cifre = filtro.replace(/\D/g, '');
+  const righe = clientiTutti.filter((c) => !filtro
+    || `${c.nome} ${c.email || ''}`.toLowerCase().includes(filtro)
+    || (cifre.length >= 3 && String(c.telefono || '').replace(/\D/g, '').includes(cifre)));
+  // Dall'ultima visita in giù: chi è venuto ieri prima di chi è venuto un anno
+  // fa. Chi non è ancora venuto (solo prenotazioni in arrivo, o solo annullate)
+  // sta in fondo — non è ancora un cliente da richiamare.
+  righe.sort((a, b) => (b.ultima || '').localeCompare(a.ultima || '')
+    || (b.prossima || '').localeCompare(a.prossima || '') || a.nome.localeCompare(b.nome, 'it'));
+  const inRubrica = clientiTutti.filter((c) => c.inRubrica).length;
+  $('#cli-conto').textContent = clientiTutti.length
+    ? `${clientiTutti.length} clienti · ${inRubrica} in rubrica${filtro ? ` · ${righe.length} trovati` : ''}` : '';
+  // «Nessuno» va detto: un riquadro vuoto sembra un guasto.
+  if (!clientiTutti.length) {
+    box.innerHTML = '<span class="conteggio" style="margin:0">Nessuna prenotazione ancora: l\'elenco si riempie da solo.</span>';
+    return;
+  }
+  if (!righe.length) {
+    box.innerHTML = '<span class="conteggio" style="margin:0">Nessuno con questo nome, numero o email.</span>';
+    return;
+  }
+  box.innerHTML = `<table class="cli-tabella"><thead><tr>
+      <th>Nome</th><th>Cognome</th><th>Telefono</th><th>Email</th><th>Ultima prenotazione</th><th>Rubrica</th>
+    </tr></thead><tbody>${righe.map((c) => `
+    <tr data-id="${c.id}">
+      <td data-col="Nome"><button type="button" class="cli-apri" data-scheda="${c.id}">${testoSicuro(c.nomeProprio || '—')}</button></td>
+      <td data-col="Cognome">${testoSicuro(c.cognome || '')}</td>
+      <td data-col="Telefono">${testoSicuro(numeroPulito(c.telefono) || '—')}</td>
+      <td data-col="Email">${testoSicuro(c.email || '—')}</td>
+      <td data-col="Ultima">${c.ultima
+        ? `${dataStoricaUI(c.ultima)} <span class="conteggio" style="margin:0">· ${tempoFa(c.ultima)}</span>`
+        : (c.prossima ? `<span class="conteggio" style="margin:0">in arrivo ${dataStoricaUI(c.prossima)}</span>` : '—')}</td>
+      <td data-col="Rubrica">${cellaRubrica(c)}</td>
+    </tr>`).join('')}</tbody></table>`;
+  box.querySelectorAll('.cli-apri').forEach((b) => b.addEventListener('click', () => apriScheda(b.dataset.scheda)));
+  box.querySelectorAll('.cli-salva').forEach((b) => b.addEventListener('click', () => salvaClienteInRubrica(b.dataset.id, b)));
+}
+
+// Chi ha chiesto di non ricevere più messaggi resta fuori, e lo si dice: un
+// tasto che lo rimettesse in lista sarebbe il modo di non rispettare uno STOP.
+function cellaRubrica(c) {
+  if (c.inRubrica && c.inRubrica.optOut) return '<span class="conteggio" style="margin:0">⛔ ha chiesto di non ricevere messaggi</span>';
+  if (c.inRubrica) return '<span class="conteggio" style="margin:0">✅ in rubrica</span>';
+  if (!c.telefono && !c.email) return '<span class="conteggio" style="margin:0">senza recapito</span>';
+  return `<button type="button" class="btn btn-secondario btn-piccolo cli-salva" data-id="${c.id}">Salva in rubrica</button>`;
+}
+
+async function salvaClienteInRubrica(id, tasto) {
+  const c = clientiTutti.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  tasto.disabled = true;
+  try {
+    // La stessa rotta del pannello della prenotazione: un modo solo di mettere
+    // in rubrica, con gli stessi controlli (doppioni, numeri di WhatsApp che
+    // non sono numeri, chi ha detto STOP).
+    const r = await fetch(`/api/bot/prenotazioni/${id}/rubrica`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome: c.nomeProprio, cognome: c.cognome, telefono: c.telefono, email: c.email }),
+    });
+    const d = await r.json();
+    if (d.error) { toast(d.error); return; }
+    c.inRubrica = d.contatto;
+    toast(d.gia ? 'Era già in rubrica' : 'Aggiunto in rubrica');
+    disegnaElencoClienti();
+    if (typeof caricaContatti === 'function') caricaContatti();
+  } catch {
+    toast('Non sono riuscito a salvarlo in rubrica.');
+  } finally { tasto.disabled = false; }
 }
 
 // ---- I giorni pieni ----
