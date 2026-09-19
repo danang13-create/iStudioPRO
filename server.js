@@ -183,6 +183,11 @@ const state = {
   status: 'inizializzazione', // inizializzazione | qr | connesso | disconnesso
   qr: null,
   me: null,
+  // ⚠️ LA SECONDA STRADA PER COLLEGARSI: il codice di otto lettere, al posto
+  // del QR. Serve a un caso solo ma vero — un telefono con la fotocamera
+  // rotta, che il QR non può inquadrarlo in nessun modo. Normalmente non si usa.
+  codice: null,           // il codice da battere sul telefono, es. 'ABCD-EFGH'
+  codiceNumero: null,     // per quale numero è stato chiesto
 };
 
 const client = new Client({
@@ -200,9 +205,20 @@ client.on('qr', async (qr) => {
   console.log('QR code generato: scansionalo dalla pagina web');
 });
 
+// ⚠️ WhatsApp RIGENERA il codice da solo ogni tre minuti finché nessuno si
+// collega: se si tenesse solo quello tornato dalla prima chiamata, dopo tre
+// minuti la pagina mostrerebbe un codice morto — che non dà nessun errore,
+// semplicemente non funziona. È lo stesso guasto del QR scaduto.
+client.on('code', (codice) => {
+  state.codice = String(codice || '');
+  console.log('Codice di collegamento generato per', state.codiceNumero);
+});
+
 client.on('ready', () => {
   state.status = 'connesso';
   state.qr = null;
+  state.codice = null;
+  state.codiceNumero = null;
   state.me = client.info && client.info.wid ? client.info.wid.user : null;
   console.log('WhatsApp connesso come', state.me);
   // se un invio si era fermato per il collegamento caduto, riparte da solo
@@ -312,6 +328,8 @@ async function ripristinaWhatsApp(motivo) {
   ripristinoInCorso = true;
   state.status = 'inizializzazione';
   state.qr = null;
+  state.codice = null;
+  state.codiceNumero = null;
   state.me = null;
   console.log(`Ripristino collegamento WhatsApp (${motivo}): chiudo…`);
   try {
@@ -1560,6 +1578,72 @@ async function guardaIlCollegamento() {
 // partiva senza il guardiano — restando muta proprio quando serviva.
 
 // ---------------------------------------------------------------------------
+//  Collegarsi col NUMERO invece che col QR
+// ---------------------------------------------------------------------------
+//  ⚠️ Serve a un caso solo, ma vero: un telefono con la fotocamera rotta. Il
+//  QR non può inquadrarlo in nessun modo, e finora quella copia restava
+//  scollegata e basta. Normalmente non si usa: la strada è il QR.
+//
+//  Come funziona per chi la usa: si scrive il numero del ristorante, WhatsApp
+//  manda una notifica a quel telefono e dà otto lettere da battere in
+//  «Dispositivi collegati → Collega con numero di telefono».
+//
+//  ⚠️ Vale ESATTAMENTE quanto il QR: chi ottiene quel codice collega il
+//  proprio telefono come bot del locale. Stessi paletti, non di meno.
+function codiceDiCollegamento() {
+  return { codice: state.codice, numero: state.codiceNumero, stato: state.status };
+}
+
+async function chiediCodiceCollegamento(numeroGrezzo, chi) {
+  if (!botDisponibile()) return { ok: false, error: 'Il motore del bot non è caricato.' };
+  // ⚠️ A WhatsApp già collegato NON si chiede niente: non servirebbe, e
+  //    sarebbe solo un modo di staccare per sbaglio una linea che funziona.
+  if (state.status === 'connesso') {
+    return { ok: false, error: 'WhatsApp è già collegato: non serve nessun codice.' };
+  }
+  // ⚠️ E nemmeno durante l'avvio: la pagina di WhatsApp non è ancora in piedi,
+  //    e la richiesta morirebbe con un errore che non vuol dire niente a chi lo legge.
+  if (state.status === 'inizializzazione') {
+    return { ok: false, error: 'WhatsApp si sta ancora avviando: riprova fra qualche secondo.' };
+  }
+  const numero = normalizePhone(numeroGrezzo);
+  // WhatsApp vuole il numero internazionale, sole cifre. Sotto le otto cifre
+  // non è un numero: è un errore di battitura, e vale la pena dirlo subito.
+  if (!/^\d{8,15}$/.test(numero)) {
+    return { ok: false, error: 'Numero non valido. Scrivilo col prefisso del Paese, per esempio +39 340 1234567.' };
+  }
+  try {
+    state.codiceNumero = numero;
+    state.codice = null;
+    const codice = await client.requestPairingCode(numero, true);
+    // La libreria lo torna subito; l'evento «code» lo rinfresca ogni tre minuti.
+    if (codice) state.codice = String(codice);
+    annota('collegamento', `chiesto il codice di collegamento per +${numero}${chi ? ' (' + chi + ')' : ''}`);
+    return { ok: true, codice: state.codice, numero };
+  } catch (e) {
+    state.codice = null;
+    state.codiceNumero = null;
+    console.error('Codice di collegamento non riuscito:', e.message);
+    return { ok: false, error: 'WhatsApp non ha dato il codice: ' + e.message };
+  }
+}
+
+async function annullaCodiceCollegamento() {
+  state.codice = null;
+  state.codiceNumero = null;
+  // ⚠️ Torna al QR sul serio, non solo nella pagina: finché WhatsApp resta in
+  //    modo «codice» il QR non si rigenera, e chi chiude la finestra si
+  //    ritroverebbe un quadrato fermo che non funziona più.
+  try {
+    if (typeof client.cancelPairingCode === 'function') await client.cancelPairingCode();
+    return { ok: true };
+  } catch (e) {
+    console.error('Annullamento del codice non riuscito:', e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
+// ---------------------------------------------------------------------------
 //  Le notifiche
 // ---------------------------------------------------------------------------
 //  ⚠️ Non una tabella nuova: le cose da sapere ci sono GIÀ in archivio, sparse
@@ -1680,6 +1764,15 @@ function notifiche() {
 app.get('/api/notifiche', (req, res) => {
   const lista = notifiche();
   res.json({ lista, quante: lista.length, urgenti: lista.filter((n) => n.urgenza === 'alta').length });
+});
+
+// Il codice di collegamento, dalla piattaforma.
+app.post('/api/whatsapp/codice', async (req, res) => {
+  const r = await chiediCodiceCollegamento(req.body && req.body.numero, 'piattaforma');
+  res.status(r.ok ? 200 : 400).json(r);
+});
+app.post('/api/whatsapp/codice/annulla', async (req, res) => {
+  res.json(await annullaCodiceCollegamento());
 });
 
 app.get('/api/status', (req, res) => {
@@ -7450,7 +7543,24 @@ sala.get('/api/sala/qr', (req, res) => {
     return res.json({ collegato: true, qr: null, stato: state.status });
   }
   if (state.qr) annota('sala', 'dalla sala hanno chiesto il QR per riattaccare WhatsApp');
-  res.json({ collegato: false, qr: state.qr, stato: state.status });
+  // Il codice viaggia con la stessa risposta: la finestra lo sta già chiedendo
+  // a giro per via del QR che scade, e così si rinfresca da sé anche quello —
+  // che WhatsApp rigenera ogni tre minuti esattamente come il quadrato.
+  res.json({ collegato: false, qr: state.qr, stato: state.status, ...codiceDiCollegamento() });
+});
+
+// ⚠️ La seconda strada per riattaccare: il codice al posto del QR, per un
+// telefono con la fotocamera rotta. Sta qui per la stessa ragione del QR — il
+// guasto succede di sera, e chi è in sala è l'unico che può rimediare — e
+// vale ESATTAMENTE quanto quello: chi ottiene il codice collega il proprio
+// telefono come bot del locale. Stessi paletti: password della sala, niente a
+// WhatsApp già collegato, e ogni richiesta scritta nel registro col numero.
+sala.post('/api/sala/codice', async (req, res) => {
+  const r = await chiediCodiceCollegamento(req.body && req.body.numero, 'sala');
+  res.status(r.ok ? 200 : 400).json(r);
+});
+sala.post('/api/sala/codice/annulla', async (req, res) => {
+  res.json(await annullaCodiceCollegamento());
 });
 
 sala.get('/api/bot/settimana', rottaSettimana);

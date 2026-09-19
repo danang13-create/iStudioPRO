@@ -3033,6 +3033,8 @@ function mostraAvvisoAbbonamento(dati) {
 // ripristino sta lavorando, così il messaggio di attesa resta visibile.
 let statoDisegnato = null;
 let ripristinoInCorsoUI = false;
+// Vero mentre qualcuno sta copiando il codice di collegamento: vedi aggiornaStato.
+let codiceInCorsoUI = false;
 
 async function aggiornaStato() {
   const box = $('#qr-box');
@@ -3069,6 +3071,13 @@ async function aggiornaStato() {
     mostraVersione(s.versione);
     mostraAggiornamento(s.aggiornamento);
     if (ripristinoInCorsoUI) return;
+    // ⚠️ Mentre si sta copiando il codice di otto lettere, il riquadro NON si
+    // ridisegna: la firma qui sotto comprende il QR, che WhatsApp rigenera ogni
+    // venti secondi, e un ridisegno cancellerebbe il codice sotto le mani di
+    // chi lo sta battendo sul telefono. Si riprende quando è collegato — che è
+    // poi la notizia che quella persona sta aspettando.
+    if (codiceInCorsoUI && s.status !== 'connesso') return;
+    if (codiceInCorsoUI && s.status === 'connesso') codiceInCorsoUI = false;
     const firma = s.status + '|' + (s.me || '') + '|' + (s.qr || '').slice(0, 40);
     if (firma === statoDisegnato) return;
     statoDisegnato = firma;
@@ -3082,8 +3091,20 @@ async function aggiornaStato() {
         '<button class="btn btn-rosso btn-piccolo" onclick="scollegaWhatsApp()">Scollega WhatsApp da questo server</button></p>';
     } else if (s.status === 'qr' && s.qr) {
       impostaBadge('badge-wa', 'giallo', 'Da collegare: scansiona il QR');
-      box.innerHTML = '<p style="margin-bottom:10px">Apri WhatsApp sul telefono → <b>Impostazioni → Dispositivi collegati → Collega un dispositivo</b> e inquadra questo codice:</p><img src="' + s.qr + '" alt="QR code" width="260">' +
-        '<p style="margin-top:14px"><button class="btn btn-piccolo" onclick="ripristinaWhatsApp()">🔄 Ripristina collegamento</button></p>';
+      box.innerHTML = '<p id="wa-spiega-qr" style="margin-bottom:10px">Apri WhatsApp sul telefono → <b>Impostazioni → Dispositivi collegati → Collega un dispositivo</b> e inquadra questo codice:</p><img src="' + s.qr + '" alt="QR code" width="260">' +
+        '<p style="margin-top:14px"><button class="btn btn-piccolo" onclick="ripristinaWhatsApp()">🔄 Ripristina collegamento</button></p>' +
+        // ⚠️ La seconda strada, chiusa: serve a un caso solo — la fotocamera
+        // del telefono rotta — e in vista confonderebbe chi deve solo inquadrare.
+        '<p style="margin-top:4px"><button class="btn btn-secondario btn-piccolo" id="wa-apri-numero">La fotocamera non funziona? Collega col numero</button></p>'
+        + '<div id="wa-numero" style="display:none;max-width:420px;margin:10px auto 0">'
+        + '<p class="conteggio">Scrivi il numero di WhatsApp del ristorante: arriva una notifica su quel telefono con otto lettere da battere in <b>Dispositivi collegati → Collega con numero di telefono</b>.</p>'
+        + '<div style="display:flex;gap:8px;align-items:center;margin:8px 0">'
+        + '<input id="wa-numero-campo" type="tel" inputmode="tel" autocomplete="off" placeholder="+39 340 1234567" aria-label="Numero di WhatsApp del ristorante" style="flex:1;min-width:0">'
+        + '<button class="btn" id="wa-numero-chiedi" type="button">Chiedi il codice</button></div>'
+        + '<p id="wa-numero-esito" class="conteggio"></p>'
+        + '<b id="wa-codice" style="display:none;font-size:1.7rem;font-weight:800;letter-spacing:.22em;user-select:all;color:var(--verde-testo)"></b>'
+        + '</div>';
+      collegaTastiNumero();
     } else if (s.status === 'inizializzazione') {
       impostaBadge('badge-wa', 'giallo', 'Avvio in corso');
       box.innerHTML = '<p class="vuoto">Sto avviando WhatsApp, attendi qualche secondo…</p>';
@@ -3106,6 +3127,59 @@ aggiornaStato();
 // Ripristino forzato del collegamento: chiude tutto (browser interno compreso) e riapre.
 // Non cancella la sessione salvata, quindi di solito NON serve riscansionare il QR.
 // La risposta arriva dopo qualche secondo: il pulsante si disabilita per non farne partire due.
+// ⚠️ I tasti si riagganciano a ogni disegno: il riquadro del QR viene
+// riscritto da capo a ogni giro, e gli ascoltatori messi una volta sola
+// morirebbero col primo aggiornamento — il tasto resterebbe lì, e premendolo
+// non succederebbe niente.
+function collegaTastiNumero() {
+  const apri = $('#wa-apri-numero');
+  if (apri) apri.addEventListener('click', () => {
+    $('#wa-numero').style.display = 'block';
+    apri.style.display = 'none';
+    $('#wa-numero-campo').focus();
+    codiceInCorsoUI = true;
+  });
+  const chiedi = $('#wa-numero-chiedi');
+  if (chiedi) chiedi.addEventListener('click', async () => {
+    const esito = $('#wa-numero-esito');
+    const box = $('#wa-codice');
+    esito.style.color = '';
+    esito.textContent = 'Lo sto chiedendo a WhatsApp…';
+    chiedi.disabled = true;
+    try {
+      const r = await fetch('/api/whatsapp/codice', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numero: $('#wa-numero-campo').value }),
+      });
+      const d = await r.json();
+      if (!d.ok) {
+        // L'errore VERO: qui si sbaglia il numero, e senza sapere cosa non va
+        // si riprova uguale all'infinito.
+        esito.style.color = 'var(--rosso)';
+        esito.textContent = d.error || 'Non sono riuscito a chiedere il codice.';
+        box.style.display = 'none';
+        return;
+      }
+      const pulito = String(d.codice || '').replace(/\s+/g, '');
+      box.textContent = pulito.length === 8 ? pulito.slice(0, 4) + ' ' + pulito.slice(4) : pulito;
+      box.style.display = 'block';
+      esito.textContent = 'Battilo sul telefono entro pochi minuti — se scade, ne compare un altro da solo.';
+      // ⚠️ Col codice attivo WhatsApp NON è più in modo QR: quel quadrato è
+      // un'immagine vecchia che non funziona più, e lasciarla con scritto
+      // «inquadra questo codice» manda qualcuno a inquadrare per niente.
+      const quadrato = $('#qr-box').querySelector('img');
+      if (quadrato) quadrato.style.display = 'none';
+      const spiega = $('#wa-spiega-qr');
+      if (spiega) spiega.innerHTML = 'Il QR è sospeso: adesso vale il codice qui sotto.';
+    } catch {
+      esito.style.color = 'var(--rosso)';
+      esito.textContent = 'Non riesco a parlare col server.';
+    } finally {
+      chiedi.disabled = false;
+    }
+  });
+}
+
 window.ripristinaWhatsApp = async (ev) => {
   if (!confirm('Ripristinare il collegamento a WhatsApp?\n\n' +
                'iStudio chiude il collegamento e lo riapre da zero. Ci vogliono circa 10-20 secondi.\n' +

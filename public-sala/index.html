@@ -175,6 +175,21 @@
                  max-height: 92vh; overflow: auto; }
   #qr-dove img { width: 100%; max-width: 280px; height: auto; border-radius: 10px;
                  background: #fff; padding: 10px; margin: 6px auto; display: block; }
+  /* Un tasto che si comporta da collegamento: resta un <button>, perché fa una
+     cosa, non porta da nessuna parte. */
+  .finto-collegamento { background: none; border: 0; padding: 4px; font: inherit;
+                        color: var(--verde-testo); text-decoration: underline; cursor: pointer; }
+  #qr-numero[hidden], #qr-codice[hidden], #qr-dove[hidden], #qr-spiega[hidden],
+  #qr-dove-vuoto[hidden] { display: none; }
+  .riga-numero { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+  .riga-numero input { flex: 1; min-width: 0; }
+  .riga-numero .btn { flex: 0 0 auto; min-height: 44px; }
+  /* ⚠️ Otto lettere da COPIARE a mano su un telefono, spesso al buio e di
+     fretta: grandi, spaziate e selezionabili. Un codice che si legge male si
+     sbaglia, e sbagliarlo vuol dire ricominciare da capo. */
+  .codice-grande { display: block; text-align: center; font-size: 1.7rem; font-weight: 800;
+                   letter-spacing: .22em; margin: 10px 0 4px; color: var(--verde-testo);
+                   user-select: all; font-variant-numeric: tabular-nums; }
   #qr-nota { margin-top: 10px; }
   /* In sala si tocca con le dita, spesso di fretta e con le mani occupate:
      i bersagli sono più grandi che sulla piattaforma, non per estetica. */
@@ -668,9 +683,31 @@
       <b>Dispositivi collegati</b> → <b>Collega un dispositivo</b>, e inquadra questo codice.
     </p>
     <div id="qr-dove"><p class="conteggio">Sto chiedendo il codice…</p></div>
+    <p id="qr-dove-vuoto" class="conteggio" hidden>Il QR è sospeso: adesso vale il codice qui sotto.</p>
+    <!-- ⚠️ La seconda strada, chiusa. Serve a un caso solo — la fotocamera del
+         telefono rotta — e messa in vista confonderebbe tutti gli altri, che
+         devono solo inquadrare. Chi ne ha bisogno la trova; chi non ne ha
+         bisogno non la vede nemmeno. -->
+    <p id="qr-altra-via" class="conteggio">
+      <button type="button" id="qr-apri-numero" class="finto-collegamento">La fotocamera non funziona?</button>
+    </p>
+    <div id="qr-numero" hidden>
+      <p class="conteggio" style="text-align:left">
+        Scrivi il numero di WhatsApp del ristorante: arriva una notifica su quel telefono con
+        otto lettere da battere in <b>Dispositivi collegati</b> →
+        <b>Collega con numero di telefono</b>.
+      </p>
+      <div class="riga-numero">
+        <input id="qr-numero-campo" type="tel" inputmode="tel" autocomplete="off"
+               placeholder="+39 340 1234567" aria-label="Numero di WhatsApp del ristorante">
+        <button class="btn" type="button" id="qr-numero-chiedi">Chiedi il codice</button>
+      </div>
+      <p id="qr-numero-esito" class="conteggio"></p>
+      <div id="qr-codice" hidden><b class="codice-grande"></b></div>
+    </div>
     <p class="conteggio" id="qr-nota">
-      ⚠️ Usa il telefono del <b>ristorante</b>: il numero che inquadra questo codice
-      diventa quello con cui il bot risponde ai clienti.
+      ⚠️ Usa il telefono del <b>ristorante</b>: il numero che si collega — col QR o
+      col codice — diventa quello con cui il bot risponde ai clienti.
     </p>
     <button class="btn btn-secondario" id="qr-chiudi" type="button">Chiudi</button>
   </div>
@@ -1846,6 +1883,10 @@ async function chiediQr() {
       setTimeout(chiudiQr, 2500);
       return;
     }
+    // ⚠️ Il codice si rinfresca col giro del QR: WhatsApp lo rigenera ogni tre
+    // minuti esattamente come il quadrato, e uno scaduto non dà nessun errore —
+    // semplicemente non funziona.
+    mostraCodice(d.codice);
     if (d.qr) {
       dove.innerHTML = '<img alt="Codice QR da inquadrare col telefono del ristorante" src="' + d.qr + '">';
     } else {
@@ -1870,7 +1911,74 @@ function apriQr() {
 function chiudiQr() {
   $('#qr-velo').hidden = true;
   clearInterval(giroQr); giroQr = null;
+  // ⚠️ Chiudendo si torna al QR SUL SERIO, non solo a vederlo: finché WhatsApp
+  // resta in modo «codice» il quadrato non si rigenera, e chi riapre la
+  // finestra si troverebbe un QR fermo che non funziona più.
+  if (!$('#qr-numero').hidden) {
+    fetch('/api/sala/codice/annulla', { method: 'POST' }).catch(() => {});
+  }
+  $('#qr-numero').hidden = true;
+  $('#qr-altra-via').hidden = false;
+  $('#qr-numero-esito').textContent = '';
+  // Rimette tutto com'era: il quadrato torna, il codice se ne va.
+  mostraCodice(null);
 }
+
+// La seconda strada: il codice al posto del QR, per una fotocamera rotta.
+function mostraCodice(codice) {
+  const box = $('#qr-codice');
+  // ⚠️ Col codice attivo WhatsApp NON è più in modo QR: il quadrato lì sopra
+  // è un'immagine vecchia che non funziona più, e lasciarla con scritto
+  // «inquadra questo codice» manda qualcuno a inquadrare per niente. O l'uno o
+  // l'altro, mai tutti e due.
+  $('#qr-dove').hidden = Boolean(codice);
+  $('#qr-spiega').hidden = Boolean(codice);
+  $('#qr-dove-vuoto').hidden = !codice;
+  if (!codice) { box.hidden = true; return; }
+  // Otto lettere si copiano meglio spezzate a metà: «ABCD EFGH».
+  const pulito = String(codice).replace(/\s+/g, '');
+  box.querySelector('.codice-grande').textContent =
+    pulito.length === 8 ? pulito.slice(0, 4) + ' ' + pulito.slice(4) : pulito;
+  box.hidden = false;
+}
+
+$('#qr-apri-numero').addEventListener('click', () => {
+  $('#qr-altra-via').hidden = true;
+  $('#qr-numero').hidden = false;
+  $('#qr-numero-campo').focus();
+});
+
+$('#qr-numero-chiedi').addEventListener('click', async () => {
+  const campo = $('#qr-numero-campo');
+  const esito = $('#qr-numero-esito');
+  const tasto = $('#qr-numero-chiedi');
+  esito.style.color = '';
+  esito.textContent = 'Lo sto chiedendo a WhatsApp…';
+  tasto.disabled = true;
+  try {
+    const r = await fetch('/api/sala/codice', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ numero: campo.value }),
+    });
+    if (r.status === 401) { sessioneFinita(); return; }
+    const d = await r.json();
+    if (!d.ok) {
+      // ⚠️ L'errore vero, non un «non riuscito»: qui si sbaglia il numero, e
+      // senza sapere COSA non va si riprova uguale all'infinito.
+      esito.style.color = 'var(--rosso)';
+      esito.textContent = d.error || 'Non sono riuscita a chiedere il codice.';
+      mostraCodice(null);
+      return;
+    }
+    esito.textContent = 'Battilo sul telefono entro pochi minuti — se scade, ne compare un altro da solo.';
+    mostraCodice(d.codice);
+  } catch {
+    esito.style.color = 'var(--rosso)';
+    esito.textContent = 'Non riesco a parlare col computer del ristorante.';
+  } finally {
+    tasto.disabled = false;
+  }
+});
 $('#spia-wa').addEventListener('click', () => { if (whatsappGiu) apriQr(); });
 $('#wa-giu-ricollega').addEventListener('click', apriQr);
 $('#qr-chiudi').addEventListener('click', chiudiQr);
