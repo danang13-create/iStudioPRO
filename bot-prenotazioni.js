@@ -2737,8 +2737,26 @@ function schedaPersona(db, id, adesso = new Date()) {
     .map(([testo, quante]) => ({ testo, volte: quante }))
     .sort((a, b) => b.volte - a.volte || a.testo.localeCompare(b.testo));
 
+  // Le richieste fatte al personale — una torta, un seggiolone, «posso
+  // portare il cane?» — con cosa gli è stato risposto, e se qualcuna è ancora
+  // in attesa. Sono la parte della storia che le prenotazioni non raccontano.
+  const chiaviRichieste = new Set();
+  for (const r of righe) for (const k of chiaviStoriche(r)) chiaviRichieste.add(k);
+  let richieste = [];
+  if (chiaviRichieste.size) {
+    const lista = [...chiaviRichieste];
+    const seg = lista.map(() => '?').join(',');
+    richieste = db.prepare(
+      'SELECT codice, testo, stato, creata_at, risposta, risposta_da, risposta_at FROM bot_richieste '
+      + `WHERE chat_id IN (${seg}) OR telefono IN (${seg}) ORDER BY id DESC LIMIT 8`
+    ).all(...lista, ...lista);
+  }
+
   return {
     nome: [primo('nome'), primo('cognome')].filter(Boolean).join(' '),
+    // Anche separati: la rubrica li tiene così, e da qui ci si mette.
+    nomeProprio: primo('nome'),
+    cognome: primo('cognome'),
     telefono: primo('telefono_contatto') || primo('telefono'),
     email: (righe.find((r) => emailChiave(r)) || {}).email || '',
     // «Prenotazioni» sono TUTTE quelle fatte, annullate comprese: è la domanda
@@ -2755,37 +2773,11 @@ function schedaPersona(db, id, adesso = new Date()) {
     primaVolta: passate.length ? passate[passate.length - 1].data : '',
     ultimaVolta: passate.length ? passate[0].data : '',
     note,
+    richieste,
     righe,
   };
 }
 
-// La ricerca, per quando non si ha una prenotazione davanti. Cerca fra nome,
-// cognome, numero ed email, e raggruppa le righe della stessa persona: un
-// elenco che ripete dieci volte lo stesso Rossi non serve a nessuno.
-function cercaPersone(db, testo, massimo = 8) {
-  const q = String(testo || '').trim();
-  // Sotto le due lettere non si cerca: una lettera sola vuol dire «dammi mezzo
-  // archivio», ed è il modo in cui un elenco di clienti esce da una finestra
-  // in cui non doveva entrare.
-  if (q.length < 2) return [];
-  // ⚠️ «%» e «_» sono i jolly di LIKE, non lettere. Scrivendo «%%» — che sono
-  // due caratteri, quindi passa il minimo di due — la ricerca restituiva
-  // TUTTI: proprio il giro dell'archivio che il minimo doveva impedire. Si
-  // spengono, e con loro la barra rovescia che li spegne.
-  const senzaJolly = (t) => t.replace(/[\\%_]/g, (c) => '\\' + c);
-  const come = `%${senzaJolly(q.toLowerCase())}%`;
-  const soloCifre = q.replace(/\D/g, '');
-  const righe = db.prepare(
-    "SELECT * FROM prenotazioni WHERE lower(nome) LIKE ? ESCAPE '\\' OR lower(cognome) LIKE ? ESCAPE '\\' "
-    + "OR lower(nome || ' ' || cognome) LIKE ? ESCAPE '\\' OR lower(email) LIKE ? ESCAPE '\\' "
-    + (soloCifre.length >= 3 ? "OR telefono LIKE ? ESCAPE '\\' OR telefono_contatto LIKE ? ESCAPE '\\' " : '')
-    + 'ORDER BY data DESC, id DESC LIMIT 300'
-  ).all(...(soloCifre.length >= 3
-    ? [come, come, come, come, `%${soloCifre}%`, `%${soloCifre}%`]
-    : [come, come, come, come]));
-
-  return raggruppaPersone(righe, massimo);
-}
 
 // TUTTI i clienti, per l'elenco della scheda Clienti: le stesse voci della
 // ricerca, senza cercare niente. È da qui che il locale mette in rubrica chi
@@ -2796,9 +2788,10 @@ function elencoPersone(db, adesso = new Date(), massimo = 3000) {
   return raggruppaPersone(righe, massimo, adesso);
 }
 
-// Le righe di una stessa persona diventano una voce sola. Una funzione per la
-// ricerca e per l'elenco intero: due modi di raggruppare sarebbero due elenchi
-// in cui lo stesso Rossi compare in modo diverso.
+// Le righe di una stessa persona diventano una voce sola: la stessa catena
+// della scheda, letta sulle righe già in mano invece che sull'archivio. La
+// ricerca la fa la pagina su questo elenco: una ricerca a parte, con un suo
+// modo di raggruppare, faceva comparire lo stesso Rossi in due modi diversi.
 function raggruppaPersone(righe, massimo, adesso = new Date()) {
   const oggi = comeData(adesso);
   // ⚠️ Raggruppare per «il primo aggancio disponibile» spezzava la stessa
@@ -4764,7 +4757,7 @@ module.exports = {
   conversazioneScaduta, giorniAncoraBuoni,
   riapreConUnSaluto, daRichiamare, segnaRichiamata, daLasciareAndare, lasciaAndare,
   minutiFermi, PASSI_CHE_RIAPRONO, COSA_MANCA,
-  prenotazioniDellaPersona, schedaPersona, cercaPersone, elencoPersone,
+  prenotazioniDellaPersona, schedaPersona, elencoPersone,
   reportPrenotazioni, giorniFra, NOMI_SETTIMANA,
   interpretaGiorni,
   giornoBloccato, eBloccato, eChiuso, ePieno, giorniPieni, segnaPieno, togliPieno,

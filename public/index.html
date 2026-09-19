@@ -657,18 +657,38 @@
   .rep-tabella { width: 100%; border-collapse: collapse; font-size: .86rem; }
   .rep-tabella th, .rep-tabella td { text-align: left; padding: 5px 8px; border-top: 1px solid var(--bordo); }
   .rep-tabella td.n, .rep-tabella th.n { text-align: right; font-variant-numeric: tabular-nums; }
-  /* L'elenco dei clienti: una tabella sul computer, e sul telefono una riga
-     per cliente con le etichette davanti — sei colonne su 390 pixel non si
-     leggono, e una tabella che scorre di lato porta via lo zoom col dito. */
-  .cli-tabella { width: 100%; border-collapse: collapse; font-size: .9rem; }
-  .cli-tabella th, .cli-tabella td { text-align: left; padding: 7px 8px; border-top: 1px solid var(--bordo); vertical-align: middle; }
-  .cli-tabella th { font-size: .78rem; color: var(--grigio); font-weight: 600; border-top: 0; white-space: nowrap; }
-  .cli-apri { border: 0; background: none; font: inherit; font-weight: 600; color: var(--verde-testo); cursor: pointer; padding: 0; text-align: left; }
+  /* ---- Clienti: l'elenco compatto e la scheda ----
+     Una riga per persona, senza tabella: nome in grassetto, sotto i recapiti,
+     a destra l'ultima volta. Un tasto largo quanto la riga, così sul telefono
+     si tocca ovunque. */
+  .cli-testa { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .cli-riga { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: center;
+              width: 100%; padding: 10px 4px; border: 0; border-top: 1px solid var(--bordo);
+              background: none; font: inherit; color: var(--testo); text-align: left; cursor: pointer; }
+  .cli-riga:first-child { border-top: 0; }
+  .cli-riga:hover { background: var(--carta-2); }
+  .cli-riga .chi { font-weight: 600; }
+  .cli-riga .dove, .cli-riga .quando { font-size: .84rem; color: var(--grigio); }
+  .cli-riga .quando { grid-column: 2; grid-row: 1 / span 2; text-align: right; white-space: nowrap; }
+  /* Il segno accanto al nome: in rubrica, o ha chiesto di non ricevere. Non
+     solo un colore — una parola. */
+  .cli-segno { margin-left: 6px; font-size: .76rem; font-weight: 600; color: var(--grigio); }
+  .cli-azioni { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .cli-numeri { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .cli-numero { background: var(--carta-2); border-radius: 10px; padding: 10px 12px; }
+  .cli-numero b { display: block; font-size: 1.3rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .cli-numero span { font-size: .78rem; color: var(--grigio); }
+  /* «3 giorni fa» non è una cifra: più piccolo, sennò va a capo nel riquadro. */
+  .cli-numero b.testo { font-size: 1rem; padding: 4px 0; }
+  .cli-richiesta { padding: 8px 0; border-top: 1px solid var(--bordo); font-size: .9rem; }
+  .cli-richiesta .risposta { display: block; font-size: .84rem; color: var(--grigio); margin-top: 2px; }
   @media (max-width: 600px) {
-    .cli-tabella thead { display: none; }
-    .cli-tabella tr { display: block; border-top: 1px solid var(--bordo); padding: 8px 0; }
-    .cli-tabella td { display: flex; gap: 8px; align-items: center; border: 0; padding: 3px 0; }
-    .cli-tabella td::before { content: attr(data-col); flex: 0 0 84px; color: var(--grigio); font-size: .78rem; }
+    /* Sul telefono una colonna sola: nome, recapiti, ultima volta uno sotto
+       l'altro. Con due colonne il nome andava a capo e i recapiti finivano
+       accanto alla data, a 390 pixel non ci stanno. */
+    .cli-riga { grid-template-columns: 1fr; padding: 12px 4px; }
+    .cli-riga .quando { grid-column: 1; grid-row: auto; text-align: left; white-space: normal; }
+    .cli-numeri { grid-template-columns: repeat(2, 1fr); }
   }
   .riga-strumenti { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
   /* Sotto-schede dentro Prenotazioni. Volutamente piu' leggere della barra
@@ -1896,35 +1916,25 @@
       </div>
     </div>
 
+    <!-- CLIENTI. Una card sola: chi ha prenotato, dall'ultima visita in giù, e
+         una ricerca che filtra l'elenco già in mano. Tutto il resto — le
+         prenotazioni, le cose da ricordare, le richieste, la rubrica — sta
+         nella scheda della persona, che si apre toccando la riga. -->
     <div id="sotto-clienti" class="sotto-scheda">
       <div class="card">
-        <h2 style="font-size:1rem;margin:0 0 6px">Chi è già stato qui</h2>
-        <p class="conteggio" style="margin:0 0 12px">
-          Cerca una persona per nome, numero o email e apri la sua scheda: quante volte ha prenotato,
-          quando è venuta l'ultima volta, in quanti di solito, e le note che si ripetono.
-          La scheda si apre anche cliccando il nome su una prenotazione qualsiasi.
-        </p>
-        <input id="cli-cerca" autocomplete="off" placeholder="nome, cognome, numero o email…" style="max-width:420px">
-        <div id="cli-trovati" style="margin-top:12px"></div>
-      </div>
-
-      <!-- TUTTI I CLIENTI, e il tasto per metterli in rubrica. È il passaggio
-           che trasforma una serata in un cliente a cui poter scrivere: uno per
-           uno, di proposito — chi prenota un tavolo non ha chiesto le novità. -->
-      <div class="card">
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
-          <h2 style="font-size:1rem;margin:0">Tutti i clienti</h2>
+        <div class="cli-testa">
+          <h2 style="font-size:1rem;margin:0">Clienti</h2>
           <span style="flex:1"></span>
           <span id="cli-conto" class="conteggio" style="margin:0"></span>
         </div>
         <p class="conteggio" style="margin:0 0 10px">
-          Chi ha prenotato almeno una volta, dall'ultima visita in giù. <b>Salva in rubrica</b> lo
-          mette fra i contatti per gli invii WhatsApp e la newsletter — uno per uno, perché chi
-          prenota un tavolo non ha chiesto le novità del locale. Chi ha scritto STOP resta fuori
-          dagli invii, e qui lo si vede.
+          Chi ha prenotato almeno una volta, dall'ultima visita in giù. Tocca un nome per la sua
+          scheda: le prenotazioni, le cose da ricordare, le richieste che ha fatto, e il tasto per
+          metterlo in rubrica — uno per uno, perché chi prenota un tavolo non ha chiesto le novità
+          del locale. La scheda si apre anche dal nome su una prenotazione qualsiasi.
         </p>
-        <input id="cli-filtro" autocomplete="off" placeholder="filtra per nome, cognome, numero o email…" style="max-width:420px">
-        <div id="cli-elenco" style="margin-top:12px"></div>
+        <input id="cli-cerca" type="search" autocomplete="off" placeholder="nome, cognome, numero o email…" style="max-width:420px">
+        <div id="cli-elenco" style="margin-top:10px"></div>
       </div>
     </div>
 
@@ -2335,13 +2345,17 @@
     <!-- LA SCHEDA DI UN CLIENTE. Si apre cliccando un nome, e serve a
          rispondere a una domanda sola: chi è questo che ha appena prenotato? -->
     <div id="cliente-pannello" class="velo" style="display:none;z-index:85">
-      <div class="card pannello-scorrevole" style="width:520px;max-width:100%;margin:0">
+      <div class="card pannello-scorrevole" style="width:560px;max-width:100%;margin:0">
         <h2 style="font-size:1.05rem;margin:0 0 2px" id="cli-nome">Cliente</h2>
-        <div class="conteggio" style="margin:0 0 12px" id="cli-recapiti"></div>
-        <div id="cli-numeri" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px"></div>
+        <div class="conteggio" style="margin:0 0 10px" id="cli-recapiti"></div>
+        <!-- La rubrica sta qui, sulla persona: è il gesto che trasforma una
+             serata in un cliente a cui poter scrivere. -->
+        <div id="cli-azioni" class="cli-azioni"></div>
+        <div id="cli-numeri" class="cli-numeri"></div>
         <div id="cli-note" style="margin-bottom:14px"></div>
+        <div id="cli-richieste" style="margin-bottom:14px"></div>
         <div id="cli-righe"></div>
-        <div style="margin-top:16px;display:flex;gap:8px">
+        <div class="pann-tasti">
           <button class="btn btn-secondario" id="cli-chiudi" type="button">Chiudi</button>
         </div>
       </div>
@@ -6028,51 +6042,50 @@ function guardaSeVecchia(versioneServer) {
 // ---- La scheda di un cliente ----
 // Una domanda sola: chi è questo che ha appena prenotato? È già stato qui,
 // quante volte, in quanti viene, ha un'allergia che si ripete.
+// La scheda si apre da tre posti — l'elenco dei clienti, una prenotazione nel
+// servizio, la sala — e dice sempre la stessa cosa: chi è, quante volte è
+// venuto, cosa ricordarsi, cosa ha chiesto, e se è in rubrica.
+let schedaId = null;
+let schedaDati = null;
 async function apriScheda(id) {
   const p = $('#cliente-pannello');
   p.style.display = 'flex';
+  schedaId = id;
+  schedaDati = null;
   $('#cli-nome').textContent = 'Un momento…';
-  $('#cli-recapiti').textContent = '';
-  $('#cli-numeri').innerHTML = '';
-  $('#cli-note').innerHTML = '';
-  $('#cli-righe').innerHTML = '';
+  for (const k of ['#cli-recapiti', '#cli-azioni', '#cli-numeri', '#cli-note', '#cli-richieste', '#cli-righe']) $(k).innerHTML = '';
   storicoTutto = false;
   let d;
   try { d = await (await fetch('/api/bot/cliente?id=' + encodeURIComponent(id))).json(); }
   catch { $('#cli-nome').textContent = 'Non sono riuscito a leggere la scheda.'; return; }
   if (d.error) { $('#cli-nome').textContent = d.error; return; }
+  schedaDati = d;
 
   $('#cli-nome').textContent = d.nome || '—';
-  $('#cli-recapiti').textContent = [numeroPulito(d.telefono), d.email].filter(Boolean).join(' · ');
+  $('#cli-recapiti').textContent = [numeroPulito(d.telefono), d.email].filter(Boolean).join(' · ') || 'Nessun recapito';
+  disegnaAzioniScheda(d);
 
   // ⚠️ Si scrive «prenotazioni», non «visite». Finché non c'è l'appello di
   // fine serata il locale non sa chi si è presentato davvero, e un numero
   // inventato con l'aria di essere vero è peggio di nessun numero: su quello
   // poi qualcuno decide di tenere un tavolo.
-  const numeri = [
+  // ⚠️ Mai stampare «undefined». Se un conto manca — pagina vecchia contro
+  // server nuovo — si scrive un trattino.
+  // «Ultima volta» non è un numero: passa com'è.
+  const conto = (n) => (typeof n === 'string' ? n : (Number.isFinite(n) ? n : '—'));
+  $('#cli-numeri').innerHTML = [
     ['Prenotazioni', d.prenotazioni],
     ['In corso', d.prossime],
     ['Annullate', d.annullate],
-  ];
-  // ⚠️ Mai stampare «undefined». Se un conto manca — pagina vecchia contro
-  // server nuovo — si scrive un trattino: un numero che non c'è è una cosa,
-  // «undefined» in mezzo ai conti è un guasto che il cliente vede.
-  const conto = (n) => (Number.isFinite(n) ? n : '—');
-  $('#cli-numeri').innerHTML = numeri.map(([t, n]) => `
-    <div><div style="font-size:1.4rem;font-weight:600;font-variant-numeric:tabular-nums">${conto(n)}</div>
-    <div class="conteggio" style="margin:0">${t}</div></div>`).join('')
-    + (d.ultimaVolta ? `<div><div style="font-size:1rem;font-weight:600;padding-top:6px">${dataStoricaUI(d.ultimaVolta)}</div>
-       <div class="conteggio" style="margin:0">Ultima volta · ${tempoFa(d.ultimaVolta)}</div></div>` : '');
+    ['Ultima volta', d.ultimaVolta ? tempoFa(d.ultimaVolta) : '—', 'testo'],
+  ].map(([t, n, classe]) => `<div class="cli-numero"><b${classe ? ` class="${classe}"` : ''}>${conto(n)}</b><span>${t}</span></div>`).join('');
 
   // Le note che si ripetono sono la cosa più utile qui dentro: un'allergia
-  // scritta due anni fa vale quanto una scritta ieri.
-  // ⚠️ Prima erano riquadri bordati uno sotto l'altro: con quattro note
-  // sembravano quattro campi da compilare e spingevano lo storico sotto il
-  // bordo dello schermo — la scheda si apriva sulla parte meno importante.
-  // Ora sono etichette in fila, e quelle che tornano più spesso vengono prima
-  // col loro conto: «allergia · 3 volte» è un fatto, «compleanno» era una sera.
+  // scritta due anni fa vale quanto una scritta ieri. Etichette in fila, le
+  // più ricorrenti prima col loro conto: «allergia · 3 volte» è un fatto,
+  // «compleanno» era una sera.
   $('#cli-note').innerHTML = d.note && d.note.length
-    ? '<div class="conteggio" style="margin:0 0 5px">Note lasciate</div>'
+    ? '<div class="conteggio" style="margin:0 0 5px">Da ricordare</div>'
       + '<div class="sto-note">' + d.note.slice(0, 6).map((n) => `
         <span class="sto-nota${n.volte > 1 ? ' torna' : ''}">${testoSicuro(n.testo)}${
           n.volte > 1 ? `<b>${n.volte} volte</b>` : ''}</span>`).join('')
@@ -6080,7 +6093,78 @@ async function apriScheda(id) {
       + '</div>'
     : '';
 
+  disegnaRichieste(d);
   disegnaStorico(d);
+}
+
+// Il tasto per la rubrica, o il motivo per cui non c'è. A chi ha chiesto di
+// non ricevere messaggi il tasto non si offre: sarebbe il modo di non
+// rispettare uno STOP.
+function disegnaAzioniScheda(d) {
+  const box = $('#cli-azioni');
+  if (d.inRubrica && d.inRubrica.optOut) {
+    box.innerHTML = `<span class="conteggio" style="margin:0">⛔ In rubrica come <b>${testoSicuro(d.inRubrica.nome)}</b> · ha chiesto di non ricevere messaggi</span>`;
+    return;
+  }
+  if (d.inRubrica) {
+    box.innerHTML = `<span class="conteggio" style="margin:0">✅ In rubrica come <b>${testoSicuro(d.inRubrica.nome)}</b></span>`;
+    return;
+  }
+  if (!d.telefono && !d.email) {
+    box.innerHTML = '<span class="conteggio" style="margin:0">Senza un numero o un\'email non c\'è niente da mettere in rubrica.</span>';
+    return;
+  }
+  box.innerHTML = '<button type="button" class="btn btn-secondario btn-piccolo" id="cli-rubrica">Salva in rubrica</button>'
+    + '<span class="conteggio" style="margin:0">per gli invii WhatsApp e la newsletter</span>';
+  $('#cli-rubrica').addEventListener('click', salvaSchedaInRubrica);
+}
+
+async function salvaSchedaInRubrica() {
+  const d = schedaDati;
+  const tasto = $('#cli-rubrica');
+  if (!d || !tasto) return;
+  tasto.disabled = true;
+  try {
+    // La stessa rotta del pannello della prenotazione: un modo solo di mettere
+    // in rubrica, con gli stessi controlli (doppioni, numeri di WhatsApp che
+    // non sono numeri, il consenso di chi c'era già).
+    const r = await fetch(`/api/bot/prenotazioni/${schedaId}/rubrica`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome: d.nomeProprio, cognome: d.cognome, telefono: d.telefono, email: d.email }),
+    });
+    const esito = await r.json();
+    if (esito.error) { toast(esito.error); return; }
+    d.inRubrica = esito.contatto;
+    disegnaAzioniScheda(d);
+    toast(esito.gia ? 'Era già in rubrica' : 'Aggiunto in rubrica');
+    // L'elenco dietro deve dirlo anche lui, e la rubrica ricaricarsi.
+    const voce = clientiTutti.find((c) => String(c.id) === String(schedaId));
+    if (voce) { voce.inRubrica = esito.contatto; disegnaElencoClienti(); }
+    if (typeof caricaContatti === 'function') caricaContatti();
+  } catch {
+    toast('Non sono riuscito a salvarlo in rubrica.');
+  } finally { tasto.disabled = false; }
+}
+
+// Le richieste fatte al personale: cosa ha chiesto, cosa gli è stato risposto,
+// e se qualcuna aspetta ancora. Sono la parte della storia che le
+// prenotazioni non raccontano — la torta, il seggiolone, il cane.
+function disegnaRichieste(d) {
+  const box = $('#cli-richieste');
+  const lista = d.richieste || [];
+  if (!lista.length) { box.innerHTML = ''; return; }
+  const stato = (r) => {
+    if (r.stato === 'in_attesa') return '<span class="etichetta in_attesa">in attesa</span>';
+    if (r.risposta) return `<span class="risposta">↳ ${testoSicuro(r.risposta)}${r.risposta_da ? ` — ${testoSicuro(r.risposta_da)}` : ''}</span>`;
+    return '';
+  };
+  box.innerHTML = '<div class="conteggio" style="margin:0 0 2px">Richieste</div>'
+    + lista.map((r) => `
+      <div class="cli-richiesta">
+        <span class="conteggio" style="margin:0 6px 0 0">${testoSicuro(String(r.creata_at || '').slice(0, 10) ? dataStoricaUI(String(r.creata_at).slice(0, 10)) : '')}</span>
+        ${testoSicuro(r.testo)}
+        ${stato(r)}
+      </div>`).join('');
 }
 
 // Quanto tempo è passato. «7 mesi fa» dice in un attimo quello che «3 febbraio»
@@ -6279,47 +6363,20 @@ function segnoDi(r, inArrivo) {
 
 $('#pagina-ricarica').addEventListener('click', () => location.reload());
 $('#cli-chiudi').addEventListener('click', () => { $('#cliente-pannello').style.display = 'none'; });
+// Si chiude in tutti i modi che uno prova: il tasto, il velo, e anche Escape.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('#cliente-pannello').style.display === 'flex') $('#cliente-pannello').style.display = 'none';
+});
 $('#cliente-pannello').addEventListener('click', (ev) => {
   // Il click sullo sfondo chiude, quello dentro no: su un pannello che copre
   // tutto, toccare fuori è il gesto che viene naturale per uscirne.
   if (ev.target === $('#cliente-pannello')) $('#cliente-pannello').style.display = 'none';
 });
 
-// La ricerca, per quando non si ha una prenotazione davanti da cui partire.
-let attesaCliCerca = null;
-$('#cli-cerca').addEventListener('input', () => {
-  clearTimeout(attesaCliCerca);
-  attesaCliCerca = setTimeout(cercaClienti, 250);
-});
-
-async function cercaClienti() {
-  const q = $('#cli-cerca').value.trim();
-  const box = $('#cli-trovati');
-  if (q.length < 2) { box.innerHTML = ''; return; }
-  let d;
-  try { d = await (await fetch('/api/bot/clienti/cerca?q=' + encodeURIComponent(q))).json(); }
-  catch { return; }
-  if (!d.trovati || !d.trovati.length) {
-    // «Nessuno» va detto: un riquadro che resta vuoto sembra un guasto.
-    box.innerHTML = '<span class="conteggio" style="margin:0">Nessuno con questo nome, numero o email.</span>';
-    return;
-  }
-  box.innerHTML = d.trovati.map((c) => `
-    <button type="button" data-scheda="${c.id}" class="riga"
-      style="width:100%;text-align:left;border:none;background:none;font:inherit;cursor:pointer;align-items:flex-start">
-      <span style="flex:1"><b>${testoSicuro(c.nome)}</b>
-        <span class="conteggio" style="margin:0"> · ${c.prenotazioni} ${c.prenotazioni === 1 ? 'prenotazione' : 'prenotazioni'}${
-          c.ultima ? ` · ultima volta ${tempoFa(c.ultima)}` : ''}${
-          c.prossima ? ` · in arrivo ${dataStoricaUI(c.prossima)}` : ''}</span>
-        ${c.telefono || c.email ? `<br><span class="conteggio" style="margin:0">${
-          testoSicuro([numeroPulito(c.telefono), c.email].filter(Boolean).join(' · '))}</span>` : ''}</span>
-    </button>`).join('');
-  box.querySelectorAll('[data-scheda]').forEach((b) => {
-    b.addEventListener('click', () => apriScheda(b.dataset.scheda));
-  });
-}
-
-// ---- Tutti i clienti ----
+// ---- Clienti: l'elenco, e la ricerca che lo filtra ----
+// L'elenco arriva intero UNA volta (è lo stesso raggruppamento della scheda) e
+// la ricerca lo filtra qui, a ogni tasto, senza una rotta a parte: una ricerca
+// col suo modo di raggruppare faceva comparire lo stesso Rossi in due modi.
 let clientiTutti = [];
 async function caricaElencoClienti() {
   const box = $('#cli-elenco');
@@ -6331,11 +6388,11 @@ async function caricaElencoClienti() {
   disegnaElencoClienti();
 }
 
-$('#cli-filtro').addEventListener('input', disegnaElencoClienti);
+$('#cli-cerca').addEventListener('input', disegnaElencoClienti);
 
 function disegnaElencoClienti() {
   const box = $('#cli-elenco');
-  const filtro = $('#cli-filtro').value.trim().toLowerCase();
+  const filtro = $('#cli-cerca').value.trim().toLowerCase();
   const cifre = filtro.replace(/\D/g, '');
   const righe = clientiTutti.filter((c) => !filtro
     || `${c.nome} ${c.email || ''}`.toLowerCase().includes(filtro)
@@ -6357,53 +6414,24 @@ function disegnaElencoClienti() {
     box.innerHTML = '<span class="conteggio" style="margin:0">Nessuno con questo nome, numero o email.</span>';
     return;
   }
-  box.innerHTML = `<table class="cli-tabella"><thead><tr>
-      <th>Nome</th><th>Cognome</th><th>Telefono</th><th>Email</th><th>Ultima prenotazione</th><th>Rubrica</th>
-    </tr></thead><tbody>${righe.map((c) => `
-    <tr data-id="${c.id}">
-      <td data-col="Nome"><button type="button" class="cli-apri" data-scheda="${c.id}">${testoSicuro(c.nomeProprio || '—')}</button></td>
-      <td data-col="Cognome">${testoSicuro(c.cognome || '')}</td>
-      <td data-col="Telefono">${testoSicuro(numeroPulito(c.telefono) || '—')}</td>
-      <td data-col="Email">${testoSicuro(c.email || '—')}</td>
-      <td data-col="Ultima">${c.ultima
-        ? `${dataStoricaUI(c.ultima)} <span class="conteggio" style="margin:0">· ${tempoFa(c.ultima)}</span>`
-        : (c.prossima ? `<span class="conteggio" style="margin:0">in arrivo ${dataStoricaUI(c.prossima)}</span>` : '—')}</td>
-      <td data-col="Rubrica">${cellaRubrica(c)}</td>
-    </tr>`).join('')}</tbody></table>`;
-  box.querySelectorAll('.cli-apri').forEach((b) => b.addEventListener('click', () => apriScheda(b.dataset.scheda)));
-  box.querySelectorAll('.cli-salva').forEach((b) => b.addEventListener('click', () => salvaClienteInRubrica(b.dataset.id, b)));
+  box.innerHTML = righe.map((c) => `
+    <button type="button" class="cli-riga" data-scheda="${c.id}">
+      <span class="chi">${testoSicuro(c.nome)}${segnoRubrica(c.inRubrica)}</span>
+      <span class="quando">${c.ultima
+        ? `${tempoFa(c.ultima)}`
+        : (c.prossima ? `in arrivo ${dataStoricaUI(c.prossima)}` : (c.prenotazioni ? 'mai venuto' : ''))}</span>
+      <span class="dove">${testoSicuro([numeroPulito(c.telefono), c.email].filter(Boolean).join(' · ')) || '—'}</span>
+    </button>`).join('');
+  box.querySelectorAll('.cli-riga').forEach((b) => b.addEventListener('click', () => apriScheda(b.dataset.scheda)));
 }
 
-// Chi ha chiesto di non ricevere più messaggi resta fuori, e lo si dice: un
-// tasto che lo rimettesse in lista sarebbe il modo di non rispettare uno STOP.
-function cellaRubrica(c) {
-  if (c.inRubrica && c.inRubrica.optOut) return '<span class="conteggio" style="margin:0">⛔ ha chiesto di non ricevere messaggi</span>';
-  if (c.inRubrica) return '<span class="conteggio" style="margin:0">✅ in rubrica</span>';
-  if (!c.telefono && !c.email) return '<span class="conteggio" style="margin:0">senza recapito</span>';
-  return `<button type="button" class="btn btn-secondario btn-piccolo cli-salva" data-id="${c.id}">Salva in rubrica</button>`;
-}
-
-async function salvaClienteInRubrica(id, tasto) {
-  const c = clientiTutti.find((x) => String(x.id) === String(id));
-  if (!c) return;
-  tasto.disabled = true;
-  try {
-    // La stessa rotta del pannello della prenotazione: un modo solo di mettere
-    // in rubrica, con gli stessi controlli (doppioni, numeri di WhatsApp che
-    // non sono numeri, chi ha detto STOP).
-    const r = await fetch(`/api/bot/prenotazioni/${id}/rubrica`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nome: c.nomeProprio, cognome: c.cognome, telefono: c.telefono, email: c.email }),
-    });
-    const d = await r.json();
-    if (d.error) { toast(d.error); return; }
-    c.inRubrica = d.contatto;
-    toast(d.gia ? 'Era già in rubrica' : 'Aggiunto in rubrica');
-    disegnaElencoClienti();
-    if (typeof caricaContatti === 'function') caricaContatti();
-  } catch {
-    toast('Non sono riuscito a salvarlo in rubrica.');
-  } finally { tasto.disabled = false; }
+// Il segno accanto al nome, nell'elenco e in cima alla scheda: una parola, non
+// un colore. Chi ha chiesto di non ricevere messaggi lo si vede prima di
+// aprire qualunque cosa.
+function segnoRubrica(inRubrica) {
+  if (inRubrica && inRubrica.optOut) return '<span class="cli-segno">⛔ STOP</span>';
+  if (inRubrica) return '<span class="cli-segno">✅ in rubrica</span>';
+  return '';
 }
 
 // ---- I giorni pieni ----

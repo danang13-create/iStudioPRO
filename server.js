@@ -6154,6 +6154,21 @@ app.get('/api/bot/report/csv', (req, res) => {
 // chi è la persona che arriva stasera, che è esattamente la domanda di chi
 // apparecchia. La ricerca invece è un modo di sfogliare l'archivio dei clienti
 // a partire da niente, e quello resta sulla piattaforma — come la rubrica.
+// Chi è in rubrica, per un numero (scritto in qualunque modo) o per la sola
+// email: un contatto messo a mano con un altro numero ma la stessa email è lo
+// stesso cliente, e il tasto non deve ricomparire su chi c'è già. Vale per
+// l'elenco e per la scheda: un aggancio solo, sennò l'elenco direbbe «in
+// rubrica» e la scheda offrirebbe il tasto.
+function contattoInRubrica(telefono, email) {
+  const numero = normalizePhone(telefono || '');
+  const mail = String(email || '').trim().toLowerCase();
+  if (!numero && !mail) return null;
+  const c = db.prepare('SELECT id, nome, cognome, telefono, email, opt_out FROM contacts').all()
+    .find((x) => (numero && normalizePhone(x.telefono) === numero)
+      || (mail && String(x.email || '').trim().toLowerCase() === mail));
+  return c ? { id: c.id, nome: `${c.nome} ${c.cognome}`.trim(), optOut: !!c.opt_out } : null;
+}
+
 const rottaSchedaCliente = (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const id = Number(req.query.id);
@@ -6162,6 +6177,9 @@ const rottaSchedaCliente = (req, res) => {
   }
   const scheda = bot.schedaPersona(db, id, new Date());
   if (!scheda) return res.status(404).json({ error: 'Prenotazione inesistente' });
+  // Da qui si mette in rubrica: la scheda deve sapere se c'è già, e se ha
+  // chiesto di non ricevere messaggi.
+  scheda.inRubrica = contattoInRubrica(scheda.telefono, scheda.email);
   res.json(scheda);
 };
 app.get('/api/bot/cliente', rottaSchedaCliente);
@@ -6173,26 +6191,8 @@ app.get('/api/bot/cliente', rottaSchedaCliente);
 app.get('/api/bot/clienti', (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const voci = bot.elencoPersone(db, new Date());
-  const rubrica = db.prepare('SELECT id, nome, cognome, telefono, email, opt_out FROM contacts').all()
-    .map((c) => ({ ...c, chiave: normalizePhone(c.telefono), mail: String(c.email || '').trim().toLowerCase() }));
-  for (const v of voci) {
-    // Stesso aggancio del pannello della prenotazione (numero), più l'email:
-    // un contatto messo in rubrica a mano con la sola email è lo stesso
-    // cliente, e il tasto non deve ricomparire su chi c'è già.
-    const numero = normalizePhone(v.telefono || '');
-    const mail = String(v.email || '').trim().toLowerCase();
-    const c = rubrica.find((x) => (numero && x.chiave === numero) || (mail && x.mail === mail));
-    v.inRubrica = c ? { id: c.id, nome: `${c.nome} ${c.cognome}`.trim(), optOut: !!c.opt_out } : null;
-  }
+  for (const v of voci) v.inRubrica = contattoInRubrica(v.telefono, v.email);
   res.json({ clienti: voci });
-});
-
-app.get('/api/bot/clienti/cerca', (req, res) => {
-  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
-  // Il tetto e il minimo di due lettere stanno nel motore, dove valgono per
-  // chiunque lo chiami: qui non si riscrivono, o prima o poi ne resta indietro
-  // uno dei due.
-  res.json({ trovati: bot.cercaPersone(db, String(req.query.q || ''), 8) });
 });
 
 // ---- I giorni pieni (sold out) ----
