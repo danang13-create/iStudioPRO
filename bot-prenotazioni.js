@@ -529,6 +529,10 @@ const PREDEFINITI = {
 
   // Quali domande fare
   bot_chiedi_nome: 'true',
+  // ⚠️ Riconoscere chi torna dal suo numero: lo saluta per nome e non gli
+  // richiede come si chiama. Si può spegnere — un locale che prende molte
+  // prenotazioni «per conto di» dallo stesso telefono può preferire di no.
+  bot_riconosci: 'true',
   bot_chiedi_note: 'false',
   bot_chiedi_telefono: 'false',
 
@@ -620,6 +624,9 @@ const PREDEFINITI = {
   // che restano sempre. Servono per i modi di dire di zona: «apposto», «ok
   // così», «tutto liscio».
   bot_parole_nessuna: '',
+  // Altri modi di dire «questa prenotazione non è per me». Si aggiungono a
+  // quelli incorporati, non li sostituiscono.
+  bot_parole_altro_nome: '',
 
   // ---- La conversazione lasciata a metà ----
   // Due meccanismi diversi, e il primo è quello che conta.
@@ -733,6 +740,9 @@ const PREDEFINITI = {
   bot_t_daccordo: 'Va bene! 😊\n\nResto qui: se ti serve altro, scrivimi pure.',
   bot_t_email_no: 'Mi serve la tua email per confermare la prenotazione.\nScrivimela per intero, per esempio: nome@esempio.it\n\n(se hai cambiato idea, scrivi NO)',
   bot_t_riepilogo: 'Perfetto! ✨ \nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n📝 Note: {note}\n\nConfermi la prenotazione?\n\nScrivi SÌ per confermare',
+  // Esce SOLO quando il nome l'abbiamo messo noi, riconoscendo il numero. A
+  // chi il nome l'ha appena scritto questa riga non serve, ed è solo rumore.
+  bot_t_nome_nostro: '\n\n(Ho usato il nome dell\'ultima volta. Se prenoti per un\'altra persona, scrivimi il nome giusto.)',
   // ⚠️ Il bot NON dice di sì al posto del ristorante. «Si può avere una torta?»
   // seguito da «OK, grazie» è una promessa che il locale non ha fatto, e quel
   // cliente si presenta aspettandosi la torta.
@@ -1167,8 +1177,14 @@ function eSalutoStorto(testo) {
 
 // Buongiorno o buonasera secondo l'ora vera: un bot che dice «buonasera» alle
 // dieci del mattino si riconosce subito per quello che è.
-function salutoOra(adesso = new Date()) {
-  return adesso.getHours() < 14 ? 'Buongiorno' : 'Buonasera';
+// ⚠️ Il nome entra nel SALUTO, non in un segnaposto nuovo: così «Buonasera»
+// diventa «Buonasera Marco» in tutte le frasi che già usano {saluto}, comprese
+// quelle che un ristorante si è riscritto a modo suo. Un segnaposto nuovo
+// avrebbe funzionato solo per chi non ha mai toccato niente.
+function salutoOra(adesso = new Date(), nome = '') {
+  const ora = adesso.getHours() < 14 ? 'Buongiorno' : 'Buonasera';
+  const chi = String(nome || '').trim().split(/\s+/)[0] || '';
+  return chi ? `${ora} ${chi}` : ora;
 }
 
 // Divide quello che il cliente scrive in nome e cognome.
@@ -1373,6 +1389,47 @@ function soloUnNo(testo, cfg) {
   // allergie di ogni prenotazione. Il confronto è esatto — la frase deve essere
   // SOLO quella — perché è la stessa regola che vale per «no» e «nessuna».
   return elencoParole((cfg || PREDEFINITI).bot_parole_nessuna).includes(t);
+}
+
+// ⚠️ «Non sono io» al riepilogo. Il nome l'abbiamo messo noi riconoscendo il
+// numero, e il caso vero è il telefono di casa: il figlio prenota per la madre.
+// Deve poterlo correggere senza perdere persone, giorno e ora.
+//
+// ⚠️ Si guarda la FORMA, non una parola sola: «per» da solo comparirebbe in
+// mezzo a troppe frasi normali. E si esclude «per 4» e simili, che al riepilogo
+// è gente che sta correggendo il numero di persone, non il nome.
+const NON_SONO_IO = new RegExp(
+  '(^|\\s)('
+  + 'non sono io|non (?:e|è) per me|non e per me|'
+  + 'non mi chiamo|nome sbagliato|il nome (?:e|è) sbagliato|'
+  + '(?:e|è) per (?!\\d)|a nome (?:di )?|prenoto per (?!\\d)|(?:e|è) a nome'
+  + ')'
+);
+
+function nonSonoIo(testo, cfg) {
+  const t = normalizza(testo);
+  if (!t) return false;
+  if (NON_SONO_IO.test(t)) return true;
+  // ⚠️ Queste si AGGIUNGONO a quelle incorporate, non le sostituiscono: un
+  // campo svuotato per sbaglio non deve togliere al cliente l'unica via per
+  // correggere un nome sbagliato.
+  return elencoParole((cfg || PREDEFINITI).bot_parole_altro_nome).includes(t);
+}
+
+// Il nome dentro la stessa frase: «a nome di Anna Bianchi», «è per Marco».
+// ⚠️ Solo da forme ESPLICITE. Indovinarlo da una frase qualunque vorrebbe dire
+// scrivere sul foglio della sala una parola presa a caso — e un nome sbagliato
+// è peggio di una domanda in più. Se non è chiaro, si chiede.
+function nomeDentro(testo) {
+  const m = String(testo || '').match(
+    /(?:a nome(?:\s+di)?|è per|e per|prenoto per)\s+([A-Za-zÀ-ÿ'’]{2,}(?:\s+[A-Za-zÀ-ÿ'’]{2,})?)/i);
+  if (!m) return null;
+  // «mia madre», «un amico» non sono nomi: sono parentele. Il nome, se c'è,
+  // viene dopo — e se non c'è si chiede, che è il comportamento giusto.
+  const NON_NOMI = /^(mia|mio|miei|mie|un|una|il|lo|la|i|gli|le|nostro|nostra|sua|suo)\b/i;
+  if (NON_NOMI.test(m[1].trim())) return null;
+  const { nome, cognome } = dividiNome(m[1].trim());
+  return nome ? { nome, cognome } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -2728,6 +2785,47 @@ function prenotazioniFuture(db, chiave, adesso, massimo = 5, numero = '') {
   ).all(...chiavi, ...chiavi, comeData(adesso), massimo);
 }
 
+// ⚠️ CHI TORNA NON DEVE RIDIRE COME SI CHIAMA. Il numero lo conosciamo già —
+// è lo stesso aggancio con cui il bot dice «hai già un tavolo giovedì» — e il
+// nome ce l'ha dato lui l'ultima volta.
+//
+// ⚠️ Si prende dalle PRENOTAZIONI, mai dal nome del profilo WhatsApp: quello
+// non è un nome. È «Mamma», un'emoji, «Idraulico Luca» — e finirebbe stampato
+// sul foglio della sala. Qui c'è solo quello che il cliente ci ha detto lui.
+//
+// Se lo stesso numero ha più nomi (il telefono di casa) vince il più recente, e
+// al riepilogo si può correggere senza perdere niente: vedi il passo «conferma».
+function ultimoNomeDi(db, chiave, numero = '') {
+  const chiavi = chiaviDellaPersona(chiave, numero);
+  if (!chiavi.length) return null;
+  const r = db.prepare(
+    `SELECT nome, cognome FROM prenotazioni WHERE ${dovePersona(chiavi)} `
+    + "AND TRIM(COALESCE(nome, '')) <> '' ORDER BY data DESC, ora DESC, id DESC LIMIT 1"
+  ).get(...chiavi, ...chiavi);
+  if (r) return { nome: String(r.nome || '').trim(), cognome: String(r.cognome || '').trim() };
+  // Ripiego: la rubrica del locale, dove il nome l'ha scritto il ristorante.
+  // ⚠️ Si guarda prima se la tabella c'è: il motore del bot gira anche su
+  // archivi senza le tabelle della piattaforma (è il caso delle prove), e una
+  // query su una tabella assente non fallirebbe piano — farebbe saltare tutto.
+  try {
+    const c = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'contacts'").get();
+    if (!c) return null;
+    const numeri = chiavi.filter((k) => /^\d+$/.test(k));
+    if (!numeri.length) return null;
+    const segnaposti = numeri.map(() => '?').join(',');
+    const t = db.prepare(
+      `SELECT nome, cognome FROM contacts WHERE telefono IN (${segnaposti}) `
+      + "AND TRIM(COALESCE(nome, '')) <> '' ORDER BY id DESC LIMIT 1").get(...numeri);
+    if (t) return { nome: String(t.nome || '').trim(), cognome: String(t.cognome || '').trim() };
+  } catch (e) {
+    // Un ripiego che non riesce non deve portarsi via la conversazione: si
+    // torna a chiedere il nome, che è come funzionava prima.
+    return null;
+  }
+  return null;
+}
+
 const FRASE_NON_PIU_ATTIVA = 'Quella prenotazione non è più attiva: nel frattempo è cambiata. '
   + 'Scrivimi di nuovo cosa vuoi fare.';
 
@@ -3403,9 +3501,12 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     stato = { ...stato, passo: 'inizio', dati: {} };
   }
   const dati = stato.dati || {};
+  // ⚠️ Chi torna non deve ridire come si chiama. Si guarda UNA volta per
+  // messaggio: è una lettura d'archivio, e farla a ogni frase sarebbe sprecarla.
+  const giaVisto = boolDi(cfg.bot_riconosci) ? ultimoNomeDi(db, telefono, contesto.numero) : null;
   const valori = {
     locale: cfg.bot_locale || 'noi',
-    saluto: salutoOra(adesso),
+    saluto: salutoOra(adesso, giaVisto ? giaVisto.nome : ''),
     assistente: cfg.bot_assistente || '',
     apertura: cfg.bot_avvisi_da || '',
   };
@@ -3865,10 +3966,9 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       salvaStato(db, telefono, 'persone', {});
       // Il benvenuto è il PRIMO messaggio, e vale per chi arriva davvero la
       // prima volta. Chi ha già un tavolo da noi ci ha già parlato: gli si fa
-      // la domanda e basta. (Resta un caso scoperto: chi ci scrisse mesi fa e
-      // oggi non ha nessuna prenotazione attiva si risente il benvenuto. Per
-      // chiuderlo servirebbe ricordarsi di chi si è già salutato, che è una
-      // cosa in più da tenere in archivio — vedi il piano.)
+      // la domanda e basta. Chi ci scrisse mesi fa e oggi non ha più niente di
+      // attivo si risente il benvenuto — ma non più da sconosciuto: il saluto
+      // lo chiama per nome (vedi `giaVisto`), che era metà del problema.
       risposte.push(di(gia ? 'bot_t_quante' : 'bot_t_benvenuto'));
       return esito;
     }
@@ -4002,6 +4102,13 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   // riepilogo. Una strada sola, un modo solo di sbagliare.
   function dopoLOra(d) {
     const { attesaOra, ...avanti } = d;
+    // ⚠️ Se sappiamo già come si chiama, la domanda non si fa proprio: è il
+    // punto di tutto. Si segna che il nome è stato messo da noi (`nomeNostro`),
+    // perché al riepilogo va detto come correggerlo — a chi il nome l'ha
+    // scritto lui quella riga non serve, ed è solo rumore.
+    if (giaVisto && giaVisto.nome) {
+      return dopoIlNome({ ...avanti, nome: giaVisto.nome, cognome: giaVisto.cognome, nomeNostro: true });
+    }
     if (boolDi(cfg.bot_chiedi_nome)) {
       salvaStato(db, telefono, 'nome', avanti);
       risposte.push(di('bot_t_nome'));
@@ -4061,6 +4168,18 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       return nonCapito('nome', dati, di('bot_t_nome'));
     }
     return dopoIlNome({ ...avanzato(dati), nome, cognome });
+  }
+
+  // ⚠️ NON è il passo «nome» di sempre. Qui telefono e note ce li abbiamo già:
+  // passare da `dopoIlNome` vorrebbe dire rifare tutte le domande a chi ha solo
+  // corretto un nome — tre domande di castigo per aver detto «non sono io».
+  // Si torna dritti al riepilogo, e le note non si richiedono.
+  if (stato.passo === 'nome_nuovo') {
+    const { nome, cognome } = dividiNome(testo);
+    if (!nome) {
+      return nonCapito('nome_nuovo', dati, di('bot_t_nome'));
+    }
+    return vaiAlRiepilogo({ ...avanzato(dati), nome, cognome }, true);
   }
 
   if (stato.passo === 'telefono') {
@@ -4156,14 +4275,30 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       telefono: d.telefono || '',
       note: d.note || '',
     };
+    // ⚠️ La riga per correggere il nome esce SOLO se il nome l'abbiamo messo
+    // noi. A chi l'ha appena scritto non serve, ed è solo rumore in fondo a un
+    // riepilogo che si legge di fretta.
+    const coda = d.nomeNostro ? (cfg.bot_t_nome_nostro || '') : '';
     risposte.push(riempi(
-      senzaRigheVuote(colTelefono(conEmail ? cfg.bot_t_email : cfg.bot_t_riepilogo, d.telefono), valoriRiepilogo),
+      senzaRigheVuote(colTelefono(conEmail ? cfg.bot_t_email : cfg.bot_t_riepilogo, d.telefono), valoriRiepilogo) + coda,
       valoriRiepilogo,
     ));
     return esito;
   }
 
   if (stato.passo === 'email') {
+    // ⚠️ Anche qui «non sono io» PRIMA di tutto. Con la domanda dell'email
+    // accesa il riepilogo non si conferma con un SÌ ma scrivendo l'indirizzo:
+    // senza questo ramo chi deve correggere il nome resterebbe con il solo NO,
+    // che gli cancella persone, giorno e ora. Stessa via di «conferma».
+    if (dati.nomeNostro && nonSonoIo(testo, cfg)) {
+      const { nomeNostro, nome, cognome, ...resto } = dati;
+      const detto = nomeDentro(testo);
+      if (detto) return vaiAlRiepilogo({ ...resto, nome: detto.nome, cognome: detto.cognome }, true);
+      salvaStato(db, telefono, 'nome_nuovo', resto);
+      risposte.push(di('bot_t_nome'));
+      return esito;
+    }
     // «NO» resta la via d'uscita: chi ha cambiato idea non dev'essere
     // costretto a dare un indirizzo per potersene andare.
     if (interpretaSiNo(testo) === false) {
@@ -4188,6 +4323,22 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   }
 
   if (stato.passo === 'conferma') {
+    // ⚠️ «Non sono io» PRIMA del sì/no. Il nome l'abbiamo messo noi, e il caso
+    // vero è il telefono di casa: il figlio prenota per la madre. Senza questo
+    // ramo l'unica via sarebbe «NO», che butta via persone, giorno e ora e lo
+    // rimanda all'inizio — cioè la comodità si rovescia in un fastidio.
+    // Si tiene tutto il resto e si chiede SOLO il nome.
+    if (dati.nomeNostro && nonSonoIo(testo, cfg)) {
+      const { nomeNostro, nome, cognome, ...resto } = dati;
+      // Se il nome giusto è già nella stessa frase («è per mia madre, Anna») si
+      // prende quello e non si chiede niente: una domanda in meno, e l'ha già
+      // risposta lei.
+      const detto = nomeDentro(testo);
+      if (detto) return vaiAlRiepilogo({ ...resto, nome: detto.nome, cognome: detto.cognome }, true);
+      salvaStato(db, telefono, 'nome_nuovo', resto);
+      risposte.push(di('bot_t_nome'));
+      return esito;
+    }
     const scelta = interpretaSiNo(testo);
     if (scelta === null) {
       return nonCapito('conferma', dati, 'Non ho capito: scrivi SÌ per confermare o NO per annullare.');
@@ -4357,6 +4508,7 @@ module.exports = {
   interpretaTelefono,
   colTelefono,
   nomeInSala,
+  ultimoNomeDi,
   segnaBasta,
   haDettoBasta,
   dividiNome,

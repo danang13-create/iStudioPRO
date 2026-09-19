@@ -1729,6 +1729,20 @@
           Con l'email accesa la prenotazione si conferma scrivendo l'indirizzo invece di «SÌ»:
           una domanda sola, non due. Spenta, torna il «SÌ» di sempre.
         </p>
+        <hr style="border:0;border-top:1px solid var(--bordo);margin:16px 0">
+        <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer">
+          <input type="checkbox" id="cfg-bot_riconosci" autocomplete="off"> Riconoscere chi ha già prenotato
+        </label>
+        <p class="conteggio" style="margin:6px 0 0">
+          Con la spunta accesa, a chi ha già prenotato da te il bot <b>non richiede il nome</b>:
+          lo saluta per nome e gli porta il riepilogo già intestato, da confermare e basta. Il
+          nome è quello che <em>lui</em> ti ha dato l'ultima volta — mai il nome del profilo
+          WhatsApp, che è «Mamma» o un'emoji e finirebbe stampato sul foglio della sala.
+          <strong>Attenzione al telefono di casa</strong>: se scrive il figlio per la madre, il bot
+          usa il nome dell'ultima volta. Al riepilogo gli basta rispondere <b>«non sono io»</b>
+          — o direttamente «a nome di Anna» — e il nome cambia senza perdere persone, giorno
+          e ora. Spenta, il nome si chiede a tutti ogni volta, come prima.
+        </p>
         <div class="barra-salva">
           <button class="btn" id="domande-salva">Salva</button>
           <span id="domande-salvato" class="conteggio" style="margin:0"></span>
@@ -1741,8 +1755,8 @@
       <div class="card">
         <h2 style="font-size:1rem;margin:0 0 6px">Le parole che il bot riconosce</h2>
         <p class="conteggio" style="margin:0 0 14px">
-          Non sono frasi che dice: sono parole che <b>legge</b>, alla domanda su allergie e
-          richieste. Una per riga, oppure separate da virgola. Maiuscole e accenti non contano.
+          Non sono frasi che dice: sono parole che <b>legge</b> nelle risposte del cliente.
+          Una per riga, oppure separate da virgola. Maiuscole e accenti non contano.
         </p>
         <label style="display:block;margin-bottom:16px">
           <span style="font-weight:600;font-size:.92rem">Parole che ti fanno avvisare</span>
@@ -1764,6 +1778,19 @@
           «apposto» vale, «apposto ma siamo in cinque» no — quella è una nota, e resta scritta.</span>
           <textarea id="cfg-bot_parole_nessuna" autocomplete="off" rows="2"
             placeholder="per esempio: apposto, ok così, tutto liscio"
+            style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;resize:vertical"></textarea>
+        </label>
+        <label style="display:block;margin-top:16px">
+          <span style="font-weight:600;font-size:.92rem">Altri modi di dire «non sono io»</span>
+          <br><span class="conteggio" style="margin:0">Serve solo se è accesa la spunta
+          <b>«Riconoscere chi ha già prenotato»</b> qui sopra: sono le parole con cui il cliente,
+          davanti a un riepilogo intestato a un altro, dice che il nome va cambiato. Si
+          <b>aggiungono</b> a quelle che il bot capisce già (<b>non sono io · non è per me ·
+          non mi chiamo · nome sbagliato</b>), che restano sempre. Capisce anche il nome detto
+          dentro la frase — «a nome di Anna», «è per Marco Rossi» — e in quel caso non
+          chiede nemmeno. In tutti i casi persone, giorno e ora restano dove sono.</span>
+          <textarea id="cfg-bot_parole_altro_nome" autocomplete="off" rows="2"
+            placeholder="per esempio: sbagliato, non mi chiamo così"
             style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;resize:vertical"></textarea>
         </label>
         <div class="barra-salva">
@@ -4728,7 +4755,7 @@ const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_turni_cena', 'bot_turni_
   'bot_pagamento_minuti', 'bot_pagamento_obbligatorio', 'bot_pagamento_chiave', 'bot_pagamento_ritorno',
   'bot_lista_attesa', 'bot_attesa_minuti',
   'bot_riapre_minuti', 'bot_richiamo_minuti',
-  'bot_parole_richiesta', 'bot_parole_nessuna',
+  'bot_parole_richiesta', 'bot_parole_nessuna', 'bot_parole_altro_nome',
   'bot_avvisi_da', 'bot_avvisi_a', 'bot_sollecito_minuti',
   'bot_email_oggetto', 'bot_email_testo', 'bot_email_logo', 'bot_email_html'];
 // Cosa mostrare al posto del numero. Con gli indirizzi interni di WhatsApp
@@ -4805,6 +4832,7 @@ const TESTI_BOT = [
   ['bot_t_daccordo', 'Quando il cliente dice solo «ok»', 'La risposta a un cenno del capo — «ok», «va bene», «perfetto» — da chi ha già una prenotazione. Deve restare CORTA: ripetere l\'elenco delle cose da fare sarebbe un muro, e il cliente lo ha appena letto.'],
   ['bot_t_email', 'Riepilogo che chiede l\'email', 'Sostituisce il riepilogo qui sopra quando la domanda dell\'email è accesa: il cliente conferma scrivendo il suo indirizzo invece di «SÌ», e l\'indirizzo resta sulla prenotazione. Valgono gli stessi segnaposto.'],
   ['bot_t_email_no', 'Email non capita', 'Vale sia per chi ha battuto male l\'indirizzo sia per chi scrive «SÌ» per abitudine: la frase deve andar bene a tutti e due.'],
+  ['bot_t_nome_nostro', 'Avviso quando il nome lo abbiamo messo noi', 'Si attacca in fondo al riepilogo, e <b>solo</b> a chi il nome non l\'ha appena scritto: c\'era già dall\'ultima volta (spunta «Riconoscere chi ha già prenotato»). ⚠️ È quello che salva il telefono di casa: senza questa riga il figlio che prenota per la madre non sa di poter correggere, e l\'unica strada che vede è il NO, che gli cancella tutto. Lascia vuoto per non dire niente.'],
   [null, 'Il pagamento'],
   ['bot_t_pagamento', 'Chiede il pagamento', 'Sostituisce la conferma quando il pagamento è OBBLIGATORIO. ⚠️ Non deve mai contenere la parola «confermata»: chi la legge capisce di avere un tavolo e sabato sera si presenta. Tieni la riga che dice di tornare in chat: dopo aver pagato il cliente atterra sulla pagina di ritorno, che della sua prenotazione non sa niente, e la conferma gliela scriviamo qui. I segnaposto: {importo}, {resto}, {link}, {scadenza}.'],
   ['bot_t_pagamento_lento', 'Il collegamento non è pronto', 'Solo quando Stripe non risponde: il posto resta tenuto ed è il collegamento che manca. Non dire «riprova»: non c\'è niente che il cliente possa riprovare.'],
@@ -4853,7 +4881,7 @@ const TESTI_BOT = [
 
 const CFG_SPUNTE = ['bot_chiedi_nome', 'bot_chiedi_telefono', 'bot_chiedi_note', 'bot_chiedi_email',
   'bot_promemoria_attivo', 'bot_recensione_attiva', 'bot_sala_attiva', 'bot_pagamento_attivo',
-  'bot_email_attiva', 'bot_richiamo_attivo'];
+  'bot_email_attiva', 'bot_richiamo_attivo', 'bot_riconosci'];
 
 const NOMI_GIORNI_UI = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
 let simSessione = Date.now() % 100000;
