@@ -616,6 +616,7 @@
      bianco: una barra si vede anche su uno schermo storto, di giorno, in sala.
      Il verde chiaro del marchio si ferma a 1,98 e per una barra non basta. */
   .rep-testa { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .rep-scarica { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
   .rep-filtri { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
   /* Le date a mano: chiuse dietro «Altre date», e quando si aprono cambiano
      il report da sole — un tasto «Guarda» in più era un passo che nessuno
@@ -1945,7 +1946,10 @@
             <h2 style="font-size:1rem;margin:0">Report</h2>
             <div id="rep-quando" class="conteggio" style="margin:2px 0 0"></div>
           </div>
-          <a class="btn btn-secondario btn-piccolo" id="rep-csv" href="#" style="text-decoration:none">Scarica in Excel</a>
+          <div class="rep-scarica">
+            <a class="btn btn-secondario btn-piccolo" id="rep-csv" href="#" style="text-decoration:none">Scarica in Excel</a>
+            <button class="btn btn-secondario btn-piccolo" id="rep-pdf" type="button">Salva in PDF</button>
+          </div>
         </div>
         <div class="rep-filtri">
           <button class="rep-periodo" data-periodo="30">Ultimi 30 giorni</button>
@@ -5910,6 +5914,44 @@ document.querySelectorAll('.rep-periodo').forEach((b) => {
 for (const c of ['#rep-dal', '#rep-al']) {
   $(c).addEventListener('change', () => { segnaPeriodoScelto('altro'); caricaReport(); });
 }
+
+// Il PDF: si manda al server il report così com'è disegnato qui — un disegno
+// solo — e torna un file. Se il server non ce la fa, dice l'alternativa.
+$('#rep-pdf').addEventListener('click', async () => {
+  const dal = $('#rep-dal').value;
+  const al = $('#rep-al').value;
+  const tasto = $('#rep-pdf');
+  const corpo = $('#rep-corpo').innerHTML;
+  if (!dal || !al || !/rep-kpi/.test(corpo)) { toast('Prima scegli un periodo e aspetta che il report si veda.'); return; }
+  tasto.disabled = true;
+  const prima = tasto.textContent;
+  tasto.textContent = 'Preparo il PDF…';
+  try {
+    const r = await fetch('/api/bot/report/pdf', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dal, al, periodo: $('#rep-quando').textContent, html: corpo }),
+    });
+    if (!r.ok) {
+      let msg = 'Non sono riuscito a fare il PDF.';
+      try { msg = (await r.json()).error || msg; } catch { /* la risposta non era JSON */ }
+      toast(msg);
+      return;
+    }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `report-${dal}_${al}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  } catch {
+    toast('Non sono riuscito a fare il PDF. In alternativa: Stampa → Salva come PDF.');
+  } finally {
+    tasto.disabled = false;
+    tasto.textContent = prima;
+  }
+});
 
 // Il periodo scritto a parole, in cima: «dal 21 agosto al 19 settembre · 30 giorni».
 function descriviPeriodo(dal, al) {

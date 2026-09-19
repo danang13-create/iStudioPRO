@@ -6145,6 +6145,101 @@ app.get('/api/bot/report/csv', (req, res) => {
   res.send(csv);
 });
 
+// ---- Il report in PDF ----
+// Il PDF lo fa il browser che il programma ha già in casa per WhatsApp: se ne
+// accende una seconda copia, senza rete, le si dà il report già disegnato
+// dalla pagina e le si chiede di stamparlo. Niente librerie in più, e funziona
+// anche senza internet — che è la regola di casa. Il disegno resta UNO: quello
+// della pagina, con lo stesso foglio di stile; qui si aggiungono solo la
+// testata, la data e le regole di stampa.
+function testoHtml(t) {
+  return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function paginaPerPdf(locale, periodo, corpo) {
+  const pagina = paginaConVersione(path.join(__dirname, 'public', 'index.html'));
+  const stile = (pagina.match(/<style>([\s\S]*?)<\/style>/) || ['', ''])[1];
+  const quando = new Date().toLocaleString('it-IT', { dateStyle: 'long', timeStyle: 'short' });
+  return `<!doctype html><html lang="it" data-theme="light"><head><meta charset="utf-8"><title>Report</title>
+<style>${stile}</style>
+<style>
+  /* Su carta: tema chiaro sempre, niente impalcatura della pagina. */
+  body { display: block; background: #fff; margin: 0; padding: 0; color: #111; }
+  .pdf-testa { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+               border-bottom: 1px solid #e0e4e8; padding-bottom: 8px; margin-bottom: 14px; }
+  .pdf-testa h1 { font-size: 1.25rem; margin: 0; }
+  .rep-griglia { grid-template-columns: 1fr 1fr; }
+  .rep-kpi { grid-template-columns: repeat(3, 1fr); }
+  /* Il tasto «Vedi i numeri» non serve su carta: i numeri si stampano e basta. */
+  .rep-numeri { display: none; }
+  .rep-numeri-box { display: block !important; }
+  .rep-sezione, .rep-kpi, .rep-numeri-box { break-inside: avoid; }
+</style></head><body>
+<div class="pdf-testa"><h1>${testoHtml(locale)} — Report</h1><span class="conteggio" style="margin:0">${testoHtml(periodo)}</span></div>
+${corpo}
+<p class="conteggio" style="margin:18px 0 0">Fatto con iStudio il ${testoHtml(quando)}.</p>
+</body></html>`;
+}
+
+// La stessa strada del browser di WhatsApp: il percorso che si è rivelato buono
+// all'avvio (quello incluso, o il ripiego trovato da `avviaBrowser`).
+async function creaPdf(html) {
+  const puppeteer = require('puppeteer');
+  const browser = await puppeteer.launch({
+    headless: true,
+    executablePath: client.options.puppeteer.executablePath || undefined,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+  });
+  try {
+    const page = await browser.newPage();
+    // Niente rete: il report è tutto dentro l'HTML, e un browser che non può
+    // uscire non può nemmeno essere portato fuori da un pezzo di pagina.
+    await page.setRequestInterception(true);
+    page.on('request', (r) => r.abort());
+    await page.setContent(html, { waitUntil: 'load', timeout: 20000 });
+    return await page.pdf({ format: 'A4', printBackground: true,
+      margin: { top: '14mm', right: '12mm', bottom: '14mm', left: '12mm' } });
+  } finally {
+    // Un browser che non si chiude va detto: è un processo che resta acceso.
+    await browser.close().catch((e) => console.error('Report PDF: il browser non si è chiuso:', e.message));
+  }
+}
+
+// Un PDF alla volta: due browser accesi insieme su un mini-PC sono troppi.
+let pdfInCorso = false;
+app.post('/api/bot/report/pdf', async (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const corpo = req.body || {};
+  const p = periodoChiesto({ query: { dal: corpo.dal, al: corpo.al } });
+  if (p.errore) return res.status(400).json({ error: p.errore });
+  const html = String(corpo.html || '');
+  if (!html.trim()) return res.status(400).json({ error: 'Manca il report da stampare: aprilo prima nella pagina.' });
+  if (html.length > 600000) return res.status(413).json({ error: 'Il report è troppo grande per un PDF.' });
+  // ⚠️ Niente script nel foglio da stampare: la pagina non ne mette, e un
+  // browser che li eseguisse per conto di qualcun altro è una porta aperta.
+  if (/<script\b|\bon[a-z]+\s*=|javascript:/i.test(html)) {
+    return res.status(400).json({ error: 'Il report contiene codice che non si stampa.' });
+  }
+  if (pdfInCorso) return res.status(409).json({ error: 'Un PDF è già in preparazione: aspetta qualche secondo.' });
+  pdfInCorso = true;
+  try {
+    const locale = String(bot.leggi(db, 'bot_locale') || '').trim() || 'iStudio';
+    const periodo = String(corpo.periodo || `${p.dal} → ${p.al}`).slice(0, 120);
+    const pdf = await creaPdf(paginaPerPdf(locale, periodo, html));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="report-${p.dal}_${p.al}.pdf"`);
+    res.send(Buffer.from(pdf));
+    annota('report', `PDF del report ${p.dal} → ${p.al}`);
+  } catch (e) {
+    console.error('Report PDF non riuscito:', e.message);
+    // Si dice l'alternativa che funziona sempre: la stampa del browser.
+    res.status(500).json({ error: `Non sono riuscito a fare il PDF (${e.message}). `
+      + 'In alternativa: dal menu del browser, Stampa → Salva come PDF.' });
+  } finally {
+    pdfInCorso = false;
+  }
+});
+
 // ---- La scheda di un cliente ----
 // La domanda vera non è «fammi vedere le prenotazioni passate», è «chi è
 // questo che ha appena prenotato?». Da qui si risponde a quella.
