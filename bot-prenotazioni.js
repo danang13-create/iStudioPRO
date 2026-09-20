@@ -281,6 +281,19 @@ function preparaDatabase(db) {
   // voleva dire questa tabella prima che il sold out esistesse.
   try { db.exec("ALTER TABLE bot_chiusure ADD COLUMN tipo TEXT NOT NULL DEFAULT 'chiusura'"); } catch {}
 
+  // ⚠️ Gli altri due agganci della persona: l'indirizzo della chat e il numero
+  // lasciato come contatto. Senza indice, `dovePersona` — `chat_id IN (…) OR
+  // telefono IN (…)` — non poteva usare `idx_pren_tel` per colpa dell'OR e
+  // faceva una SCANSIONE DELL'ARCHIVIO INTERO. Non su una pagina che si apre
+  // ogni tanto: su OGNI MESSAGGIO, perché da quando il bot riconosce chi torna
+  // `ultimoNomeDi` gira sempre. Misurato con la prova di carico, su un archivio
+  // da 50.000 righe (cinque anni di un locale che lavora): 14,20 ms contro
+  // 0,14 ms, cioè cento volte tanto, e un messaggio intero da 18,5 a 3,9 ms.
+  // Con i due indici SQLite fa `MULTI-INDEX OR` e li usa tutti e due — senza
+  // bisogno di ANALYZE, che sul computer di un ristorante non lo lancia nessuno.
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_pren_chat ON prenotazioni(chat_id)'); } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_pren_contatto ON prenotazioni(telefono_contatto)'); } catch {}
+
   // ⚠️ Gli stati sono passati da quattro a tre: «non presentato» non si può più
   // assegnare. Le righe che ce l'hanno ancora resterebbero in uno stato che
   // nessuna pagina sa disegnare — una prenotazione che non si può né leggere né
