@@ -763,8 +763,11 @@ const PREDEFINITI = {
   // cliente non l'ha già detto.
   bot_t_servizio: 'Per {data} preferisci pranzo o cena? 🍽️',
   bot_t_servizio_no: 'Non ho capito: per {data} preferisci pranzo o cena?',
-  // Sotto l'elenco dei turni: come si risponde.
-  bot_t_ora_come: 'Scrivimi il turno che preferisci (per esempio «il primo») oppure l’orario.',
+  // Il messaggio dei TURNI, intero: chiesto dal titolare, che nella pagina
+  // dei testi vedeva solo la riga sopra e quella sotto, e non l'elenco. Il
+  // bot mette l'elenco al posto di {turni}, un turno per riga. Senza turni
+  // (orari di prima) vale ancora `bot_t_ora`, con gli orari sotto.
+  bot_t_ora_turno: 'Per {data} c’è disponibilità nei seguenti orari:\n\n{turni}\n\nScrivimi il turno che preferisci (per esempio «il primo») oppure l’orario.',
   // Un servizio con un turno solo: invece di un elenco di una riga, si chiede
   // se va bene. {fascia} è «dalle 13:00 alle 15:00», o «alle 13:00».
   bot_t_turno_unico: 'Per {data} a {servizio} c’è un solo turno disponibile, {fascia}. ✨\n\nTi va bene? Scrivi SÌ per continuare.',
@@ -4868,8 +4871,20 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       return esito;
     }
     salvaStato(db, telefono, passo, { ...avanzato(d), data: iso, turni, servizio: resta, unico: undefined });
-    const come = suoi.some((o) => numeroDelTurno(cfg, iso, o)) ? `\n\n${di('bot_t_ora_come')}` : '';
-    risposte.push(`${prima}\n${elencoTurni(suoi, cfg, iso)}${come}`);
+    const elenco = elencoTurni(suoi, cfg, iso);
+    if (!resta && servizio) {
+      // Il servizio chiesto è chiuso o pieno: la sua frase, e sotto i turni che restano.
+      risposte.push(`${prima}\n${elenco}`);
+    } else if (suoi.some((o) => numeroDelTurno(cfg, iso, o))) {
+      // ⚠️ Se dalla pagina qualcuno ha tolto {turni}, l'elenco va in fondo:
+      // un messaggio di turni senza i turni non si può rispondere.
+      const testo = String(cfg.bot_t_ora_turno || '');
+      risposte.push(testo.includes('{turni}')
+        ? di('bot_t_ora_turno', { data: dataItaliana(iso), turni: elenco })
+        : `${di('bot_t_ora_turno', { data: dataItaliana(iso) })}\n${elenco}`);
+    } else {
+      risposte.push(`${prima}\n${elenco}`);
+    }
     return esito;
   }
 

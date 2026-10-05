@@ -5041,8 +5041,8 @@ const TESTI_BOT = [
   [null, 'L\'orario'],
   ['bot_t_servizio', 'Chiede «pranzo o cena?»', 'Prima degli orari, solo quando quel giorno pranzo e cena hanno tutti e due posto e il cliente non l\'ha già detto («sabato a cena»).'],
   ['bot_t_servizio_no', 'Non ha capito «pranzo o cena»', 'Se alla domanda il cliente risponde con un orario o un turno («20:00», «il secondo») va bene lo stesso: questa frase esce solo quando non si capisce niente.'],
-  ['bot_t_ora', 'Propone gli orari liberi', 'Coi turni, sotto arriva da solo l\'elenco «1° turno · dalle 19:30 alle 21:00».'],
-  ['bot_t_ora_come', 'Come scegliere il turno', 'Arriva sotto l\'elenco dei turni. Il cliente può rispondere «il primo», «2° turno», «secondo» oppure con l\'orario.'],
+  ['bot_t_ora_turno', 'Propone i turni liberi', 'Il messaggio intero coi turni. Al posto di <b>{turni}</b> il bot scrive l\'elenco, un turno per riga: «*1° turno* · dalle 20:00 alle 22:00» (gli asterischi su WhatsApp diventano grassetto). Se togli {turni}, l\'elenco va in fondo. Il cliente può rispondere «il primo», «2° turno», «secondo» oppure con l\'orario.'],
+  ['bot_t_ora', 'Propone gli orari liberi (senza turni)', 'Solo se gli orari non sono a turni: sotto arrivano da soli gli orari, uno per riga.'],
   ['bot_t_turno_unico', 'Un servizio con un turno solo', 'Invece di un elenco di una riga, si chiede se va bene. <b>{fascia}</b> è «dalle 13:00 alle 15:00» (o «alle 13:00» se il turno non ha la fine), <b>{servizio}</b> è «pranzo» o «cena». Se dice no, si propone l\'altro servizio o un altro giorno.'],
   ['bot_t_servizio_chiuso', 'Chiuso a pranzo (o a cena), aperto nell\'altro', 'Il cliente ha chiesto «a pranzo» o «a cena», e quel giorno quel servizio non c\'è: si propongono gli orari dell\'altro. <b>{servizio}</b> è «pranzo» o «cena».'],
   ['bot_t_servizio_pieno', 'Pieno a pranzo (o a cena), posto nell\'altro', 'Come sopra, ma il servizio chiesto c\'è ed è pieno. <b>{servizio}</b> è «pranzo» o «cena».'],
@@ -6835,7 +6835,7 @@ async function caricaConfigBot() {
       <label style="display:block" data-frase="${chiave}" data-cerca="${testoSicuro(daCercare)}">
         <span style="font-weight:600;font-size:.92rem">${numeroFrase}. ${titolo}</span>
         ${aiuto ? `<br><span class="conteggio" style="margin:0">${aiuto}</span>` : ''}
-        <textarea id="txt-${chiave}" autocomplete="off" rows="${chiave === 'bot_t_benvenuto' ? 4 : 3}"
+        <textarea id="txt-${chiave}" autocomplete="off" rows="${chiave === 'bot_t_ora_turno' ? 6 : chiave === 'bot_t_benvenuto' ? 4 : 3}"
           class="frase-testo" style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;resize:vertical">${testoSicuro(d.impostazioni[chiave] || '')}</textarea>
         <button class="btn btn-secondario" data-ripristina="${chiave}" style="padding:3px 9px;font-size:.78rem;margin-top:4px">Riporta com'era</button>
       </label>`);
