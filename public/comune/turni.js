@@ -16,6 +16,9 @@ window.Turni = (function () {
   let ultimaData = null;
   let ultimiTurni = [];
   let ultimaCapienza = 0;
+  // Il locale ha elencato i suoi tavoli? Allora «liberi» vuol dire un'altra
+  // cosa: il gruppo più grande che si può ancora sedere, non le sedie vuote.
+  let conTavoli = false;
   // ⚠️ La memoria dura pochi secondi, non tutta la giornata: serve solo a non
   // chiedere due volte la stessa cosa mentre si compila UN modulo. Tenendola
   // più a lungo, la tendina finisce per dire «3 liberi» su un posto che nel
@@ -29,7 +32,10 @@ window.Turni = (function () {
     try {
       const d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent(data))).json();
       ultimiTurni = d.error ? [] : (d.turni || []);
-      ultimaCapienza = d.error ? 0 : (d.capienza || 0);
+      // Con i tavoli il tetto della tendina è il tavolo più grande: più di
+      // così, in un tavolo solo, non ci si siede.
+      conTavoli = !d.error && Array.isArray(d.tavoli) && d.tavoli.length > 0;
+      ultimaCapienza = d.error ? 0 : (conTavoli ? (d.gruppoMassimo || 0) : (d.capienza || 0));
       ultimaData = data;
       quando = Date.now();
     } catch { ultimiTurni = []; }
@@ -64,10 +70,16 @@ window.Turni = (function () {
     const turni = await dellaGiornata(data);
     if (!turni.length) return 0;
     const suoi = Number(giaSue) || 0;
+    // ⚠️ Con i tavoli i posti suoi NON si sommano: chi ha un tavolo da quattro
+    // e un tavolo da sei libero accanto non può diventare un gruppo da dieci.
+    // Può restare com'è, o passare al tavolo libero più grande. (Se il suo
+    // tavolo è più grande di quelli liberi potrebbe crescere un po' anche lì:
+    // la tendina non lo sa, il server sì, e lo accetta.)
+    const conIMiei = (liberi) => (conTavoli ? Math.max(liberi, suoi) : liberi + suoi);
     const scelto = turni.find((t) => t.ora === ora);
-    if (scelto) return Math.max(Number(scelto.liberi) || 0, 0) + suoi;
+    if (scelto) return conIMiei(Math.max(Number(scelto.liberi) || 0, 0));
     // Nessuna ora scelta (o un'ora fuori turno): il meglio che la giornata offre.
-    return turni.reduce((m, t) => Math.max(m, Number(t.liberi) || 0), 0) + suoi;
+    return conIMiei(turni.reduce((m, t) => Math.max(m, Number(t.liberi) || 0), 0));
   }
 
   // La tendina delle persone: SOLO i numeri che ci stanno davvero su quel turno.
@@ -134,8 +146,17 @@ window.Turni = (function () {
     } else {
       voci.push('<option value="">Scegli l\'orario…</option>');
       for (const t of turni) {
-        const liberi = typeof t.liberi === 'number'
-          ? (t.liberi > 0 ? ` · ${t.liberi} liberi` : ' · pieno') : '';
+        // Con i tavoli si contano i TAVOLI liberi: «12 liberi» farebbe
+        // pensare a dodici sedie per chiunque, mentre sono magari sei tavoli
+        // da due.
+        let liberi = '';
+        if (typeof t.tavoliLiberi === 'number') {
+          liberi = t.tavoliLiberi > 0
+            ? ` · ${t.tavoliLiberi === 1 ? '1 tavolo libero' : `${t.tavoliLiberi} tavoli liberi`}`
+            : ' · pieno';
+        } else if (typeof t.liberi === 'number') {
+          liberi = t.liberi > 0 ? ` · ${t.liberi} liberi` : ' · pieno';
+        }
         voci.push(`<option value="${t.ora}"${t.ora === oraAttuale ? ' selected' : ''}>${t.ora}${liberi}</option>`);
       }
     }
@@ -148,7 +169,7 @@ window.Turni = (function () {
   }
 
   // Quando cambia il giorno, i turni possono essere altri (pranzo, chiusure).
-  function dimentica() { ultimaData = null; ultimiTurni = []; ultimaCapienza = 0; quando = 0; }
+  function dimentica() { ultimaData = null; ultimiTurni = []; ultimaCapienza = 0; conTavoli = false; quando = 0; }
 
   return { dellaGiornata, riempi, riempiPersone, liberiPer, capienza, dimentica };
 })();

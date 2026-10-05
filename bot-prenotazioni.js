@@ -294,6 +294,23 @@ function preparaDatabase(db) {
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_pren_chat ON prenotazioni(chat_id)'); } catch {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_pren_contatto ON prenotazioni(telefono_contatto)'); } catch {}
 
+  // I tavoli del locale. Vuota di partenza, e vuota vuol dire «si conta a
+  // coperti come prima»: vedi `postoPer`.
+  //
+  // ⚠️ Il nome è unico senza badare alle maiuscole: è quello che la sala
+  // scrive nella riga della prenotazione, e con due «T4» non si saprebbe a
+  // quale dei due si è seduto qualcuno.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bot_tavoli (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL,
+      posti INTEGER NOT NULL,
+      solo_sala INTEGER NOT NULL DEFAULT 0,   -- 1 = il bot non lo dà mai
+      ordine INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tavoli_nome ON bot_tavoli(nome COLLATE NOCASE);
+  `);
+
   // ⚠️ Gli stati sono passati da quattro a tre: «non presentato» non si può più
   // assegnare. Le righe che ce l'hanno ancora resterebbero in uno stato che
   // nessuna pagina sa disegnare — una prenotazione che non si può né leggere né
@@ -536,6 +553,15 @@ const PREDEFINITI = {
   bot_assistente: '',      // il nome dell'assistente virtuale, es. «Aurora»
 
   // Orari — 0 è domenica, come getDay() di JavaScript
+  //
+  // ⚠️ `bot_fasce` è il modo nuovo: per ogni giorno della settimana una o più
+  // fasce «dal primo all'ultimo arrivo», e il bot propone un orario ogni
+  // `bot_passo` minuti dentro ciascuna. Finché è vuota valgono ancora i tre
+  // campi di prima — giorni, pranzo, cena — letti ESATTAMENTE come prima: un
+  // locale che si aggiorna non deve trovarsi orari diversi da quelli che aveva.
+  // Vedi `fasceDi`.
+  bot_fasce: '',
+  bot_passo: '30',
   bot_giorni: '1,2,3,4,5,6,0',
   bot_turni_pranzo: '',
   bot_turni_cena: '19:30,20:00,21:30',
@@ -543,7 +569,9 @@ const PREDEFINITI = {
   bot_preavviso_ore: '2',
   bot_max_giorni: '60',
 
-  // Capienza — a coperti, non a tavoli
+  // Capienza — a coperti, finché il locale non elenca i suoi tavoli. Con i
+  // tavoli impostati (tabella `bot_tavoli`) questi due numeri non decidono più
+  // niente: vedi `postoPer`.
   bot_coperti_turno: '40',
   bot_coperti_liberi: '0',
   bot_max_persone: '8',
@@ -1490,19 +1518,131 @@ function turniValidi(testo) {
   return buoni;
 }
 
+// ---------------------------------------------------------------------------
+//  Le fasce orarie
+// ---------------------------------------------------------------------------
+//  Prima gli orari erano tre o quattro turni fissi, uguali per tutti i giorni
+//  aperti: il sabato non poteva fare orari diversi dal martedì, e un pranzo
+//  della domenica voleva dire un pranzo tutti i giorni. Adesso ogni giorno ha
+//  le sue fasce — «12:30–14:00» e «19:30–22:00» — e il bot propone un orario
+//  ogni `bot_passo` minuti dentro ciascuna.
+//
+//  ⚠️ Una fascia è dal PRIMO all'ULTIMO ARRIVO, non dall'apertura alla
+//  chiusura. «Chiudiamo alle 23» con tavoli da due ore vorrebbe dire ultimo
+//  arrivo alle 21, ma più d'uno l'avrebbe scritto pensando alle 22:30: un conto
+//  nascosto fatto dal programma è un orario che il locale non riconosce. Qui
+//  si scrive l'ora che si vuole veder proporre, e il bot propone quella.
+
+// Il più delle volte ne basta una o due; il tetto c'è solo perché un elenco
+// senza fondo, in una pagina, non è un elenco.
+const FASCE_PER_GIORNO = 8;
+
+function passoDi(cfg) {
+  const p = Math.round(num(cfg.bot_passo, 30));
+  return p >= 5 && p <= 240 ? p : 30;
+}
+
+function daMinuti(m) {
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+// Le fasce ripulite: ore vere, l'ultimo arrivo non prima del primo, niente
+// doppioni, in ordine. `null` vuol dire «non ci sono fasce salvate» — che non
+// è la stessa cosa di «tutti i giorni chiusi», che è un oggetto con sette
+// elenchi vuoti.
+function fasceValide(valore) {
+  let grezze = valore;
+  if (typeof grezze === 'string') {
+    if (!grezze.trim()) return null;
+    try { grezze = JSON.parse(grezze); } catch { return null; }
+  }
+  if (!grezze || typeof grezze !== 'object' || Array.isArray(grezze)) return null;
+  const fasce = {};
+  for (let g = 0; g < 7; g++) {
+    const buone = [];
+    for (const f of Array.isArray(grezze[g]) ? grezze[g] : []) {
+      if (!f || typeof f !== 'object') continue;
+      const [da] = turniValidi(f.da);
+      const [a] = turniValidi(f.a);
+      if (!da || !a || inMinuti(a) < inMinuti(da)) continue;
+      if (buone.some((x) => x.da === da && x.a === a)) continue;
+      buone.push({ da, a });
+    }
+    buone.sort((x, y) => inMinuti(x.da) - inMinuti(y.da));
+    fasce[g] = buone.slice(0, FASCE_PER_GIORNO);
+  }
+  return fasce;
+}
+
+// Le fasce di un locale che non le ha ancora impostate, ricavate dai turni di
+// prima. ⚠️ Devono dare GLI STESSI ORARI di prima, uno per uno: i turni che
+// distano esattamente un passo diventano una fascia sola, gli altri restano
+// fasce di un orario. «19:30, 20:00, 21:30» col passo di 30 diventa
+// «19:30–20:00» e «21:30»: le 20:30 e le 21:00, che prima non c'erano, non
+// compaiono da sole dopo un aggiornamento.
+function fasceDaiTurni(cfg) {
+  const aperti = String(cfg.bot_giorni).split(',').map((x) => parseInt(x, 10));
+  const orari = [...new Set([...turniValidi(cfg.bot_turni_pranzo), ...turniValidi(cfg.bot_turni_cena)])].sort();
+  const passo = passoDi(cfg);
+  const corse = [];
+  for (const o of orari) {
+    const ultima = corse[corse.length - 1];
+    if (ultima && inMinuti(o) - inMinuti(ultima.a) === passo) ultima.a = o;
+    else corse.push({ da: o, a: o });
+  }
+  const fasce = {};
+  for (let g = 0; g < 7; g++) fasce[g] = aperti.includes(g) ? corse.map((c) => ({ ...c })) : [];
+  return fasce;
+}
+
+function fasceDi(cfg) {
+  return fasceValide(cfg.bot_fasce) || fasceDaiTurni(cfg);
+}
+
+// Gli orari di una fascia. L'ultimo arrivo c'è SEMPRE, anche quando non cade
+// su un passo: è l'ora che il locale ha scritto, e toglierla vorrebbe dire
+// chiudere prima di quando ha detto.
+function orariDellaFascia(f, passo) {
+  const fine = inMinuti(f.a);
+  const orari = [];
+  for (let m = inMinuti(f.da); m <= fine; m += passo) orari.push(daMinuti(m));
+  if (orari[orari.length - 1] !== f.a) orari.push(f.a);
+  return orari;
+}
+
 function turniDelGiorno(cfg, iso) {
   const [a, m, g] = iso.split('-').map(Number);
   const giorno = new Date(a, m - 1, g).getDay();
-  const aperti = String(cfg.bot_giorni).split(',').map((x) => parseInt(x, 10));
-  if (!aperti.includes(giorno)) return [];
-  const tutti = [...turniValidi(cfg.bot_turni_pranzo), ...turniValidi(cfg.bot_turni_cena)];
-  // Un doppione fra pranzo e cena è comunque un doppione.
+  const passo = passoDi(cfg);
+  const tutti = (fasceDi(cfg)[giorno] || []).flatMap((f) => orariDellaFascia(f, passo));
+  // Due fasce che si toccano danno lo stesso orario due volte: è uno solo.
   return [...new Set(tutti)].sort();
 }
 
 function inMinuti(hhmm) {
   const [h, m] = String(hhmm).split(':').map(Number);
   return h * 60 + (m || 0);
+}
+
+// Quante volte, in quel giorno, la sala si può riempire da capo. È il numero
+// contro cui si misura quanto è piena una giornata.
+//
+// ⚠️ Prima si moltiplicavano i coperti per il NUMERO DI TURNI, e già con
+// «19:30, 20:00, 21:30» il conto era gonfio: chi arriva alle 19:30 e chi alle
+// 20:00 non si siedono sugli stessi posti uno dopo l'altro, li occupano
+// insieme. Con le fasce — un orario ogni mezz'ora — quel conto sarebbe
+// diventato assurdo: sei «turni» da 40 fanno 240 coperti in una sera da 80, e
+// il planning avrebbe mostrato mezzo vuota una sala piena. Qui si conta
+// quante volte un tavolo si può davvero liberare e rioccupare.
+function giriDelGiorno(cfg, iso) {
+  const durata = Math.max(num(cfg.bot_durata_tavolo, 120), 1);
+  let giri = 0;
+  let ultimo = -Infinity;
+  for (const t of turniDelGiorno(cfg, iso)) {
+    const m = inMinuti(t);
+    if (m >= ultimo + durata) { giri += 1; ultimo = m; }
+  }
+  return giri;
 }
 
 // Coperti già impegnati che si sovrappongono al turno richiesto.
@@ -1514,6 +1654,13 @@ function inMinuti(hhmm) {
 // tavoli da due ore lo faceva scontrare col proprio stesso tavolo — e il posto
 // risultava occupato da se stesso.
 function copertiOccupati(db, cfg, iso, ora, escludiId) {
+  return prenotazioniSovrapposte(db, cfg, iso, ora, escludiId).reduce((n, r) => n + r.persone, 0);
+}
+
+// Le prenotazioni ancora vive che, a quell'ora, sono sedute (o lo saranno).
+// È la domanda che stava dentro `copertiOccupati`, tirata fuori perché adesso
+// la fanno in due: chi conta i coperti e chi cerca un tavolo libero.
+function prenotazioniSovrapposte(db, cfg, iso, ora, escludiId) {
   // ⚠️ Durata zero (o negativa) NON vuol dire «nessun limite»: con quella, la
   // formula della sovrapposizione non trovava nemmeno un tavolo con SE STESSO,
   // e il locale risultava vuoto sempre — il bot avrebbe accettato prenotazioni
@@ -1522,32 +1669,22 @@ function copertiOccupati(db, cfg, iso, ora, escludiId) {
   const durata = Math.max(num(cfg.bot_durata_tavolo, 120), 1);
   const inizio = inMinuti(ora);
   const fine = inizio + durata;
-
-  const conta = (righe, scarto) => {
-    let somma = 0;
-    for (const r of righe) {
-      if (escludiId && r.id === escludiId) continue;
-      const i = inMinuti(r.ora) - scarto;
-      const f = i + durata;
-      if (i < fine && f > inizio) somma += r.persone;   // si sovrappongono
-    }
-    return somma;
+  const righeDel = (data) => db.prepare(
+    'SELECT id, ora, persone, tavolo FROM prenotazioni WHERE data = ? AND stato IN ' + dentro(STATI_VIVI)
+  ).all(data);
+  const siSovrappone = (scarto) => (r) => {
+    if (escludiId && r.id === escludiId) return false;
+    const i = inMinuti(r.ora) - scarto;
+    return i < fine && i + durata > inizio;
   };
-
-  const delGiorno = db.prepare(
-    'SELECT id, ora, persone FROM prenotazioni WHERE data = ? AND stato IN ' + dentro(STATI_VIVI)
-  ).all(iso);
-
   // ⚠️ E il tavolo che scavalca la mezzanotte: alle 23:30 con due ore di
   // durata si alza all'una e mezza, cioè occupa un turno dell'una del giorno
   // DOPO. Contando solo le righe della data richiesta quel tavolo spariva, e
   // in una notte di Capodanno lo stesso posto veniva promesso due volte.
-  const ieri = giornoPrima(iso);
-  const delGiornoPrima = db.prepare(
-    'SELECT id, ora, persone FROM prenotazioni WHERE data = ? AND stato IN ' + dentro(STATI_VIVI)
-  ).all(ieri);
-
-  return conta(delGiorno, 0) + conta(delGiornoPrima, 1440);
+  return [
+    ...righeDel(iso).filter(siSovrappone(0)),
+    ...righeDel(giornoPrima(iso)).filter(siSovrappone(1440)),
+  ];
 }
 
 // Un anno avanti è il limite oltre il quale una prenotazione non è più una
@@ -1573,6 +1710,177 @@ function giornoPrima(iso) {
 function postiLiberi(db, cfg, iso, ora, escludiId) {
   const capienza = num(cfg.bot_coperti_turno, 40) - num(cfg.bot_coperti_liberi, 0);
   return capienza - copertiOccupati(db, cfg, iso, ora, escludiId);
+}
+
+// ---------------------------------------------------------------------------
+//  I tavoli
+// ---------------------------------------------------------------------------
+//  Contare solo i coperti sbaglia in due direzioni. Dice SÌ quando non c'è
+//  posto: venti coppie fanno quaranta coperti, ma se i tavoli sono dodici otto
+//  coppie restano in piedi. E dice sì a un gruppo che non si può sedere: sei
+//  persone con soli tavoli da quattro, e il bot vede «34 posti liberi».
+//
+//  Con i tavoli la domanda cambia: non più «quanti coperti restano?», ma
+//  «c'è un tavolo libero abbastanza grande per QUESTO gruppo?». E le regole
+//  sono tre:
+//
+//   1. Una prenotazione, un tavolo. Due prenotazioni non dividono mai lo
+//      stesso tavolo nello stesso momento, anche se di posti ce ne sarebbero:
+//      una coppia a un tavolo da quattro lascia due sedie vuote, ed è giusto.
+//   2. Il tavolo più piccolo che basta. Una coppia prende un tavolo da due se
+//      c'è, poi da quattro, e quello da otto solo se non è rimasto altro: dato
+//      alla prima coppia che scrive, lascerebbe fuori il gruppo da sette che
+//      arriva dopo. Darlo comunque quando è l'ultimo è meglio che rifiutare.
+//   3. Un tavolo è occupato per la durata del tavolo, come prima i coperti: il
+//      T4 delle 19:30 con due ore di durata torna libero per le 21:30.
+//
+//  I tavoli «solo sala» il bot non li dà mai: sono per chi entra senza
+//  prenotare. La sala e la piattaforma sì — sono persone che vedono il locale.
+//
+//  ⚠️ Senza nessun tavolo elencato si conta a coperti come sempre. Un locale
+//  che si aggiorna non deve trovarsi il bot che rifiuta tutti perché un
+//  elenco che non ha mai compilato è vuoto.
+
+// I tavoli si uniscono a mano, in sala: al bot non si chiede. Dodici è il più
+// grande tavolo vero che si prenota da soli; oltre, è un gruppo che vuole
+// parlare con qualcuno.
+const POSTI_MASSIMI_TAVOLO = 12;
+
+// Il nome del tavolo è anche quello che la sala scrive a mano nella riga della
+// prenotazione: «T4», «t4 » e «T4» devono essere lo stesso tavolo.
+function chiaveTavolo(nome) {
+  return String(nome === null || nome === undefined ? '' : nome).replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function tavoliDi(db) {
+  return db.prepare('SELECT * FROM bot_tavoli ORDER BY ordine, id').all();
+}
+
+function usaTavoli(db) {
+  return !!db.prepare('SELECT 1 FROM bot_tavoli LIMIT 1').get();
+}
+
+// Il più piccolo prima; a pari posti uno della sala viene dopo uno
+// prenotabile, poi l'ordine in cui il locale li ha elencati.
+function perMisura(x, y) {
+  return x.posti - y.posti || x.solo_sala - y.solo_sala || x.ordine - y.ordine || x.id - y.id;
+}
+
+// I coperti della sala: la somma dei tavoli, o il numero di prima se di
+// tavoli non ce ne sono.
+function capienzaDi(db, cfg) {
+  const tavoli = tavoliDi(db);
+  if (tavoli.length) return tavoli.reduce((n, t) => n + t.posti, 0);
+  return num(cfg.bot_coperti_turno, 0);
+}
+
+// Chi tiene quale tavolo, a quell'ora. Restituisce id tavolo → id prenotazione.
+//
+// ⚠️ Non tutte le prenotazioni hanno un tavolo che si riconosce: quelle di
+// prima dei tavoli, una scritta a mano «terrazza», un tavolo tolto
+// dall'elenco, due prenotazioni che la sala ha messo per sbaglio sullo stesso
+// numero. Quelle persone a cena vengono lo stesso, quindi si siedono da
+// qualche parte: le si mette al tavolo più piccolo che basta fra quelli
+// rimasti, dalla più grande alla più piccola. Ignorarle vorrebbe dire
+// promettere a un altro il tavolo su cui stanno mangiando.
+function occupazioneTavoli(db, cfg, iso, ora, escludiId, tavoli = tavoliDi(db)) {
+  const presi = new Map();
+  const perNome = new Map(tavoli.map((t) => [chiaveTavolo(t.nome), t]));
+  const senza = [];
+  // La più vecchia tiene il tavolo: è quella che l'aveva per prima.
+  const righe = prenotazioniSovrapposte(db, cfg, iso, ora, escludiId).sort((x, y) => x.id - y.id);
+  for (const r of righe) {
+    const t = perNome.get(chiaveTavolo(r.tavolo));
+    if (t && !presi.has(t.id)) presi.set(t.id, r.id);
+    else senza.push(r);
+  }
+  senza.sort((x, y) => y.persone - x.persone || x.id - y.id);
+  for (const r of senza) {
+    const liberi = tavoli.filter((t) => !presi.has(t.id));
+    const uno = liberi.filter((t) => t.posti >= r.persone).sort(perMisura)[0];
+    if (uno) { presi.set(uno.id, r.id); continue; }
+    // Più grande di ogni tavolo libero: in sala li hanno uniti. Si tolgono i
+    // più grandi finché ci stanno tutti.
+    let restano = r.persone;
+    for (const t of liberi.sort((x, y) => y.posti - x.posti)) {
+      if (restano <= 0) break;
+      presi.set(t.id, r.id);
+      restano -= t.posti;
+    }
+  }
+  return presi;
+}
+
+// Il tavolo per un gruppo, o null se non ce n'è uno libero abbastanza grande.
+//
+// `opzioni.ancheSala`: conta anche i tavoli «solo sala» (chi prenota è una
+//   persona del locale, non il bot).
+// `opzioni.escludiId`: la prenotazione che si sta spostando non occupa se stessa.
+// `opzioni.preferito`: il tavolo che ha già. Se va ancora bene lo tiene — la
+//   sala ha un piano della serata, e cambiarle i tavoli sotto i piedi per un
+//   minuto spostato è peggio di un tavolo un po' più grande del necessario.
+function trovaTavolo(db, cfg, iso, ora, persone, opzioni = {}) {
+  const tavoli = tavoliDi(db);
+  const presi = occupazioneTavoli(db, cfg, iso, ora, opzioni.escludiId, tavoli);
+  const buoni = tavoli.filter((t) => !presi.has(t.id) && t.posti >= persone
+    && (opzioni.ancheSala || !t.solo_sala));
+  if (!buoni.length) return null;
+  const preferito = chiaveTavolo(opzioni.preferito);
+  return (preferito && buoni.find((t) => chiaveTavolo(t.nome) === preferito)) || buoni.sort(perMisura)[0];
+}
+
+// C'è posto per questo gruppo, a quell'ora? E se ci sono i tavoli, quale.
+//
+// `tavolo` è null quando il locale conta a coperti: vuol dire «non toccare il
+// campo», che resta quello che la sala ci ha scritto.
+function postoPer(db, cfg, iso, ora, persone, opzioni = {}) {
+  if (!usaTavoli(db)) {
+    return { ok: postiLiberi(db, cfg, iso, ora, opzioni.escludiId) >= persone, tavolo: null };
+  }
+  const t = trovaTavolo(db, cfg, iso, ora, persone, opzioni);
+  return { ok: !!t, tavolo: t ? t.nome : null };
+}
+
+function ciStanno(db, cfg, iso, ora, persone, opzioni = {}) {
+  return postoPer(db, cfg, iso, ora, persone, opzioni).ok;
+}
+
+// Il gruppo più grande che, a quell'ora, si può ancora sedere: il tavolo
+// libero più grande. Serve alle tendine «quante persone».
+function gruppoMassimo(db, cfg, iso, ora, opzioni = {}) {
+  const tavoli = tavoliDi(db);
+  const presi = occupazioneTavoli(db, cfg, iso, ora, opzioni.escludiId, tavoli);
+  return tavoli.filter((t) => !presi.has(t.id) && (opzioni.ancheSala || !t.solo_sala))
+    .reduce((m, t) => Math.max(m, t.posti), 0);
+}
+
+function tavoliLiberi(db, cfg, iso, ora, opzioni = {}) {
+  const tavoli = tavoliDi(db);
+  const presi = occupazioneTavoli(db, cfg, iso, ora, opzioni.escludiId, tavoli);
+  return tavoli.filter((t) => !presi.has(t.id) && (opzioni.ancheSala || !t.solo_sala));
+}
+
+// Chi ha già quel tavolo a quell'ora, se qualcuno ce l'ha. Per la sala, che lo
+// scrive a mano: due gruppi allo stesso tavolo si scoprono quando arriva il
+// secondo, ed è il momento peggiore per scoprirlo.
+function chiTieneIlTavolo(db, cfg, iso, ora, nome, escludiId) {
+  const chiave = chiaveTavolo(nome);
+  if (!chiave) return null;
+  const r = prenotazioniSovrapposte(db, cfg, iso, ora, escludiId)
+    .find((x) => chiaveTavolo(x.tavolo) === chiave);
+  return r ? db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(r.id) : null;
+}
+
+// Il gruppo più grande che il bot prende da solo. Con i tavoli è anche il
+// tavolo prenotabile più grande: un gruppo che non entra in nessun tavolo il
+// bot lo cercherebbe giorno dopo giorno senza trovarlo mai, e alla fine
+// direbbe «siamo pieni» a chi invece andava passato a una persona — l'unica
+// che può decidere di unire due tavoli.
+function personeMassimeBot(db, cfg) {
+  const max = num(cfg.bot_max_persone, 8);
+  const tavoli = tavoliDi(db);
+  if (!tavoli.length) return max;
+  return Math.min(max, tavoli.filter((t) => !t.solo_sala).reduce((m, t) => Math.max(m, t.posti), 0));
 }
 
 // Il giorno è bloccato? E per quale dei due motivi?
@@ -1638,7 +1946,7 @@ function turniDisponibili(db, cfg, iso, persone, adesso, opzioni = {}) {
     // arrivare dieci minuti prima delle 20:00, non alle 20:30 per le 20:00.
     if (iso === oggi && inMinuti(t) < adessoMin) return false;
     if (iso === oggi && inMinuti(t) - adessoMin < preavviso) return false;
-    return postiLiberi(db, cfg, iso, t, opzioni.escludiId) >= persone;
+    return ciStanno(db, cfg, iso, t, persone, { escludiId: opzioni.escludiId });
   });
 }
 
@@ -1655,7 +1963,7 @@ function oraNonProposta(db, cfg, dati, testo) {
   if (!ora || (dati.turni || []).includes(ora)) return null;
   // Pieno e «troppo tardi» sono due no diversi, e al cliente servono distinti:
   // sul primo può scegliere un altro orario, sul secondo un altro giorno.
-  return { ora, pieno: postiLiberi(db, cfg, dati.data, ora, dati.id) < dati.persone };
+  return { ora, pieno: !ciStanno(db, cfg, dati.data, ora, dati.persone, { escludiId: dati.id }) };
 }
 
 // I prossimi giorni con almeno un turno libero, per proporre un menu.
@@ -1954,20 +2262,21 @@ function segnaPagata(db, cfg, id, da = 'mano', adesso = new Date(), incassato = 
       prenotazione: db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(id),
     };
   }
-  const liberi = postiLiberi(db, cfg, p.data, p.ora);
   // ⚠️ I posti che sta GIÀ tenendo non contano contro di lei — e la condizione
   // era scritta al rovescio: chi era ancora in attesa (quindi già contato fra
   // gli occupati) risultava senza posto, e chi era scaduto (quindi non contato)
   // veniva confermato sopra il tavolo di un altro. Esattamente il caso che
-  // questa funzione esiste per impedire.
-  const suoi = p.stato === 'attesa_pagamento' ? p.persone : 0;
-  if (liberi + suoi < p.persone) {
+  // questa funzione esiste per impedire. Escluderla per id fa le due cose
+  // giuste insieme: in attesa non conta contro se stessa, scaduta non contava
+  // comunque.
+  const posto = postoPer(db, cfg, p.data, p.ora, p.persone, { escludiId: p.id, preferito: p.tavolo });
+  if (!posto.ok) {
     return { ok: false, motivo: 'niente posto', prenotazione: p };
   }
   db.prepare(
     "UPDATE prenotazioni SET stato = 'confermata', pagato_at = datetime('now','localtime'), "
-    + 'pagata_da = ?, importo_dovuto = ?, annullata_at = NULL WHERE id = ?'
-  ).run(String(da || 'mano'), quantoDavvero(p, incassato), id);
+    + 'pagata_da = ?, importo_dovuto = ?, annullata_at = NULL, tavolo = ? WHERE id = ?'
+  ).run(String(da || 'mano'), quantoDavvero(p, incassato), posto.tavolo === null ? p.tavolo : posto.tavolo, id);
   return { ok: true, prenotazione: db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(id) };
 }
 
@@ -3105,7 +3414,9 @@ function reportPrenotazioni(db, cfg, dal, al) {
   // servire nei giorni in cui il locale era aperto. I giorni chiusi non
   // entrano nel conto — se no un locale chiuso il lunedì risulterebbe sempre
   // mezzo vuoto per il solo fatto di riposare.
-  const perTurnoCfg = num(cfg.bot_coperti_turno, 0) - num(cfg.bot_coperti_liberi, 0);
+  const perTurnoCfg = usaTavoli(db)
+    ? capienzaDi(db, cfg)
+    : num(cfg.bot_coperti_turno, 0) - num(cfg.bot_coperti_liberi, 0);
   let possibili = 0;
   let apertiConta = 0;
   let pieniConta = 0;
@@ -3115,7 +3426,7 @@ function reportPrenotazioni(db, cfg, dal, al) {
     if (ePieno(db, iso)) pieniConta += 1;
     if (!turni.length || eBloccato(db, iso)) continue;
     apertiConta += 1;
-    possibili += Math.max(perTurnoCfg, 0) * turni.length;
+    possibili += Math.max(perTurnoCfg, 0) * giriDelGiorno(cfg, iso);
   }
 
   // Chi era già stato qui prima di questo periodo. È la domanda che dice se il
@@ -3492,8 +3803,23 @@ function elaboraMessaggioSala(db, chiave, testo, adesso = new Date()) {
     // non prima: chi sta per scrivere SI vuole sapere com'e' messo il turno
     // quando avra' finito. Dicendo «restano 6» mentre se ne stanno segnando 2
     // sembrava che dopo ne restassero ancora 6, e il conto non tornava mai.
-    const liberi = postiLiberi(db, cfg, d.data, d.ora);
-    const dopo = liberi - d.persone;
+    // Con i tavoli la riga che serve è QUALE tavolo: «restano 6 coperti» non
+    // dice se quei sei sono un tavolo o sei sedie sparse. Chi detta dal
+    // personale può sforare — è una persona, decide lei — ma lo deve sapere
+    // prima del SI, non scoprirlo in sala.
+    let posto;
+    if (usaTavoli(db)) {
+      const t = trovaTavolo(db, cfg, d.data, d.ora, d.persone, { ancheSala: true });
+      posto = t
+        ? `🪑 Tavolo ${t.nome} (${t.posti} ${t.posti === 1 ? 'posto' : 'posti'})`
+        : `⚠️ A quell'ora non c'è un tavolo libero per ${d.persone}: la segno senza tavolo, e il posto lo trovate voi.`;
+    } else {
+      const liberi = postiLiberi(db, cfg, d.data, d.ora);
+      const dopo = liberi - d.persone;
+      posto = dopo >= 0
+        ? `Dopo questa restano ${dopo} ${dopo === 1 ? 'coperto libero' : 'coperti liberi'} su quel turno.`
+        : `⚠️ Su quel turno restano ${liberi < 0 ? 0 : liberi} coperti: la sfori di ${-dopo}.`;
+    }
     risposte.push(
       `Controlla:\n\n`
       + `📅 ${dataItaliana(d.data)} alle ${d.ora}\n`
@@ -3501,9 +3827,7 @@ function elaboraMessaggioSala(db, chiave, testo, adesso = new Date()) {
       + `🙍 ${nomeInSala(d)}\n`
       + (d.telefono ? `📞 +${d.telefono}\n` : '📞 —\n')
       + (d.note ? `📝 ${d.note}\n` : '')
-      + `\n${dopo >= 0
-        ? `Dopo questa restano ${dopo} ${dopo === 1 ? 'coperto libero' : 'coperti liberi'} su quel turno.`
-        : `⚠️ Su quel turno restano ${liberi < 0 ? 0 : liberi} coperti: la sfori di ${-dopo}.`}\n`
+      + `\n${posto}\n`
       + `\nScrivi SI per segnarla, NO per lasciar perdere.`);
     return esito;
   }
@@ -3517,11 +3841,14 @@ function elaboraMessaggioSala(db, chiave, testo, adesso = new Date()) {
     // prenotazione porta la targhetta «admin», e chi la legge sa che il
     // cliente non ha mai scritto al bot — quindi non ha ricevuto nessuna
     // conferma, se non gliel'hanno mandata apposta.
+    // Il tavolo si cerca di nuovo adesso, non si riusa quello del riepilogo:
+    // fra il riepilogo e il SI può averlo preso il bot.
+    const posto = postoPer(db, cfg, dati.data, dati.ora, dati.persone, { ancheSala: true });
     const info = db.prepare(
-      'INSERT INTO prenotazioni (telefono, nome, cognome, data, ora, persone, note, telefono_contatto, origine) '
-      + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manuale')"
+      'INSERT INTO prenotazioni (telefono, nome, cognome, data, ora, persone, note, telefono_contatto, tavolo, origine) '
+      + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manuale')"
     ).run(dati.telefono || '', dati.nome || '', dati.cognome || '', dati.data, dati.ora,
-          dati.persone, dati.note || '', dati.telefono || '');
+          dati.persone, dati.note || '', dati.telefono || '', posto.tavolo || '');
     const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(info.lastInsertRowid);
     esito.prenotazione = p;
     // Se quel cliente stava in lista per quel giorno, adesso ha un tavolo.
@@ -3532,7 +3859,8 @@ function elaboraMessaggioSala(db, chiave, testo, adesso = new Date()) {
     risposte.push(
       `✅ Segnata: ${dataItaliana(p.data)} alle ${p.ora}, ${p.persone} ${p.persone === 1 ? 'coperto' : 'coperti'}, `
       + `${nomeInSala(p)}.\n`
-      + `Ora ${p.ora} è a ${occupati}/${num(cfg.bot_coperti_turno, 0)}.`
+      + (p.tavolo ? `🪑 Tavolo ${p.tavolo}.\n` : '')
+      + `Ora ${p.ora} è a ${occupati}/${capienzaDi(db, cfg)}.`
       + (p.telefono ? '\n\nScrivi AVVISA se vuoi che gli mandi la conferma su WhatsApp.' : ''));
     return esito;
   }
@@ -3617,7 +3945,7 @@ function elencoPrenotazioni(db, cfg, iso, adesso = new Date()) {
   // I totali per turno: è la riga che serve davvero prima di aprire, perché
   // dice quanti posti restano senza doverli contare a mente.
   const turni = turniDelGiorno(cfg, iso);
-  const capienza = num(cfg.bot_coperti_turno, 40);
+  const capienza = capienzaDi(db, cfg);
   const riepilogo = turni
     .map((o) => `${o} ${copertiOccupati(db, cfg, iso, o)}/${capienza}`)
     .join(' · ');
@@ -3885,7 +4213,8 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     }
     // Ultimo controllo prima di toccare la riga: fra la proposta e il «sì»
     // qualcun altro può aver preso quel posto.
-    if (postiLiberi(db, cfg, dati.data, dati.ora, p.id) < p.persone) {
+    const posto = postoPer(db, cfg, dati.data, dati.ora, p.persone, { escludiId: p.id, preferito: p.tavolo });
+    if (!posto.ok) {
       risposte.push(di('bot_t_sposta_pieno', {
         data: dataItaliana(dati.data), ora: dati.ora,
         vecchiaData: dataItaliana(p.data), vecchiaOra: p.ora,
@@ -3895,10 +4224,13 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     }
     // ⚠️ Il tavolo assegnato dalla sala vale per QUELLA serata: portato su un
     // altro giorno, il numero lì appartiene a qualcun altro, e la sera si
-    // trovano due gruppi allo stesso tavolo. Qui nessuno in sala sta
-    // guardando — è il cliente che sposta da solo — quindi si azzera, e
-    // l'avviso al personale dice che ce n'è uno da riassegnare.
-    db.prepare("UPDATE prenotazioni SET data = ?, ora = ?, tavolo = '' WHERE id = ?").run(dati.data, dati.ora, p.id);
+    // trovano due gruppi allo stesso tavolo. Con i tavoli elencati il bot sa
+    // quali sono liberi all'ora nuova, e ne dà uno — lo stesso, se è ancora
+    // libero. Senza, nessuno in sala sta guardando — è il cliente che sposta
+    // da solo — quindi si azzera, e l'avviso al personale dice che ce n'è uno
+    // da riassegnare.
+    db.prepare('UPDATE prenotazioni SET data = ?, ora = ?, tavolo = ? WHERE id = ?')
+      .run(dati.data, dati.ora, posto.tavolo || '', p.id);
     // Spostandosi può essere finito proprio sul giorno per cui era in lista.
     esceDallaLista(db, p.telefono, dati.data, p.id);
     // `prima` serve a chi legge l'avviso in sala: «spostata» senza sapere DA
@@ -4154,7 +4486,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   }
 
   function passoPersone(persone) {
-    const max = num(cfg.bot_max_persone, 8);
+    const max = personeMassimeBot(db, cfg);
     const min = num(cfg.bot_min_persone, 1);
     if (persone > max) {
       // I gruppi grossi non li conferma da solo: serve una persona, che è
@@ -4239,7 +4571,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       return nonCapito('ora', dati, `${di('bot_t_ora_no')}\n${elencoTurni(dati.turni || [])}`);
     }
     // Ricontrollo: fra la proposta e la risposta può essersi riempito
-    if (postiLiberi(db, cfg, dati.data, ora) < dati.persone) {
+    if (!ciStanno(db, cfg, dati.data, ora, dati.persone)) {
       const turni = turniDisponibili(db, cfg, dati.data, dati.persone, adesso);
       if (!turni.length) return tuttoPieno(dati, ora);
       salvaStato(db, telefono, 'ora', { ...dati, turni, ...(listaAttiva ? { attesaOra: ora } : {}) });
@@ -4305,7 +4637,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     // ⚠️ Fra la proposta e il «sì» il posto può essere stato preso da chi ha
     // prenotato nel frattempo: si ricontrolla, e se non c'è più lo si dice —
     // e si resta in lista, in coda, senza far ricominciare da capo nessuno.
-    if (!attesa || attesa.stato !== 'avvisata' || postiLiberi(db, cfg, dati.data, dati.ora) < dati.persone) {
+    if (!attesa || attesa.stato !== 'avvisata' || !ciStanno(db, cfg, dati.data, dati.ora, dati.persone)) {
       if (attesa) rimettiInAttesa(db, attesa.id, adesso);
       risposte.push(di('bot_t_attesa_ripieno'));
       azzeraStato(db, telefono);
@@ -4559,7 +4891,8 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   function scrivilaInArchivio(d) {
     // Ultimo controllo prima di scrivere: due clienti possono aver confermato
     // lo stesso ultimo posto mentre scrivevano.
-    if (postiLiberi(db, cfg, d.data, d.ora) < d.persone) {
+    const posto = postoPer(db, cfg, d.data, d.ora, d.persone);
+    if (!posto.ok) {
       risposte.push(di('bot_t_completo', { data: dataItaliana(d.data) }));
       azzeraStato(db, telefono);
       esito.passaAUmano = true;
@@ -4584,10 +4917,10 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     const blocca = bloccaLaPrenotazione(cfg, d.persone);
     const info = db.prepare(
       'INSERT INTO prenotazioni (telefono, nome, cognome, data, ora, persone, note, telefono_contatto, email, '
-      + 'per_altri, stato, importo_dovuto, importo_totale, pagamento_scade_at) '
-      + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      + 'per_altri, tavolo, stato, importo_dovuto, importo_totale, pagamento_scade_at) '
+      + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(telefono, d.nome || '', d.cognome || '', d.data, d.ora, d.persone,
-          d.note || '', recapito, d.email || '', d.perAltri ? 1 : 0,
+          d.note || '', recapito, d.email || '', d.perAltri ? 1 : 0, posto.tavolo || '',
           blocca ? 'attesa_pagamento' : 'confermata',
           // Gli importi si scrivono comunque: anche una caparra facoltativa è
           // un conto che il locale deve poter vedere e ritrovare.
@@ -4720,6 +5053,9 @@ module.exports = {
   dataBreve,
   turniDelGiorno,
   turniValidi,
+  fasceDi, fasceValide, fasceDaiTurni, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
+  tavoliDi, usaTavoli, capienzaDi, trovaTavolo, postoPer, ciStanno, gruppoMassimo, tavoliLiberi,
+  chiTieneIlTavolo, chiaveTavolo, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
   importoDaPagare,
   serveIlPagamento,
   pagamentoObbligatorio,

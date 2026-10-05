@@ -820,7 +820,10 @@
        scorre di lato, con l'ombra dove continua: come la barra principale. */
     .sotto-nav {
       flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
-      margin: 0 -20px 14px; padding: 0 12px;
+      /* ⚠️ Sfonda i margini della pagina per arrivare ai bordi dello schermo:
+         quanto la pagina, non di più. Era -20 su una pagina da 16, e tutta la
+         scheda Prenotazioni scorreva di lato di quattro pixel sul telefono. */
+      margin: 0 -16px 14px; padding: 0 12px;
       background-image:
         linear-gradient(to right, var(--bianco) 40%, rgba(255,255,255,0)),
         linear-gradient(to left, var(--bianco) 40%, rgba(255,255,255,0)),
@@ -963,6 +966,63 @@
   .marchio-locale[hidden] { display: none; }
   /* Scritta che sta nel programma ma non sullo schermo: la leggono i lettori
      di schermo, e non ruba un pixel a nessuno. */
+  /* ── Orari di apertura: un giorno per riga ──
+     Il nome del giorno a sinistra, le sue fasce accanto, e sotto in piccolo
+     gli orari che il bot proporrà davvero: è la riga che toglie il dubbio
+     «ma alle 21:15 lo prende?». Sul telefono il nome va sopra. */
+  .fasce-passo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 400; }
+  .fasce-passo select { width: auto; }
+  .fasce { margin-top: 12px; border-top: 1px solid var(--bordo); }
+  .fascia-giorno {
+    display: grid; grid-template-columns: 110px 1fr; gap: 6px 14px; align-items: start;
+    padding: 12px 0; border-bottom: 1px solid var(--bordo);
+  }
+  .fascia-giorno .fg-nome { font-weight: 600; padding-top: 8px; }
+  .fascia-giorno .fg-fasce { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .fascia { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  /* Testo e non «type=time»: quel campo segue la lingua del computer, e su
+     uno in inglese diventa «07:30 PM», tagliato a metà. Tutta la pagina scrive
+     le ore come «19:30», e qui si fa lo stesso. */
+  .fascia input.ora-fascia { width: 76px; flex: 0 0 auto; text-align: center; font-variant-numeric: tabular-nums; }
+  .fascia input.storta { border-color: var(--male-testo); }
+  .fascia .freccia { color: var(--grigio); }
+  .fg-azioni { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .fg-anteprima { color: var(--grigio); font-size: .82rem; line-height: 1.35; }
+  .fg-anteprima.chiuso { font-style: italic; }
+  .fg-anteprima.male { color: var(--male-testo); font-style: normal; }
+  /* La ✕ deve essere grande quanto un dito, non quanto la lettera. */
+  .tasto-togli {
+    min-width: 40px; min-height: 40px; border: 1px solid var(--bordo); border-radius: 8px;
+    background: var(--carta); color: var(--grigio); cursor: pointer; font-size: 1rem; line-height: 1;
+  }
+  .tasto-togli:hover { color: var(--male-testo); border-color: var(--male-bordo); }
+  @media (max-width: 560px) {
+    .fascia-giorno { grid-template-columns: 1fr; }
+    .fascia-giorno .fg-nome { padding-top: 0; }
+  }
+
+  /* ── Tavoli ──
+     Un riquadro per tavolo, in griglia: venti tavoli in fila sono venti righe
+     da scorrere, in griglia stanno in una schermata. */
+  .tavoli-riassunto { margin: 0 0 12px; font-weight: 600; }
+  .tavoli-riassunto .sotto { font-weight: 400; color: var(--grigio); }
+  .tavoli-aggiungi { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .tavoli-aggiungi input { width: 72px; }
+  .tavoli-aggiungi select { width: auto; }
+  .tavoli-elenco {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 10px; margin-top: 12px;
+  }
+  .tavolo {
+    display: grid; grid-template-columns: minmax(90px, 1fr) auto auto; gap: 8px; align-items: center;
+    padding: 10px; border: 1px solid var(--bordo); border-radius: 10px; background: var(--carta-2);
+  }
+  .tavolo.sala { border-style: dashed; }
+  .tavolo label { display: flex; align-items: center; gap: 6px; font-weight: 400; font-size: .85rem; }
+  .tavolo .tav-nome { min-width: 0; font-weight: 600; }
+  .tavolo .tav-posti { width: auto; }
+  .tavolo .tav-sala { grid-column: 1 / -1; color: var(--grigio); }
+  .tavolo .tav-sala input { width: auto; }
+
   .solo-per-chi-ascolta {
     position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
@@ -1573,7 +1633,7 @@
       <button data-sotto="clienti">Clienti</button>
       <button data-sotto="report">Report</button>
       <span class="sotto-sep" aria-hidden="true"></span>
-      <button data-sotto="impostazioni">Orari e coperti</button>
+      <button data-sotto="impostazioni">Orari e tavoli</button>
       <button data-sotto="frasi">Frasi e domande<span class="pallino" id="pallino-frasi" style="display:none"></span></button>
       <button data-sotto="pagamenti">Pagamenti</button>
       <button data-sotto="recensioni">Dopo la prenotazione</button>
@@ -1663,21 +1723,15 @@
     <div id="sotto-impostazioni" class="sotto-scheda">
       <!-- IMPOSTAZIONI -->
       <div class="card" id="pren-card-impostazioni">
-        <h2 style="font-size:1rem;margin:0 0 12px">Il locale e i turni</h2>
+        <h2 style="font-size:1rem;margin:0 0 12px">Il locale</h2>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
           <label>Nome del locale<input id="cfg-bot_locale" autocomplete="off" placeholder="Da Luigi"></label>
           <label>Nome dell'assistente<input id="cfg-bot_assistente" autocomplete="off" placeholder="Aurora — lascia vuoto per non darle un nome"></label>
-          <label>Turni della cena<input id="cfg-bot_turni_cena" autocomplete="off" placeholder="20:00,22:00"></label>
-          <label>Turni del pranzo<input id="cfg-bot_turni_pranzo" autocomplete="off" placeholder="vuoto = niente pranzo"></label>
-          <label>Coperti per turno<input id="cfg-bot_coperti_turno" autocomplete="off" type="number" min="1"></label>
           <label>Durata del tavolo (minuti)<input id="cfg-bot_durata_tavolo" autocomplete="off" type="number" min="30">
             <span class="conteggio" style="margin:0">Quanto resta occupato un tavolo. Con 120, chi prenota alle 20:00 libera il posto alle 22:00.</span>
           </label>
           <label>Massimo persone via bot<input id="cfg-bot_max_persone" autocomplete="off" type="number" min="1">
-            <span class="conteggio" style="margin:0">Oltre questo numero il bot non conferma da solo: passa a una persona, che sa se i tavoli si possono unire.</span>
-          </label>
-          <label>Coperti da tenere liberi<input id="cfg-bot_coperti_liberi" autocomplete="off" type="number" min="0">
-            <span class="conteggio" style="margin:0">Posti che il bot non prenota mai, tenuti per chi arriva senza prenotare.</span>
+            <span class="conteggio" style="margin:0">Oltre questo numero il bot non conferma da solo: passa a una persona, che sa se i tavoli si possono unire. Con i tavoli impostati vale anche il tavolo più grande: un gruppo che non entra in nessun tavolo lo passa a una persona.</span>
           </label>
           <label>Anticipo minimo per oggi (ore)<input id="cfg-bot_preavviso_ore" autocomplete="off" type="number" min="0">
             <span class="conteggio" style="margin:0">Quanto prima deve arrivare una prenotazione per <b>oggi stesso</b>. Con 2, alle 19:00 il turno delle 20:00 non viene più proposto. Sui giorni futuri non ha effetto.</span>
@@ -1693,8 +1747,6 @@
             <span class="conteggio" style="margin:0">Passati questi minuti senza un «sì», il posto viene proposto al successivo in lista. Chi non ha risposto non sparisce: torna in coda.</span>
           </label>
         </div>
-        <p style="margin:14px 0 6px;font-weight:600;font-size:.9rem">Giorni di apertura</p>
-        <div id="pren-giorni" style="display:flex;gap:14px;flex-wrap:wrap"></div>
 
         <!-- GIORNI PIENI. Non è una chiusura: il locale c'è, i posti no — e al
              cliente il bot risponde «non c'è più posto», non «siamo chiusi».
@@ -1717,6 +1769,72 @@
         <div class="barra-salva">
           <button class="btn" id="pren-salva">Salva</button>
           <span id="pren-salvato" class="conteggio" style="margin:0;align-self:center"></span>
+        </div>
+      </div>
+
+      <!-- GLI ORARI DI APERTURA, giorno per giorno. Prima erano tre turni fissi
+           uguali per tutta la settimana: il sabato non poteva avere un pranzo
+           che il martedì non ha. Una fascia è dal PRIMO all'ULTIMO ARRIVO —
+           vedi `fasceDi` in bot-prenotazioni.js. -->
+      <div class="card" id="pren-card-fasce">
+        <h2 style="font-size:1rem;margin:0 0 6px">Orari di apertura</h2>
+        <p class="conteggio" style="margin:0 0 12px">
+          Per ogni giorno, <b>dal primo all'ultimo arrivo</b>: il bot propone gli orari dentro queste fasce.
+          Un giorno senza orari è chiuso. Per le ferie usa i giorni di chiusura, che finiscono da soli.
+        </p>
+        <label class="fasce-passo">Proponi un orario ogni
+          <select id="cfg-bot_passo" autocomplete="off">
+            <option value="15">15 minuti</option>
+            <option value="20">20 minuti</option>
+            <option value="30">30 minuti</option>
+            <option value="45">45 minuti</option>
+            <option value="60">un'ora</option>
+          </select>
+        </label>
+        <p id="fasce-nota" class="conteggio" style="margin:10px 0 0" hidden></p>
+        <div id="pren-fasce" class="fasce"></div>
+        <div class="barra-salva">
+          <button class="btn" id="fasce-salva">Salva gli orari</button>
+          <span id="fasce-salvato" class="conteggio" style="margin:0;align-self:center"></span>
+        </div>
+      </div>
+
+      <!-- I TAVOLI. Il bot non conta più solo i coperti: cerca un tavolo libero
+           abbastanza grande per QUEL gruppo — una prenotazione, un tavolo. Si
+           salvano a ogni tocco, come i giorni pieni: un elenco che si perde
+           perché non si è premuto Salva è un elenco che non si rifà. -->
+      <div class="card" id="pren-card-tavoli">
+        <h2 style="font-size:1rem;margin:0 0 6px">Tavoli</h2>
+        <p class="conteggio" style="margin:0 0 12px">
+          Una prenotazione, un tavolo: due gruppi non dividono mai lo stesso tavolo. Il bot dà a ogni gruppo
+          il tavolo <b>più piccolo in cui ci sta</b>, e quello grande solo se non è rimasto altro. Un tavolo torna
+          libero passata la durata del tavolo. I tavoli <b>solo sala</b> il bot non li dà mai: sono per chi entra
+          senza prenotare. Si salvano subito.
+        </p>
+        <p id="tavoli-riassunto" class="tavoli-riassunto"></p>
+        <div class="tavoli-aggiungi">
+          <span>Aggiungi</span>
+          <input id="tav-quanti" type="number" min="1" max="50" value="1" inputmode="numeric" autocomplete="off" aria-label="Quanti tavoli">
+          <span>tavoli da</span>
+          <select id="tav-posti" autocomplete="off" aria-label="Posti per tavolo"></select>
+          <button class="btn btn-secondario" id="tav-aggiungi" type="button">Aggiungi</button>
+        </div>
+        <p id="tav-esito" class="conteggio" role="status" style="margin:8px 0 0"></p>
+        <div id="pren-tavoli" class="tavoli-elenco"></div>
+        <!-- Senza tavoli il bot conta a coperti, come ha sempre fatto: questi due
+             numeri servono solo finché l'elenco qui sopra è vuoto. -->
+        <div id="coperti-senza-tavoli">
+          <p class="conteggio" style="margin:14px 0 8px">Finché non ci sono tavoli, il bot conta solo i coperti:</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
+            <label>Coperti per turno<input id="cfg-bot_coperti_turno" autocomplete="off" type="number" min="1"></label>
+            <label>Coperti da tenere liberi<input id="cfg-bot_coperti_liberi" autocomplete="off" type="number" min="0">
+              <span class="conteggio" style="margin:0">Posti che il bot non prenota mai, tenuti per chi arriva senza prenotare.</span>
+            </label>
+          </div>
+          <div class="barra-salva">
+            <button class="btn" id="coperti-salva">Salva</button>
+            <span id="coperti-salvato" class="conteggio" style="margin:0;align-self:center"></span>
+          </div>
         </div>
       </div>
     </div>
@@ -2433,7 +2551,10 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 120px;gap:10px;margin-top:12px">
           <label>Note<input id="pann-note" autocomplete="off" placeholder="allergie, compleanno, seggiolone…"></label>
-          <label>Tavolo<input id="pann-tavolo" autocomplete="off" maxlength="20" placeholder="es. 12"></label>
+          <label>Tavolo<input id="pann-tavolo" list="lista-tavoli" autocomplete="off" maxlength="20" placeholder="es. 12"></label>
+          <!-- I tavoli del locale, suggeriti mentre si scrive. Si può sempre
+               scriverne uno a mano: la tendina aiuta, non comanda. -->
+          <datalist id="lista-tavoli"></datalist>
         </div>
         <label style="display:flex;align-items:flex-start;gap:8px;margin-top:14px;font-weight:400;cursor:pointer">
           <input type="checkbox" id="pann-avvisa" autocomplete="off" checked style="margin-top:3px">
@@ -4846,7 +4967,7 @@ setInterval(caricaRichiesteCancellazione, 2 * 60 * 1000);
 // impostazioni, personale e domande frequenti. Il ristoratore non deve
 // cercare le cose in cinque posti diversi.
 
-const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_turni_cena', 'bot_turni_pranzo', 'bot_coperti_turno',
+const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_passo', 'bot_coperti_turno',
   'bot_durata_tavolo', 'bot_max_persone', 'bot_coperti_liberi', 'bot_preavviso_ore',
   'bot_recensione_link', 'bot_recensione_giorni', 'bot_recensione_ora',
   'bot_recensione_max', 'bot_promemoria_ora', 'bot_promemoria_giorni', 'bot_sala_password', 'bot_sala_tema',
@@ -5362,6 +5483,8 @@ async function caricaServizio() {
   if (scrivendoUnTavolo()) { ricaricaDopoIlTavolo = true; return; }
   const data = $('#pren-data').value;
   const d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent(data))).json();
+  $('#lista-tavoli').innerHTML = (d.tavoli || []).map((t) => `<option value="${testoSicuro(t.nome)}">`
+    + `${t.posti} ${t.posti === 1 ? 'posto' : 'posti'}${t.soloSala ? ' · solo sala' : ''}</option>`).join('');
   $('#pren-turni').textContent = d.turni.length
     ? d.turni.map((t) => `${t.ora}: ${t.occupati}/${d.capienza}`).join('  ·  ')
     : 'Chiuso in questo giorno';
@@ -5424,7 +5547,7 @@ async function caricaServizio() {
         r.telefono_contatto ? '📞 ' + numeroPulito(r.telefono_contatto) : numeroPulito(r.telefono)
       }</span></td>
       <td style="padding:8px;font-variant-numeric:tabular-nums">${r.persone}</td>
-      <td style="padding:8px">${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}"
+      <td style="padding:8px">${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}" list="lista-tavoli"
           value="${testoSicuro(r.tavolo || '')}" maxlength="20" autocomplete="off" placeholder="—"
           title="Il tavolo assegnato a questa prenotazione: si salva da solo"
           aria-label="Tavolo di ${testoSicuro([r.nome, r.cognome].filter(Boolean).join(' ') || 'questo cliente')}">`}</td>
@@ -6636,11 +6759,8 @@ async function caricaConfigBot() {
     try { const s = await (await fetch('/api/email/settings')).json(); if (s.user) $('#email-prova-a').value = s.user; } catch {}
   }
   caricaGiorniPieni();
-  const aperti = String(d.impostazioni.bot_giorni || '').split(',');
-  $('#pren-giorni').innerHTML = NOMI_GIORNI_UI.map((n, i) => `
-    <label style="display:flex;align-items:center;gap:6px;font-weight:400">
-      <input type="checkbox" data-giorno="${i}"${aperti.includes(String(i)) ? ' checked' : ''}> ${n}
-    </label>`).join('');
+  mostraFasce(d);
+  caricaTavoli();
   // ⚠️ SESSANTADUE CASELLE IN FILA SONO TREDICIMILA PIXEL. Misurato in un
   // browser vero: questa card da sola faceva il 93% della pagina, e per
   // arrivare all'ultima frase ci volevano quindici schermate. I quattordici
@@ -6933,8 +7053,10 @@ async function salvaConfigBot(doveDirlo) {
   const corpo = {};
   for (const c of CFG_CAMPI) { const el = $('#cfg-' + c); if (el) corpo[c] = el.value; }
   for (const c of CFG_SPUNTE) { const el = $('#cfg-' + c); if (el) corpo[c] = el.checked ? 'true' : 'false'; }
-  const giorni = [...$('#pren-giorni').querySelectorAll('input:checked')].map((i) => i.dataset.giorno);
-  corpo.bot_giorni = giorni.join(',');
+  // ⚠️ Le fasce partono SOLO se le si è toccate. Mandarle sempre vorrebbe dire
+  // che un «Salva» qualunque — quello dei promemoria — salva anche gli orari
+  // com'erano disegnati in pagina, magari mezzi scritti in un'altra scheda.
+  if (fasceToccate && fasceUI) corpo.bot_fasce = JSON.stringify(fasceUI);
   const r = await fetch('/api/bot/impostazioni', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
   });
@@ -6952,6 +7074,10 @@ async function salvaConfigBot(doveDirlo) {
   // Gli orari scritti male vengono tolti dal server: dirlo, e rimettere in
   // pagina quelli rimasti. Sparire in silenzio farebbe cercare per mezz'ora
   // un turno che si crede impostato.
+  if (r.ok && d.ripuliti && d.ripuliti.bot_fasce) {
+    delete d.ripuliti.bot_fasce;
+    toast('Ho tolto le fasce con un\'ora mancante o con l\'ultimo arrivo prima del primo.');
+  }
   if (r.ok && d.ripuliti && Object.keys(d.ripuliti).length) {
     for (const [chiave, valore] of Object.entries(d.ripuliti)) {
       const el = $('#cfg-' + chiave);
@@ -6959,6 +7085,8 @@ async function salvaConfigBot(doveDirlo) {
     }
     toast('Ho tolto gli orari scritti male: restano ' + Object.values(d.ripuliti).join(' · '));
   }
+  // Gli orari tornano come li ha salvati il server — ripuliti e in ordine.
+  if (r.ok && d.fasce) { fasceToccate = false; mostraFasce(d); }
   // L'indirizzo da scrivere sul tablet cambia insieme all'interruttore.
   if (d.impostazioni) mostraIndirizzoSala(d.impostazioni);
   caricaServizio();
@@ -6971,6 +7099,264 @@ $('#parole-salva').addEventListener('click', () => salvaConfigBot('parole-salvat
 $('#orari-avvisi-salva').addEventListener('click', () => salvaConfigBot('orari-avvisi-salvato'));
 $('#recensioni-salva').addEventListener('click', () => salvaConfigBot('recensioni-salvato'));
 $('#sala-salva').addEventListener('click', () => salvaConfigBot('sala-salvato'));
+$('#fasce-salva').addEventListener('click', () => salvaConfigBot('fasce-salvato'));
+$('#coperti-salva').addEventListener('click', () => salvaConfigBot('coperti-salvato'));
+
+// ═══ Gli orari di apertura ═══
+// Una riga per giorno, dal lunedì: è l'ordine in cui un ristoratore pensa la
+// sua settimana. Sotto ogni giorno, in piccolo, gli orari che il bot
+// proporrà davvero — calcolati come li calcola lui (`orariDellaFascia`).
+const ORDINE_GIORNI_UI = [1, 2, 3, 4, 5, 6, 0];
+let fasceUI = null;
+let fasceToccate = false;
+
+function inMinutiUI(hhmm) {
+  const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})$/);
+  return m ? (+m[1]) * 60 + (+m[2]) : null;
+}
+function daMinutiUI(m) {
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+function passoUI() {
+  const p = Number($('#cfg-bot_passo').value);
+  return p >= 5 && p <= 240 ? p : 30;
+}
+function fasciaStorta(f) {
+  const da = inMinutiUI(f.da);
+  const a = inMinutiUI(f.a);
+  if (da === null || a === null) return 'manca un\'ora';
+  if (a < da) return 'l\'ultimo arrivo è prima del primo';
+  return '';
+}
+// Gli orari di un giorno, come li proporrà il bot.
+function orariDelGiornoUI(elenco) {
+  const passo = passoUI();
+  const tutti = new Set();
+  for (const f of elenco) {
+    if (fasciaStorta(f)) continue;
+    const fine = inMinutiUI(f.a);
+    for (let m = inMinutiUI(f.da); m <= fine; m += passo) tutti.add(daMinutiUI(m));
+    tutti.add(daMinutiUI(fine));
+  }
+  return [...tutti].sort();
+}
+function anteprimaFasce(g) {
+  const el = $(`#pren-fasce [data-anteprima="${g}"]`);
+  if (!el) return;
+  const elenco = fasceUI[g] || [];
+  const storte = elenco.map(fasciaStorta).filter(Boolean);
+  const orari = orariDelGiornoUI(elenco);
+  el.classList.toggle('chiuso', !orari.length && !storte.length);
+  el.classList.toggle('male', storte.length > 0);
+  if (storte.length) el.textContent = `Da sistemare: ${storte[0]}.`;
+  else if (!orari.length) el.textContent = 'Chiuso';
+  else {
+    // Tutti, se sono pochi; se sono tanti, l'inizio e la fine bastano a
+    // capire — un elenco di venti orari non lo legge nessuno.
+    const lista = orari.length <= 8 ? orari.join(' · ')
+      : `${orari.slice(0, 3).join(' · ')} … ${orari.slice(-2).join(' · ')}`;
+    el.textContent = `${orari.length === 1 ? '1 orario' : `${orari.length} orari`}: ${lista}`;
+  }
+  document.querySelectorAll(`#pren-fasce [data-giorno="${g}"] input.ora-fascia`).forEach((i) => {
+    const f = elenco[+i.dataset.fascia];
+    i.classList.toggle('storta', !!(f && fasciaStorta(f)));
+  });
+}
+function disegnaFasce() {
+  $('#pren-fasce').innerHTML = ORDINE_GIORNI_UI.map((g) => {
+    const nome = NOMI_GIORNI_UI[g];
+    const elenco = fasceUI[g] || [];
+    return `<div class="fascia-giorno" data-giorno="${g}">
+      <div class="fg-nome">${nome}</div>
+      <div class="fg-fasce">
+        ${elenco.map((f, i) => `<div class="fascia">
+          <input class="ora-fascia" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="19:30" value="${esc(f.da)}" data-fascia="${i}" data-campo="da" aria-label="${nome}, primo arrivo">
+          <span class="freccia" aria-hidden="true">→</span>
+          <input class="ora-fascia" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="22:00" value="${esc(f.a)}" data-fascia="${i}" data-campo="a" aria-label="${nome}, ultimo arrivo">
+          <button type="button" class="tasto-togli" data-togli-fascia="${i}" aria-label="Togli questa fascia di ${nome}">✕</button>
+        </div>`).join('')}
+        <div class="fg-azioni">
+          <button type="button" class="btn btn-secondario btn-piccolo" data-aggiungi-fascia>+ Fascia</button>
+          <span class="fg-anteprima" data-anteprima="${g}"></span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  ORDINE_GIORNI_UI.forEach(anteprimaFasce);
+}
+function mostraFasce(d) {
+  fasceUI = {};
+  for (let g = 0; g < 7; g++) fasceUI[g] = ((d.fasce && d.fasce[g]) || []).map((f) => ({ da: f.da, a: f.a }));
+  // Un passo che la tendina non ha (scritto da un'altra parte) si aggiunge:
+  // senza, la tendina mostrerebbe vuoto e il prossimo Salva lo perderebbe.
+  const passo = String((d.impostazioni && d.impostazioni.bot_passo) || '30');
+  const sel = $('#cfg-bot_passo');
+  if (![...sel.options].some((o) => o.value === passo)) sel.insertAdjacentHTML('beforeend', `<option value="${esc(passo)}">${esc(passo)} minuti</option>`);
+  sel.value = passo;
+  // ⚠️ Un locale che non ha mai salvato le fasce le vede ricavate dai turni di
+  // prima. Va detto: sono gli orari che il bot propone GIÀ, non una proposta.
+  const nota = $('#fasce-nota');
+  nota.hidden = !!d.fasceSalvate;
+  nota.textContent = 'Questi orari vengono dai turni che avevi impostato prima: il bot propone già questi. '
+    + 'Cambiali qui e salva.';
+  disegnaFasce();
+}
+// Un'ora scritta come viene: «1930», «19.30», «19», «9:30». Si riscrive
+// «19:30» appena si lascia il campo — chi la batte sul tastierino numerico
+// del telefono non ha i due punti a portata di dito.
+function oraScritta(testo) {
+  const t = String(testo || '').trim().replace(/[.,h ]/g, ':');
+  let m = t.match(/^(\d{1,2})(?::(\d{2}))?$/) || t.match(/^(\d{1,2})(\d{2})$/);
+  if (!m) return t;
+  const h = +m[1];
+  const mi = m[2] === undefined ? 0 : +m[2];
+  return h <= 23 && mi <= 59 ? daMinutiUI(h * 60 + mi) : t;
+}
+$('#pren-fasce').addEventListener('input', (e) => {
+  const i = e.target.closest('input.ora-fascia');
+  if (!i) return;
+  const g = +i.closest('[data-giorno]').dataset.giorno;
+  fasceUI[g][+i.dataset.fascia][i.dataset.campo] = oraScritta(i.value);
+  fasceToccate = true;
+  anteprimaFasce(g);
+});
+$('#pren-fasce').addEventListener('change', (e) => {
+  const i = e.target.closest('input.ora-fascia');
+  if (i) i.value = oraScritta(i.value);
+});
+$('#pren-fasce').addEventListener('click', (e) => {
+  const riga = e.target.closest('[data-giorno]');
+  if (!riga) return;
+  const g = +riga.dataset.giorno;
+  const togli = e.target.closest('[data-togli-fascia]');
+  if (togli) {
+    fasceUI[g].splice(+togli.dataset.togliFascia, 1);
+  } else if (e.target.closest('[data-aggiungi-fascia]')) {
+    // La fascia nuova indovina quella che manca: chi ha solo la cena sta
+    // aggiungendo il pranzo, e viceversa.
+    const elenco = fasceUI[g];
+    const sera = elenco.some((f) => inMinutiUI(f.da) >= 17 * 60);
+    const giorno = elenco.some((f) => inMinutiUI(f.da) !== null && inMinutiUI(f.da) < 17 * 60);
+    elenco.push(sera && !giorno ? { da: '12:30', a: '14:00' }
+      : !sera ? { da: '19:30', a: '22:00' } : { da: '', a: '' });
+  } else return;
+  fasceToccate = true;
+  disegnaFasce();
+});
+// Cambiando il passo cambiano gli orari di tutti i giorni: le fasce vanno
+// salvate come le si vede, e le anteprime rifatte.
+$('#cfg-bot_passo').addEventListener('change', () => {
+  fasceToccate = true;
+  if (fasceUI) ORDINE_GIORNI_UI.forEach(anteprimaFasce);
+});
+
+// ═══ I tavoli ═══
+// Ogni tocco si salva subito: aggiungere, rinominare, cambiare i posti,
+// togliere. Il server risponde sempre con l'elenco intero, e la pagina ridisegna
+// quello: così quello che si vede è quello che c'è, non quello che si spera.
+let tavoliMassimo = 12;
+
+function opzioniPosti(scelto) {
+  let voci = '';
+  for (let n = 1; n <= tavoliMassimo; n++) {
+    voci += `<option value="${n}"${n === scelto ? ' selected' : ''}>${n} ${n === 1 ? 'posto' : 'posti'}</option>`;
+  }
+  return voci;
+}
+function esitoTavoli(testo, male) {
+  const el = $('#tav-esito');
+  el.textContent = testo || '';
+  el.style.color = male ? 'var(--male-testo)' : '';
+}
+function disegnaTavoli(d) {
+  tavoliMassimo = d.postiMassimi || 12;
+  const tavoli = d.tavoli || [];
+  const scelto = +$('#tav-posti').value || 4;
+  $('#tav-posti').innerHTML = opzioniPosti(scelto);
+  const prenotabili = tavoli.filter((t) => !t.solo_sala);
+  const sala = tavoli.length - prenotabili.length;
+  const piuGrande = prenotabili.reduce((m, t) => Math.max(m, t.posti), 0);
+  $('#tavoli-riassunto').innerHTML = tavoli.length
+    ? `${tavoli.length} ${tavoli.length === 1 ? 'tavolo' : 'tavoli'} · ${d.capienza} posti`
+      + `<br><span class="sotto">${prenotabili.length
+        ? `Il bot prende gruppi fino a ${piuGrande} persone`
+        : 'Nessun tavolo prenotabile: il bot passa ogni richiesta a una persona'}`
+      + `${sala ? ` · ${sala} solo sala` : ''}</span>`
+    : 'Nessun tavolo ancora<br><span class="sotto">Il bot conta solo i coperti, qui sotto. '
+      + 'Aggiungi i tavoli e sceglierà lui il tavolo giusto per ogni gruppo.</span>';
+  // I coperti a mano servono solo finché non ci sono tavoli: dopo, mostrarli
+  // farebbe credere che contino ancora.
+  $('#coperti-senza-tavoli').hidden = tavoli.length > 0;
+  $('#pren-tavoli').innerHTML = tavoli.map((t) => `
+    <div class="tavolo${t.solo_sala ? ' sala' : ''}" data-tavolo-id="${t.id}">
+      <input class="tav-nome" value="${esc(t.nome)}" maxlength="20" autocomplete="off" aria-label="Nome del tavolo ${esc(t.nome)}">
+      <select class="tav-posti" autocomplete="off" aria-label="Posti del tavolo ${esc(t.nome)}">${opzioniPosti(t.posti)}</select>
+      <button type="button" class="tasto-togli" data-togli-tavolo aria-label="Togli il tavolo ${esc(t.nome)}">✕</button>
+      <label class="tav-sala"><input type="checkbox" class="tav-solo-sala"${t.solo_sala ? ' checked' : ''}> solo sala: il bot non lo dà</label>
+    </div>`).join('');
+}
+async function caricaTavoli() {
+  try {
+    const r = await fetch('/api/bot/tavoli');
+    const d = await r.json();
+    if (!r.ok) { esitoTavoli(d.error || 'Non riesco a leggere i tavoli.', true); return; }
+    disegnaTavoli(d);
+  } catch { esitoTavoli('Il computer del ristorante non risponde: i tavoli non si vedono.', true); }
+}
+async function mandaTavoli(url, metodo, corpo) {
+  let r;
+  let d = {};
+  try {
+    r = await fetch(url, { method: metodo, headers: { 'Content-Type': 'application/json' },
+      body: corpo ? JSON.stringify(corpo) : undefined });
+    d = await r.json().catch(() => ({}));
+  } catch {
+    esitoTavoli('Il computer del ristorante non risponde: NON è stato salvato.', true);
+    return null;
+  }
+  if (!r.ok) {
+    // ⚠️ Un errore detto, e l'elenco rimesso com'è davvero: un nome rifiutato
+    // non deve restare scritto nel campo come se fosse passato.
+    esitoTavoli(d.error || 'Non sono riuscito a salvare.', true);
+    caricaTavoli();
+    return null;
+  }
+  disegnaTavoli(d);
+  // Turni e tendine dei posti adesso contano in un altro modo.
+  Turni.dimentica();
+  return d;
+}
+$('#tav-aggiungi').addEventListener('click', async () => {
+  const quanti = +$('#tav-quanti').value;
+  const posti = +$('#tav-posti').value;
+  const d = await mandaTavoli('/api/bot/tavoli', 'POST', { quanti, posti });
+  if (!d) return;
+  const n = d.aggiunti.length;
+  esitoTavoli(n === 1 ? `Aggiunto il tavolo ${d.aggiunti[0]}.`
+    : `Aggiunti ${n} tavoli da ${posti}: ${d.aggiunti[0]}–${d.aggiunti[n - 1]}.`);
+  $('#tav-quanti').value = 1;
+});
+$('#pren-tavoli').addEventListener('change', async (e) => {
+  const scheda = e.target.closest('[data-tavolo-id]');
+  if (!scheda) return;
+  const url = '/api/bot/tavoli/' + scheda.dataset.tavoloId;
+  let corpo = null;
+  if (e.target.matches('.tav-nome')) corpo = { nome: e.target.value };
+  else if (e.target.matches('.tav-posti')) corpo = { posti: +e.target.value };
+  else if (e.target.matches('.tav-solo-sala')) corpo = { soloSala: e.target.checked };
+  if (!corpo) return;
+  const d = await mandaTavoli(url, 'PATCH', corpo);
+  if (d) esitoTavoli(d.avviso || 'Salvato.', !!d.avviso);
+});
+$('#pren-tavoli').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-togli-tavolo]');
+  if (!b) return;
+  const scheda = b.closest('[data-tavolo-id]');
+  const nome = scheda.querySelector('.tav-nome').value;
+  if (!confirm(`Togliere il tavolo ${nome}?`)) return;
+  const d = await mandaTavoli('/api/bot/tavoli/' + scheda.dataset.tavoloId, 'DELETE');
+  if (d) esitoTavoli(d.avviso || `Tolto il tavolo ${nome}.`, !!d.avviso);
+});
 // I riquadri spostati fuori da «Orari e coperti» hanno ognuno il suo Salva:
 // salvano tutti le stesse impostazioni (i campi si trovano per id, ovunque
 // stiano), ma il pulsante deve stare dove stanno i campi.

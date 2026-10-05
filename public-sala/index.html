@@ -799,7 +799,10 @@
       autocomplete="off" placeholder="nome@esempio.it"></label>
     <div style="display:grid;grid-template-columns:1fr 110px;gap:10px;margin-top:12px">
       <label>Note<input id="p-note" placeholder="allergie, compleanno, seggiolone…"></label>
-      <label>Tavolo<input id="p-tavolo" maxlength="20" autocomplete="off" placeholder="es. 12"></label>
+      <label>Tavolo<input id="p-tavolo" list="lista-tavoli" maxlength="20" autocomplete="off" placeholder="es. 12"></label>
+      <!-- I tavoli del locale, suggeriti mentre si scrive. Si può sempre
+           scriverne uno a mano: la tendina aiuta, non comanda. -->
+      <datalist id="lista-tavoli"></datalist>
     </div>
     <label style="margin-top:12px">Stato<select id="p-stato">
       <option value="confermata">Confermata</option>
@@ -932,6 +935,8 @@ async function caricaGiorno() {
     d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent($('#giorno').value))).json();
   } catch { return; }
   if (d.error) return;
+  $('#lista-tavoli').innerHTML = (d.tavoli || []).map((t) => `<option value="${sicuro(t.nome)}">`
+    + `${t.posti} ${t.posti === 1 ? 'posto' : 'posti'}${t.soloSala ? ' · solo sala' : ''}</option>`).join('');
   $('#turni').textContent = d.turni.length
     ? d.turni.map((t) => `${t.ora}: ${t.occupati}/${d.capienza}`).join('  ·  ')
     : 'Chiuso in questo giorno';
@@ -993,7 +998,7 @@ async function caricaGiorno() {
             ? `<br><span class="conteggio">${sicuro(numeroPulito(r.telefono_contatto || r.telefono))}</span>` : ''}
           ${r.note ? `<br><span class="note"><b>Attenzione:</b> ${sicuro(r.note)}</span>` : ''}
         </span>
-        ${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}"
+        ${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}" list="lista-tavoli"
           value="${sicuro(r.tavolo || '')}" maxlength="20" autocomplete="off" placeholder="Tavolo"
           enterkeyhint="done" aria-label="Tavolo di ${sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || 'questo cliente')}">`}
         <button class="matita" data-apri="${r.id}" title="Modifica la prenotazione"

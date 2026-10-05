@@ -5832,16 +5832,21 @@ app.get('/api/bot/stato', (req, res) => {
 app.get('/api/bot/registro', (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const cfg = bot.config(db);
-  const turni = String(cfg.bot_turni_cena).split(',').filter(Boolean).length
-    + String(cfg.bot_turni_pranzo).split(',').filter(Boolean).length;
+  // Gli orari si contano sulle fasce già lette: con le fasce salvate i turni
+  // di prima non contano più niente, e un controllo verde su di loro sarebbe
+  // verde su una cosa che il bot non guarda.
+  const fasce = bot.fasceDi(cfg);
+  const turni = Object.values(fasce).reduce((n, f) => n + f.length, 0);
+  const tavoli = bot.tavoliDi(db);
   const controlli = [
     { voce: 'Motore del bot caricato', ok: true },
     { voce: 'Bot acceso', ok: botAcceso(), aiuto: 'Accendi l\'interruttore qui sopra.' },
     { voce: 'WhatsApp collegato', ok: state.status === 'connesso', aiuto: 'Vai in Dashboard e scansiona il QR code.' },
     { voce: 'Nome del locale impostato', ok: !!cfg.bot_locale, aiuto: 'Serve per i messaggi: lo scrivi nelle impostazioni qui sotto.' },
-    { voce: 'Almeno un turno impostato', ok: turni > 0, aiuto: 'Senza turni il bot non ha niente da proporre.' },
-    { voce: 'Coperti per turno impostati', ok: bot.num(cfg.bot_coperti_turno, 0) > 0, aiuto: 'Con zero coperti risulta sempre pieno.' },
-    { voce: 'Almeno un giorno di apertura', ok: String(cfg.bot_giorni).split(',').filter(Boolean).length > 0, aiuto: 'Spunta i giorni in cui siete aperti.' },
+    { voce: 'Almeno un giorno con un orario', ok: turni > 0, aiuto: 'Senza orari il bot non ha niente da proporre: impostali in «Orari di apertura».' },
+    tavoli.length
+      ? { voce: 'Almeno un tavolo prenotabile dal bot', ok: tavoli.some((t) => !t.solo_sala), aiuto: 'Sono tutti «solo sala»: il bot passa ogni richiesta a una persona.' }
+      : { voce: 'Coperti per turno impostati', ok: bot.num(cfg.bot_coperti_turno, 0) > 0, aiuto: 'Con zero coperti risulta sempre pieno.' },
     { voce: 'Qualcuno riceve gli avvisi', ok: personale().length > 0, aiuto: 'Senza, quando il bot non capisce nessuno viene avvisato.' },
   ];
   // Le voci del pagamento compaiono SOLO se il pagamento è acceso: un elenco di
@@ -6369,7 +6374,12 @@ app.delete('/api/bot/pieni/:data', (req, res) => {
 
 app.get('/api/bot/impostazioni', (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
-  res.json({ impostazioni: bot.config(db), personale: db.prepare('SELECT * FROM bot_personale').all() });
+  const cfg = bot.config(db);
+  // Le fasce si mandano GIÀ LETTE: un locale che non le ha mai salvate le vede
+  // ricavate dai turni di prima, cioè gli orari che il bot propone davvero
+  // adesso. Un modulo vuoto direbbe «chiuso tutti i giorni», che è falso.
+  res.json({ impostazioni: cfg, personale: db.prepare('SELECT * FROM bot_personale').all(),
+             fasce: bot.fasceDi(cfg), fasceSalvate: !!bot.fasceValide(cfg.bot_fasce) });
 });
 
 // Gli indirizzi a cui questo computer risponde davvero. Serve perché la riga
@@ -6502,6 +6512,39 @@ app.post('/api/bot/impostazioni', (req, res) => {
     return res.status(400).json({ error: 'Il modello HTML è troppo lungo (massimo 60 KB).' });
   }
 
+  // ⚠️ Le fasce arrivano come oggetto o come testo: si salvano SEMPRE
+  // ripulite, come testo. Una fascia che non si legge non si accetta in
+  // silenzio — il locale crederebbe di aver aperto il sabato a pranzo.
+  if (valori.bot_passo !== undefined) {
+    const passo = Number(valori.bot_passo);
+    if (!Number.isInteger(passo) || passo < 5 || passo > 240) {
+      return res.status(400).json({ error: 'Ogni quanti minuti proporre un orario: un numero fra 5 e 240.' });
+    }
+    valori.bot_passo = String(passo);
+  }
+  let fasceRipulite = false;
+  if (valori.bot_fasce !== undefined) {
+    const fasce = bot.fasceValide(valori.bot_fasce);
+    if (!fasce) {
+      return res.status(400).json({ error: 'Gli orari di apertura non si leggono: ricarica la pagina e riprova.' });
+    }
+    // ⚠️ Nessun giorno con un orario vuol dire che il bot risponde «siamo
+    // chiusi» a chiunque, per sempre — ed è un modulo svuotato per sbaglio
+    // molto più spesso che una decisione. Per le ferie ci sono i giorni di
+    // chiusura, che finiscono da soli.
+    if (!Object.values(fasce).some((f) => f.length)) {
+      return res.status(400).json({
+        error: 'Nessun giorno ha un orario: così il bot direbbe a tutti che siete chiusi. '
+          + 'Per le ferie usa i giorni di chiusura, che poi finiscono da soli.',
+      });
+    }
+    // Se qualcosa è stato tolto o corretto, chi ha salvato lo deve vedere.
+    const grezze = typeof valori.bot_fasce === 'string' ? JSON.parse(valori.bot_fasce) : valori.bot_fasce;
+    const comeTesto = (f, g) => (Array.isArray(f[g]) ? f[g] : []).map((x) => `${x && x.da}-${x && x.a}`).join(',');
+    for (let g = 0; g < 7; g++) if (comeTesto(grezze, g) !== comeTesto(fasce, g)) fasceRipulite = true;
+    valori.bot_fasce = JSON.stringify(fasce);
+  }
+
   // Gli orari dei turni si ripuliscono qui: chi li scrive vede subito quello
   // che è rimasto, invece di scoprire un «25:99» fra le proposte al cliente.
   const ripuliti = {};
@@ -6516,7 +6559,162 @@ app.post('/api/bot/impostazioni', (req, res) => {
     if (!Object.prototype.hasOwnProperty.call(bot.PREDEFINITI, k)) continue; // solo chiavi conosciute
     bot.scrivi(db, k, v);
   }
-  res.json({ ok: true, impostazioni: bot.config(db), ripuliti });
+  const salvata = bot.config(db);
+  if (fasceRipulite) ripuliti.bot_fasce = valori.bot_fasce;
+  res.json({ ok: true, impostazioni: salvata, ripuliti,
+             fasce: bot.fasceDi(salvata), fasceSalvate: !!bot.fasceValide(salvata.bot_fasce) });
+});
+
+// ---------------------------------------------------------------------------
+//  I tavoli del locale
+// ---------------------------------------------------------------------------
+//  Si scelgono dal pannello: quanti sono e quanti posti ha ognuno. Il bot li
+//  usa per decidere se un gruppo ci sta e a quale tavolo sedersi — vedi
+//  `trovaTavolo` in bot-prenotazioni.js.
+//
+//  ⚠️ Queste rotte stanno SOLO sulla piattaforma, non sulla porta della sala:
+//  cambiare i tavoli cambia quante prenotazioni il bot accetta, ed è una
+//  decisione del titolare, non di chi ha il tablet in mano.
+
+// Più di così non è un ristorante, è un errore di battitura che il bot
+// prenderebbe sul serio.
+const TAVOLI_MASSIMI = 200;
+
+function postiDelTavolo(v) {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= bot.POSTI_MASSIMI_TAVOLO ? n : null;
+}
+
+function rispostaTavoli(res, extra = {}) {
+  const cfg = bot.config(db);
+  res.json({ ...extra, tavoli: bot.tavoliDi(db), capienza: bot.capienzaDi(db, cfg),
+             postiMassimi: bot.POSTI_MASSIMI_TAVOLO });
+}
+
+// I nomi dei tavoli aggiunti in fila: i numeri che vengono dopo il più alto
+// già usato. In sala i tavoli si chiamano quasi sempre col numero — è anche
+// quello che la riga della prenotazione suggerisce, «es. 12».
+function prossimiNomiTavolo(quanti) {
+  const usati = new Set(bot.tavoliDi(db).map((t) => bot.chiaveTavolo(t.nome)));
+  let n = bot.tavoliDi(db).reduce((m, t) => (/^\d+$/.test(t.nome) ? Math.max(m, +t.nome) : m), 0);
+  const nomi = [];
+  while (nomi.length < quanti) {
+    n += 1;
+    if (!usati.has(String(n))) nomi.push(String(n));
+  }
+  return nomi;
+}
+
+// Le prenotazioni ancora da fare che stanno su quel tavolo.
+function prenotazioniFutureAlTavolo(nome) {
+  const oggi = bot.comeData(new Date());
+  return db.prepare('SELECT * FROM prenotazioni WHERE data >= ? AND stato IN ' + bot.dentro(bot.STATI_VIVI)
+    + ' ORDER BY data, ora').all(oggi).filter((r) => bot.chiaveTavolo(r.tavolo) === bot.chiaveTavolo(nome));
+}
+
+app.get('/api/bot/tavoli', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  rispostaTavoli(res);
+});
+
+// Uno col suo nome, oppure tanti insieme: «aggiungi 6 tavoli da 4» è il modo
+// in cui il titolare pensa la sua sala, e scriverli uno a uno è il modo in cui
+// un elenco non viene mai finito.
+app.post('/api/bot/tavoli', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const b = req.body || {};
+  const posti = postiDelTavolo(b.posti);
+  if (!posti) {
+    return res.status(400).json({ error: `Un tavolo ha da 1 a ${bot.POSTI_MASSIMI_TAVOLO} posti.` });
+  }
+  const quanti = b.quanti === undefined || b.quanti === '' ? 1 : Number(b.quanti);
+  if (!Number.isInteger(quanti) || quanti < 1 || quanti > 50) {
+    return res.status(400).json({ error: 'Si aggiungono da 1 a 50 tavoli per volta.' });
+  }
+  const ci = bot.tavoliDi(db).length;
+  if (ci + quanti > TAVOLI_MASSIMI) {
+    return res.status(400).json({ error: `Al massimo ${TAVOLI_MASSIMI} tavoli: ce ne sono già ${ci}.` });
+  }
+  const nome = tavoloPulito(b.nome);
+  if (nome && quanti > 1) {
+    return res.status(400).json({ error: 'Con un nome si aggiunge un tavolo alla volta.' });
+  }
+  if (nome && bot.tavoliDi(db).some((t) => bot.chiaveTavolo(t.nome) === bot.chiaveTavolo(nome))) {
+    return res.status(409).json({ error: `C'è già un tavolo «${nome}».` });
+  }
+  const nomi = nome ? [nome] : prossimiNomiTavolo(quanti);
+  const primo = (db.prepare('SELECT MAX(ordine) AS m FROM bot_tavoli').get().m || 0) + 1;
+  const metti = db.prepare('INSERT INTO bot_tavoli (nome, posti, solo_sala, ordine) VALUES (?, ?, ?, ?)');
+  db.transaction(() => nomi.forEach((n, i) => metti.run(n, posti, b.soloSala ? 1 : 0, primo + i)))();
+  annota('tavoli', nomi.length === 1
+    ? `aggiunto il tavolo ${nomi[0]} da ${posti}`
+    : `aggiunti ${nomi.length} tavoli da ${posti} (${nomi[0]}–${nomi[nomi.length - 1]})`);
+  rispostaTavoli(res, { ok: true, aggiunti: nomi });
+});
+
+app.patch('/api/bot/tavoli/:id', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const t = db.prepare('SELECT * FROM bot_tavoli WHERE id = ?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Tavolo inesistente' });
+  const b = req.body || {};
+  const nuovo = { nome: t.nome, posti: t.posti, solo_sala: t.solo_sala };
+  if (b.posti !== undefined) {
+    nuovo.posti = postiDelTavolo(b.posti);
+    if (!nuovo.posti) return res.status(400).json({ error: `Un tavolo ha da 1 a ${bot.POSTI_MASSIMI_TAVOLO} posti.` });
+  }
+  if (b.nome !== undefined) {
+    nuovo.nome = tavoloPulito(b.nome);
+    if (!nuovo.nome) return res.status(400).json({ error: 'Il tavolo ha bisogno di un nome: anche solo un numero.' });
+    const doppio = bot.tavoliDi(db).find((x) => x.id !== t.id && bot.chiaveTavolo(x.nome) === bot.chiaveTavolo(nuovo.nome));
+    if (doppio) return res.status(409).json({ error: `C'è già un tavolo «${doppio.nome}».` });
+  }
+  if (b.soloSala !== undefined) nuovo.solo_sala = b.soloSala ? 1 : 0;
+
+  // ⚠️ Rinominare un tavolo porta con sé le prenotazioni che ci stanno sopra.
+  // Il tavolo si riconosce dal nome: lasciandole col nome vecchio, il T4
+  // diventato «Veranda 1» risulterebbe libero, e il bot lo darebbe a un altro
+  // gruppo mentre la sala ci aspetta ancora quello di prima.
+  const spostate = bot.chiaveTavolo(nuovo.nome) !== bot.chiaveTavolo(t.nome) ? prenotazioniFutureAlTavolo(t.nome) : [];
+  db.transaction(() => {
+    db.prepare('UPDATE bot_tavoli SET nome = ?, posti = ?, solo_sala = ? WHERE id = ?')
+      .run(nuovo.nome, nuovo.posti, nuovo.solo_sala, t.id);
+    const segna = db.prepare('UPDATE prenotazioni SET tavolo = ? WHERE id = ?');
+    for (const r of spostate) segna.run(nuovo.nome, r.id);
+  })();
+  annota('tavoli', `tavolo ${t.nome}: ${nuovo.nome}, ${nuovo.posti} posti${nuovo.solo_sala ? ', solo sala' : ''}`);
+  // Meno posti di quanti ne aspetta una prenotazione già fatta: si salva lo
+  // stesso — il tavolo è quello, e la sala deve poterlo dire — ma si avvisa.
+  const strette = prenotazioniFutureAlTavolo(nuovo.nome).filter((r) => r.persone > nuovo.posti);
+  rispostaTavoli(res, {
+    ok: true,
+    avviso: strette.length
+      ? `${strette.length === 1 ? 'Una prenotazione già fatta ha' : `${strette.length} prenotazioni già fatte hanno`} `
+        + `più persone dei posti del tavolo ${nuovo.nome}: controllale dalla sala `
+        + `(${strette.map((r) => `${bot.dataBreve(r.data)} ${r.ora}, ${r.persone} pers.`).join('; ')}).`
+      : '',
+  });
+});
+
+app.delete('/api/bot/tavoli/:id', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const t = db.prepare('SELECT * FROM bot_tavoli WHERE id = ?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Tavolo inesistente' });
+  // ⚠️ Le prenotazioni future su quel tavolo NON spariscono, e non perdono il
+  // nome scritto: è l'unica traccia di dove la sala le aveva messe. Il bot,
+  // non trovando più quel tavolo, le conta comunque — le siede al tavolo
+  // libero più adatto, nei suoi conti — quindi non promette il loro posto a
+  // nessuno. Ma vanno dette: qualcuno le deve rimettere a un tavolo vero.
+  const rimaste = prenotazioniFutureAlTavolo(t.nome);
+  db.prepare('DELETE FROM bot_tavoli WHERE id = ?').run(t.id);
+  annota('tavoli', `tolto il tavolo ${t.nome}`);
+  rispostaTavoli(res, {
+    ok: true,
+    avviso: rimaste.length
+      ? `${rimaste.length === 1 ? 'Una prenotazione già fatta era' : `${rimaste.length} prenotazioni già fatte erano`} `
+        + `al tavolo ${t.nome}: restano segnate così, cambiale dalla sala `
+        + `(${rimaste.map((r) => `${bot.dataBreve(r.data)} ${r.ora}`).join('; ')}).`
+      : '',
+  });
 });
 
 // Riporta un testo (o tutti) a come era di fabbrica. Si cancella la riga
@@ -6602,6 +6800,41 @@ app.post('/api/bot/testi/importa', (req, res) => {
 // «Restano -8 coperti liberi» è una frase che non vuol dire niente: chi la
 // legge deve fermarsi a capire cosa sia un coperto libero negativo. Sopra il
 // limite si dice quanto lo si sfora, che è il numero su cui poi si decide.
+// Il tavolo di una prenotazione presa o cambiata da una persona del locale,
+// con i tavoli elencati. Restituisce { tavolo } oppure { errore } da mandare
+// come 409 — che la pagina trasforma in «la prendo lo stesso?».
+//
+// - Chi ha SCRITTO un tavolo lo tiene: è una persona che vede la sala. Ma se
+//   a quell'ora quel tavolo è già di un altro gruppo glielo si dice prima, non
+//   quando arriva il secondo gruppo e il tavolo è apparecchiato per il primo.
+// - Chi non l'ha scritto ne riceve uno: il più piccolo libero che basta,
+//   contando anche i tavoli «solo sala».
+// - `forza`: la persona ha già letto l'avviso e ha detto di sì. Si salva
+//   senza tavolo, se non ce n'è uno — il posto lo trovano in sala.
+function tavoloPerLaSala(cfg, { data, ora, persone, tavolo, forza, escludiId, preferito }) {
+  if (tavolo) {
+    const chi = bot.chiTieneIlTavolo(db, cfg, data, ora, tavolo, escludiId);
+    if (chi && !forza) {
+      return { errore: {
+        error: `Il tavolo ${tavolo} a quell'ora è già di ${bot.nomeInSala(chi)} `
+          + `(${chi.persone} pers., alle ${chi.ora}).`,
+        tavoloOccupato: true,
+      } };
+    }
+    return { tavolo };
+  }
+  const t = bot.trovaTavolo(db, cfg, data, ora, persone, { ancheSala: true, escludiId, preferito });
+  if (t) return { tavolo: t.nome };
+  if (forza) return { tavolo: '' };
+  const piu = bot.gruppoMassimo(db, cfg, data, ora, { ancheSala: true, escludiId });
+  return { errore: {
+    error: `Per ${bot.dataItaliana(data)} alle ${ora} non c'è un tavolo libero per ${persone} `
+      + `${persone === 1 ? 'persona' : 'persone'}`
+      + (piu ? ` (il più grande libero è da ${piu}).` : ': sono tutti occupati.'),
+    liberi: piu,
+  } };
+}
+
 function quantoPosto(liberi, chiesti) {
   if (liberi <= 0) return `il turno è pieno: la sfori di ${chiesti - liberi}`;
   // «restano 1 coperto libero» è scritto male, e queste frasi le legge il
@@ -6720,11 +6953,25 @@ const rottaServizio = (req, res) => {
   const data = dataVera(String(req.query.data || '')) ? String(req.query.data) : bot.comeData(new Date());
   const righe = db.prepare('SELECT * FROM prenotazioni WHERE data = ? ORDER BY ora, id').all(data);
   const cfg = bot.config(db);
-  const turni = bot.turniDelGiorno(cfg, data).map((t) => ({
-    ora: t,
-    occupati: bot.copertiOccupati(db, cfg, data, t),
-    liberi: bot.postiLiberi(db, cfg, data, t),
-  }));
+  // ⚠️ Con i tavoli, «liberi» è il GRUPPO PIÙ GRANDE che si può ancora sedere
+  // — il tavolo libero più grande — non la somma delle sedie vuote: dieci
+  // sedie sparse su cinque tavoli da due non siedono un gruppo da sei. È il
+  // numero che la tendina «quante persone» usa come tetto. Qui conta anche i
+  // tavoli «solo sala»: chi guarda questa pagina è il personale, che li può dare.
+  const conTavoli = bot.usaTavoli(db);
+  const turni = bot.turniDelGiorno(cfg, data).map((t) => (conTavoli
+    ? {
+      ora: t,
+      occupati: bot.copertiOccupati(db, cfg, data, t),
+      liberi: bot.gruppoMassimo(db, cfg, data, t, { ancheSala: true }),
+      tavoliLiberi: bot.tavoliLiberi(db, cfg, data, t, { ancheSala: true }).length,
+    }
+    : {
+      ora: t,
+      occupati: bot.copertiOccupati(db, cfg, data, t),
+      liberi: bot.postiLiberi(db, cfg, data, t),
+    }));
+  const tavoli = bot.tavoliDi(db);
   // Chi è già in rubrica lo si deve vedere PRIMA di premere il pulsante:
   // scoprirlo dopo, con un messaggio d'errore, fa sembrare rotto qualcosa che
   // ha funzionato benissimo la prima volta.
@@ -6738,7 +6985,11 @@ const rottaServizio = (req, res) => {
   // sold out, se ne dimentica, e la settimana dopo si chiede perché non
   // arrivano più prenotazioni.
   res.json({
-    data, righe, turni, capienza: bot.num(cfg.bot_coperti_turno, 0),
+    data, righe, turni, capienza: bot.capienzaDi(db, cfg),
+    // I tavoli del locale, per chi in sala ne sceglie uno, e il più grande:
+    // oltre quello la tendina delle persone non va.
+    tavoli: tavoli.map((t) => ({ nome: t.nome, posti: t.posti, soloSala: !!t.solo_sala })),
+    gruppoMassimo: tavoli.reduce((m, t) => Math.max(m, t.posti), 0),
     soldOut: bot.ePieno(db, data), chiuso: bot.eChiuso(db, data),
     // Chi aspetta un posto per questo giorno: la sala lo deve vedere, sia per
     // sapere che c'è richiesta, sia per chiamare a mano se vuole.
@@ -6782,7 +7033,7 @@ const rottaSettimana = (req, res) => {
   // e la settimana veniva costruita da un altro giorno ancora — si chiedeva
   // una settimana e se ne otteneva un'altra, senza un errore.
   const partenza = dataVera(String(req.query.dal || '')) ? req.query.dal : oggi;
-  const perTurno = bot.num(cfg.bot_coperti_turno, 0);
+  const perTurno = bot.capienzaDi(db, cfg);
 
   const giorni = [];
   for (let i = 0; i < 7; i++) {
@@ -6806,12 +7057,14 @@ const rottaSettimana = (req, res) => {
     giorni.push({
       data,
       etichetta: bot.dataItaliana(data),
-      // La capienza della giornata è i coperti di un turno per quanti turni ci
-      // sono: è il massimo onesto contro cui misurare quanto è piena.
+      // La capienza della giornata è la sala per quante volte si può
+      // riempire da capo (vedi `giriDelGiorno`): è il massimo onesto contro
+      // cui misurare quanto è piena. Con gli orari a fasce, «coperti per
+      // numero di orari» darebbe una sera da 240 coperti in una sala da 40.
       // La capienza di un giorno pieno resta quella vera: serve a leggere
       // quanti coperti ci sono davvero dentro, che è il motivo per cui lo si
       // è chiuso.
-      capienza: chiuso ? 0 : perTurno * turni.length,
+      capienza: chiuso ? 0 : perTurno * bot.giriDelGiorno(cfg, data),
       turni: turni.length,
       chiuso,
       soldOut,
@@ -6860,7 +7113,7 @@ app.get('/api/bot/prenotazioni/prossime', (req, res) => {
     giorni: perGiorno,
     totale: righe.length,
     coperti: righe.reduce((n, r) => n + r.persone, 0),
-    capienza: bot.num(cfg.bot_coperti_turno, 0),
+    capienza: bot.capienzaDi(db, cfg),
   });
 });
 
@@ -7059,7 +7312,32 @@ const rottaModificaPrenotazione = async (req, res) => {
   // prenotazione in attesa si poteva spostare su un turno pieno senza nessun
   // controllo — e si contava contro se stessa, perché `copertiOccupati` la
   // conta e la sottrazione qui sotto no.
-  if (cambiata && bot.STATI_VIVI.includes(nuovi.stato)) {
+  // Con i tavoli elencati il controllo è un altro: non «ci stanno i coperti?»
+  // ma «c'è un tavolo?», e soprattutto «quel tavolo è libero?».
+  //
+  // ⚠️ Chi riapre una prenotazione cancellata le deve ridare un tavolo: il
+  // suo, nel frattempo, può averlo preso un altro. Ma come prima non la si
+  // blocca — riaprire è correggere un errore, non prenotare di nuovo.
+  const conTavoli = bot.usaTavoli(db) && bot.STATI_VIVI.includes(nuovi.stato);
+  const riaperta = !bot.STATI_VIVI.includes(p.stato) && bot.STATI_VIVI.includes(nuovi.stato);
+  const tavoloScritto = b.tavolo !== undefined && bot.chiaveTavolo(nuovi.tavolo) !== bot.chiaveTavolo(p.tavolo);
+  if (conTavoli && tavoloScritto && nuovi.tavolo) {
+    const esito = tavoloPerLaSala(cfg, { ...nuovi, forza: b.forza, escludiId: p.id });
+    if (esito.errore) return res.status(409).json(esito.errore);
+  } else if (conTavoli && !tavoloScritto && (cambiata || riaperta)) {
+    const esito = tavoloPerLaSala(cfg, { ...nuovi, tavolo: '', forza: b.forza || !cambiata,
+      escludiId: p.id, preferito: p.tavolo });
+    if (esito.errore) return res.status(409).json(esito.errore);
+    // Con la forza e nessun tavolo libero: se è cambiato solo il numero di
+    // persone il gruppo resta dov'era — si aggiunge una sedia. Spostato su
+    // un'altra ora, il tavolo di prima lì è di qualcun altro. E ⚠️ riaperta
+    // dopo una cancellazione il tavolo NON è più suo: mentre era cancellata
+    // non lo teneva, e può averlo preso un altro gruppo.
+    nuovi.tavolo = esito.tavolo
+      || (bot.STATI_VIVI.includes(p.stato) && nuovi.data === p.data && nuovi.ora === p.ora ? p.tavolo : '');
+  }
+
+  if (cambiata && bot.STATI_VIVI.includes(nuovi.stato) && !bot.usaTavoli(db)) {
     const occupatiAltrui = bot.copertiOccupati(db, cfg, nuovi.data, nuovi.ora)
       - (p.data === nuovi.data && p.ora === nuovi.ora && bot.STATI_VIVI.includes(p.stato) ? p.persone : 0);
     const capienza = bot.num(cfg.bot_coperti_turno, 0) - bot.num(cfg.bot_coperti_liberi, 0);
@@ -7307,13 +7585,20 @@ const rottaNuovaPrenotazione = async (req, res) => {
   }
   const guaio = controllaPrenotazione({ data, ora, persone });
   if (guaio) return res.status(400).json({ error: guaio });
-  const capienza = bot.num(cfg.bot_coperti_turno, 0) - bot.num(cfg.bot_coperti_liberi, 0);
-  const occupati = bot.copertiOccupati(db, cfg, data, ora);
-  if (!b.forza && occupati + persone > capienza) {
-    return res.status(409).json({
-      error: `Per ${bot.dataItaliana(data)} alle ${ora} ${quantoPosto(capienza - occupati, persone)}.`,
-      liberi: capienza - occupati,
-    });
+  let tavolo = tavoloPulito(b.tavolo);
+  if (bot.usaTavoli(db)) {
+    const esito = tavoloPerLaSala(cfg, { data, ora, persone, tavolo, forza: b.forza });
+    if (esito.errore) return res.status(409).json(esito.errore);
+    tavolo = esito.tavolo;
+  } else {
+    const capienza = bot.num(cfg.bot_coperti_turno, 0) - bot.num(cfg.bot_coperti_liberi, 0);
+    const occupati = bot.copertiOccupati(db, cfg, data, ora);
+    if (!b.forza && occupati + persone > capienza) {
+      return res.status(409).json({
+        error: `Per ${bot.dataItaliana(data)} alle ${ora} ${quantoPosto(capienza - occupati, persone)}.`,
+        liberi: capienza - occupati,
+      });
+    }
   }
   const telefono = b.telefono ? normalizePhone(String(b.telefono)) : '';
   // Anche presa al telefono la prenotazione può avere un'email: se il cliente
@@ -7329,7 +7614,7 @@ const rottaNuovaPrenotazione = async (req, res) => {
     + 'telefono_contatto, email, tavolo, origine) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(telefono, String(b.nome || '').slice(0, 60), String(b.cognome || '').slice(0, 60),
          data, ora, persone, String(b.note || '').slice(0, 200), telefono, email,
-         tavoloPulito(b.tavolo), 'manuale');
+         tavolo, 'manuale');
   const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(info.lastInsertRowid);
   // ⚠️ Se quel cliente stava in lista d'attesa per quel giorno, adesso ha un
   // tavolo: esce dalla lista. Senza, più tardi il bot gli scriveva «si è
