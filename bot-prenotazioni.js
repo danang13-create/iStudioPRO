@@ -425,9 +425,6 @@ const TESTI_SUPERATI = {
     '✅ Spostata! Ti aspettiamo {data} alle {ora}.\nSe hai un imprevisto scrivi ANNULLA.',
 
     '✅ Spostata! Ti aspettiamo {data} alle {ora}.\nSe hai un imprevisto scrivi CANCELLA.',  ],
-  bot_t_primo_no: [
-    '{saluto}! Sono l\'assistente di {locale} 🍽️\nSe vuoi prenotare, dimmi per quante persone.\nPer tutto il resto scrivi OPERATORE: ti risponde una persona del locale.',
-  ],
   bot_t_persone_no: [
     'Non ho capito il numero di persone. Scrivimi solo la cifra, per esempio 4.',
   ],
@@ -729,13 +726,11 @@ const PREDEFINITI = {
   // un nostro messaggio quella presentazione dice una cosa sola: che non ci
   // ricordiamo di lui. Chi scrive NUOVA sta rispondendo a noi.
   bot_t_quante: 'Per quante persone desideri prenotare? (esempio: 2)',
-  bot_t_primo_no: '{saluto} 😊\nSono {assistente}, l’assistente virtuale di {locale}.\n\nNon sono riuscita a capire cosa intendi, ma posso aiutarti con la prenotazione.\n\nDimmi semplicemente per quante persone vuoi prenotare.\n\nPer tutto il resto scrivi OPERATORE: ti risponde una persona del locale.\n',
   // ⚠️ Quando il cliente ha fatto una DOMANDA chiara — «è possibile
   // parcheggiare», «accettate la carta?» — la frase qui sopra è mezza
   // sbagliata: gli propone di prenotare, che non è quello che ha chiesto.
   // Qui la prenotazione passa in fondo, fra parentesi, e davanti c'è la sola
   // cosa che gli serve: come si ottiene una risposta vera.
-  bot_t_domanda_no: 'Su questa non riesco a risponderti io 😊\n\nScrivi OPERATORE e ti risponde una persona di {locale}.\n\n(se invece vuoi prenotare, dimmi per quante persone)',
   // ⚠️ Nel messaggio del pagamento la parola «confermata» non deve comparire:
   // chi legge «richiesta ricevuta» e poi «confermata» due righe sotto capisce
   // di avere un tavolo, e sabato sera si presenta. È il rischio numero uno di
@@ -1906,6 +1901,37 @@ function occupazioneTavoli(db, cfg, iso, ora, escludiId, tavoli = tavoliDi(db)) 
   return presi;
 }
 
+// ⚠️ Il bot NON scrive il numero del tavolo sulle prenotazioni. Deciso dal
+// titolare: i tavoli gli servono per CONTARE — se un gruppo ci sta, senza mai
+// due prenotazioni sullo stesso tavolo — ma il numero lo assegna l'operatore,
+// prima della serata, guardando la sala. Le prenotazioni senza numero il bot
+// le siede nei suoi conti al tavolo più piccolo che basta (`occupazioneTavoli`),
+// quindi non promette mai un posto che non c'è. In sala un avviso dice quante
+// ne mancano (`daAssegnare`).
+//
+// Il tavolo scritto dall'operatore, invece, si rispetta: spostando una
+// prenotazione resta suo se all'ora nuova è ancora libero (`tavoloCheResta`).
+function tavoloCheResta(db, cfg, iso, ora, attuale, escludiId) {
+  if (!chiaveTavolo(attuale)) return '';
+  return chiTieneIlTavolo(db, cfg, iso, ora, attuale, escludiId) ? '' : attuale;
+}
+
+// Le prenotazioni di un giorno che aspettano ancora il numero del tavolo:
+// senza, o con un nome che fra i tavoli non c'è (un tavolo tolto, scritto
+// male). Vuoto se il locale non ha elencato i tavoli: lì il numero non serve
+// a contare, e un avviso su una cosa che nessuno ha chiesto è rumore.
+function daAssegnare(db, iso) {
+  const tavoli = tavoliDi(db);
+  if (!tavoli.length) return { senza: [], sconosciuti: [] };
+  const nomi = new Set(tavoli.map((t) => chiaveTavolo(t.nome)));
+  const vive = db.prepare('SELECT * FROM prenotazioni WHERE data = ? AND stato IN ' + dentro(STATI_VIVI)
+    + ' ORDER BY ora, id').all(iso);
+  return {
+    senza: vive.filter((r) => !chiaveTavolo(r.tavolo)),
+    sconosciuti: vive.filter((r) => chiaveTavolo(r.tavolo) && !nomi.has(chiaveTavolo(r.tavolo))),
+  };
+}
+
 // Il tavolo per un gruppo, o null se non ce n'è uno libero abbastanza grande.
 //
 // `opzioni.ancheSala`: conta anche i tavoli «solo sala» (chi prenota è una
@@ -1985,7 +2011,10 @@ function riepilogoDelGiorno(db, cfg, iso) {
   const conTavoli = tavoli.length > 0;
   const totale = conTavoli ? tavoli.length : capienzaDi(db, cfg);
   const passo = passoDi(cfg);
-  const vive = db.prepare('SELECT ora, persone FROM prenotazioni WHERE data = ? AND stato IN ' + dentro(STATI_VIVI)).all(iso);
+  const vive = db.prepare('SELECT ora, persone, tavolo FROM prenotazioni WHERE data = ? AND stato IN ' + dentro(STATI_VIVI)).all(iso);
+  // Quante aspettano ancora il numero del tavolo (vedi `daAssegnare`).
+  const nomi = new Set(tavoli.map((x) => chiaveTavolo(x.nome)));
+  const senzaTavolo = (lista) => (conTavoli ? lista.filter((r) => !nomi.has(chiaveTavolo(r.tavolo))).length : 0);
   const occupatiAlle = (ora) => (conTavoli
     ? occupazioneTavoli(db, cfg, iso, ora, null, tavoli).size
     : copertiOccupati(db, cfg, iso, ora));
@@ -2001,7 +2030,7 @@ function riepilogoDelGiorno(db, cfg, iso) {
       // ⚠️ Chiuso, ma con gente dentro: è il caso che spariva. Si dice.
       if (delServizio.length) {
         righe.push({ servizio, etichetta: `${NOMI[servizio]} (chiuso)`, testo: `⚠️ ${cop(coperti)} prenotati`,
-                     pieno: false, occupati: 0, totale, coperti,
+                     pieno: false, occupati: 0, totale, coperti, senzaTavolo: senzaTavolo(delServizio),
                      tipo: 'chiuso', turno: null, orario: '', unita: conTavoli ? 'tavoli' : 'coperti' });
       }
       continue;
@@ -2024,7 +2053,7 @@ function riepilogoDelGiorno(db, cfg, iso) {
         righe.push({ servizio, etichetta: `${NOMI[servizio]} ${fissa && fissa.turno ? `· ${i + 1}° turno ` : ''}${fascia}`,
                      testo: conTavoli ? `${misura(occupati)} · ${cop(coperti)}${pieno ? ' · pieno' : ''}`
                        : `${misura(occupati)} coperti${pieno ? ' · pieno' : ''}`,
-                     pieno, occupati, totale, coperti,
+                     pieno, occupati, totale, coperti, senzaTavolo: senzaTavolo(loro),
                      tipo: fissa && fissa.turno ? 'turno' : 'orario', turno: fissa && fissa.turno ? i + 1 : null,
                      orario: fascia, unita: conTavoli ? 'tavoli' : 'coperti' });
       });
@@ -2045,7 +2074,7 @@ function riepilogoDelGiorno(db, cfg, iso) {
       righe.push({ servizio, etichetta: `${NOMI[servizio]} ${orari[0]}${orari.length > 1 ? `–${orari[orari.length - 1]}` : ''}`,
                    testo: !delServizio.length ? 'nessuna prenotazione'
                      : `${cop(coperti)} · al massimo ${misura(picco)} insieme${pieno ? ' · pieno' : ''}`,
-                   pieno, occupati: picco, totale, coperti,
+                   pieno, occupati: picco, totale, coperti, senzaTavolo: senzaTavolo(delServizio),
                    tipo: 'servizio', turno: null,
                    orario: `${orari[0]}${orari.length > 1 ? `–${orari[orari.length - 1]}` : ''}`,
                    unita: conTavoli ? 'tavoli' : 'coperti' });
@@ -2467,7 +2496,8 @@ function segnaPagata(db, cfg, id, da = 'mano', adesso = new Date(), incassato = 
   db.prepare(
     "UPDATE prenotazioni SET stato = 'confermata', pagato_at = datetime('now','localtime'), "
     + 'pagata_da = ?, importo_dovuto = ?, annullata_at = NULL, tavolo = ? WHERE id = ?'
-  ).run(String(da || 'mano'), quantoDavvero(p, incassato), posto.tavolo === null ? p.tavolo : posto.tavolo, id);
+  ).run(String(da || 'mano'), quantoDavvero(p, incassato),
+    posto.tavolo === null ? p.tavolo : tavoloCheResta(db, cfg, p.data, p.ora, p.tavolo, p.id), id);
   return { ok: true, prenotazione: db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(id) };
 }
 
@@ -4022,8 +4052,8 @@ function elaboraMessaggioSala(db, chiave, testo, adesso = new Date()) {
     if (usaTavoli(db)) {
       const t = trovaTavolo(db, cfg, d.data, d.ora, d.persone, { ancheSala: true });
       posto = t
-        ? `🪑 Tavolo ${t.nome} (${t.posti} ${t.posti === 1 ? 'posto' : 'posti'})`
-        : `⚠️ A quell'ora non c'è un tavolo libero per ${d.persone}: la segno senza tavolo, e il posto lo trovate voi.`;
+        ? `🪑 C'è un tavolo libero per ${d.persone}: il numero lo assegnate voi in sala.`
+        : `⚠️ A quell'ora non c'è un tavolo libero per ${d.persone}: la segno lo stesso, e il posto lo trovate voi.`;
     } else {
       const liberi = postiLiberi(db, cfg, d.data, d.ora);
       const dopo = liberi - d.persone;
@@ -4052,14 +4082,12 @@ function elaboraMessaggioSala(db, chiave, testo, adesso = new Date()) {
     // prenotazione porta la targhetta «admin», e chi la legge sa che il
     // cliente non ha mai scritto al bot — quindi non ha ricevuto nessuna
     // conferma, se non gliel'hanno mandata apposta.
-    // Il tavolo si cerca di nuovo adesso, non si riusa quello del riepilogo:
-    // fra il riepilogo e il SI può averlo preso il bot.
-    const posto = postoPer(db, cfg, dati.data, dati.ora, dati.persone, { ancheSala: true });
+    // Il tavolo NON si sceglie qui: lo assegna la sala (vedi `daAssegnare`).
     const info = db.prepare(
       'INSERT INTO prenotazioni (telefono, nome, cognome, data, ora, persone, note, telefono_contatto, tavolo, origine) '
       + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manuale')"
     ).run(dati.telefono || '', dati.nome || '', dati.cognome || '', dati.data, dati.ora,
-          dati.persone, dati.note || '', dati.telefono || '', posto.tavolo || '');
+          dati.persone, dati.note || '', dati.telefono || '', '');
     const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(info.lastInsertRowid);
     esito.prenotazione = p;
     // Se quel cliente stava in lista per quel giorno, adesso ha un tavolo.
@@ -4433,12 +4461,11 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     // ⚠️ Il tavolo assegnato dalla sala vale per QUELLA serata: portato su un
     // altro giorno, il numero lì appartiene a qualcun altro, e la sera si
     // trovano due gruppi allo stesso tavolo. Con i tavoli elencati il bot sa
-    // quali sono liberi all'ora nuova, e ne dà uno — lo stesso, se è ancora
-    // libero. Senza, nessuno in sala sta guardando — è il cliente che sposta
-    // da solo — quindi si azzera, e l'avviso al personale dice che ce n'è uno
-    // da riassegnare.
+    // se all'ora nuova quel tavolo è ancora libero: allora resta, sennò si
+    // azzera. Un numero NUOVO non lo sceglie lui — lo assegna la sala, e
+    // l'avviso «da assegnare» lo ricorda. Senza tavoli si azzera, come sempre.
     db.prepare('UPDATE prenotazioni SET data = ?, ora = ?, tavolo = ? WHERE id = ?')
-      .run(dati.data, dati.ora, posto.tavolo || '', p.id);
+      .run(dati.data, dati.ora, usaTavoli(db) ? tavoloCheResta(db, cfg, dati.data, dati.ora, p.tavolo, p.id) : '', p.id);
     // Spostandosi può essere finito proprio sul giorno per cui era in lista.
     esceDallaLista(db, p.telefono, dati.data, p.id);
     // `prima` serve a chi legge l'avviso in sala: «spostata» senza sapere DA
@@ -4611,51 +4638,28 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       const parlaDiPrenotare = /(prenot|tavolo|posto|coperti|disponibil)/.test(t);
       const domandaSuAltro = !parlaDiPrenotare
         && (String(testo).includes('?') || APERTURE_DI_DOMANDA.test(t));
+      // ⚠️ Il PRIMO messaggio non si controlla: qualunque cosa sia — «we»,
+      // «Eih», «cia», una domanda — parte l'introduzione. Deciso dal titolare.
+      // Prima a un «we» il bot rispondeva «non sono riuscita a capire cosa
+      // intendi»: al primo messaggio non c'è niente da capire, chi scrive sta
+      // solo bussando, e sentirsi dire «non ho capito» suona da macchina. In
+      // più quel «we» contava già come un equivoco — al secondo la
+      // conversazione passava a una persona — e finiva fra le frasi non
+      // capite, dove era rumore.
+      //
+      // Restano fuori, e restano prima: STOP (il server lo guarda prima del
+      // bot), le risposte pronte (qui sopra), e chi ha GIÀ un tavolo, che
+      // riceve il promemoria del suo — per lui l'introduzione è quella, e
+      // senza rischia di prenotare due volte.
+      //
+      // Fra le non capite ci va solo una DOMANDA vera: è da lì che il
+      // ristoratore scopre quali risposte pronte aggiungere.
+      if (domandaSuAltro) annotaNonCapita(db, testo);
+      // Chi ha già un tavolo e chiede di prenotarne un altro va avanti: è
+      // «per quante persone?», qui sotto. Il promemoria è per tutto il resto.
       const sembraPrenotazione = !domandaSuAltro
         && (parlaDiPrenotare || /(vorrei|possibile)/.test(t) || eSalutoStorto(testo));
-      if (!sembraPrenotazione) {
-        // ⚠️ Qui prima si chiamava una persona SUBITO, al primo messaggio. Ma
-        // il primo messaggio è quello scritto di fretta, con una lettera
-        // storta o mezzo emoji: disturbare il responsabile di sala per un
-        // «cioa» vuol dire che dopo tre giorni gli avvisi non li guarda più.
-        // Una seconda occasione basta — ed è la stessa regola che vale su
-        // tutte le altre domande («due volte non ci si capisce, poi passa a
-        // una persona»): la prima domanda smette di essere l'eccezione severa.
-        //
-        // Il messaggio non dà la colpa a nessuno e apre le due strade: chi ha
-        // sbagliato a scrivere risponde col numero, chi voleva chiedere altro
-        // ha OPERATORE davanti agli occhi e non deve sperare di essere capito.
-        //
-        // Nel registro ci va lo stesso: è da lì che il ristoratore scopre cosa
-        // gli scrivono davvero e cosa vale la pena mettere fra le risposte
-        // pronte. Che il bot ora risponda non vuol dire che abbia capito.
-        annotaNonCapita(db, testo);
-        // ⚠️ Qui NON si chiama una persona, nemmeno per una domanda chiara: la
-        // seconda occasione è una decisione presa apposta, e vale anche per
-        // questa. Chiamare qualcuno alla prima riga vuol dire riempirgli il
-        // telefono, e dopo tre giorni non guarda più nemmeno gli avvisi veri.
-        // Al secondo messaggio ci si arriva comunque. Per le domande che
-        // tornano — parcheggio, cane, carta — la strada giusta sono le risposte
-        // pronte, che vengono guardate prima di tutto questo.
-        // ⚠️ Ma se quel numero ha GIÀ un tavolo, «se vuoi prenotare dimmi per
-        // quante persone» è la risposta sbagliata: chi ha già prenotato e
-        // scrive storto si sente proporre una prenotazione che ha già fatto, e
-        // il primo pensiero è «non mi ha trovato, allora rifaccio tutto» —
-        // cioè un doppione, e una telefonata al locale per disfarlo.
-        // Gli si ricorda il suo tavolo: è la cosa che stava cercando comunque,
-        // e porta con sé le due parole per cambiarlo o disdirlo.
-        // ⚠️ Il ricordino del tavolo serve a chi ha scritto STORTO: senza, si
-        // sentirebbe proporre una prenotazione che ha già fatto e ne farebbe un
-        // doppione. Ma a chi ha fatto una DOMANDA precisa è un non-sequitur:
-        // ha chiesto del parcheggio e si sente rispondere «vuoi spostarla?».
-        // A lui serve sapere come si ottiene una risposta, ed è quello che
-        // «bot_t_primo_no» dice in fondo: scrivi OPERATORE.
-        if (gia && !domandaSuAltro) return ricordaIlTavolo(true);
-        salvaStato(db, telefono, 'persone', { tentativi: 1 });
-        // Una domanda chiara si merita una risposta che parli della domanda.
-        risposte.push(di(domandaSuAltro ? 'bot_t_domanda_no' : 'bot_t_primo_no'));
-        return esito;
-      }
+      if (gia && !sembraPrenotazione) return ricordaIlTavolo(true);
       salvaStato(db, telefono, 'persone', conServizio({}));
       // Il benvenuto è il PRIMO messaggio, e vale per chi arriva davvero la
       // prima volta. Chi ha già un tavolo da noi ci ha già parlato: gli si fa
@@ -5156,7 +5160,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       + 'per_altri, tavolo, stato, importo_dovuto, importo_totale, pagamento_scade_at) '
       + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(telefono, d.nome || '', d.cognome || '', d.data, d.ora, d.persone,
-          d.note || '', recapito, d.email || '', d.perAltri ? 1 : 0, posto.tavolo || '',
+          d.note || '', recapito, d.email || '', d.perAltri ? 1 : 0, '',
           blocca ? 'attesa_pagamento' : 'confermata',
           // Gli importi si scrivono comunque: anche una caparra facoltativa è
           // un conto che il locale deve poter vedere e ritrovare.
@@ -5292,7 +5296,7 @@ module.exports = {
   fasceDi, fasceValide, fasceDaiTurni, fasceDelGiorno, fineDelTavolo, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
   servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI,
   tavoliDi, usaTavoli, capienzaDi, trovaTavolo, postoPer, ciStanno, gruppoMassimo, tavoliLiberi,
-  chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, numeroDelTurno, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
+  chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, numeroDelTurno, tavoloCheResta, daAssegnare, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
   importoDaPagare,
   serveIlPagamento,
   pagamentoObbligatorio,

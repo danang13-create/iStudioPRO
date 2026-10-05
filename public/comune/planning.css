@@ -94,6 +94,19 @@
 .tg-scheda.chiuso { border-color: var(--allarme, #b26a00); background: var(--allarme-fondo, #fff8e6); }
 .tg-scheda.chiuso .tg-num b { color: var(--allarme, #b26a00); }
 .tg-cartello { margin: 0 0 10px; font-weight: 600; font-size: .9rem; }
+/* L'avviso «mancano i tavoli»: il numero lo assegna l'operatore, e prima del
+   servizio deve sapere quante prenotazioni lo aspettano ancora. */
+.tg-assegna {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap;
+  margin: 0 0 12px; padding: 10px 12px; border-radius: 10px;
+  background: var(--avviso-fondo, #fff4e5); border: 1px solid var(--avviso-bordo, #ffd8a8);
+  color: var(--avviso-testo, #8a4b00); font-size: .9rem;
+}
+.tg-da-assegnare { font-size: .76rem; color: var(--avviso-testo, #8a4b00); font-weight: 600; }
+/* Nell'elenco, i campi «tavolo» ancora vuoti si fanno notare. */
+.tavoli-da-assegnare .tavolo-campo:placeholder-shown {
+  border-color: var(--avviso-forte, #ffb300); background: var(--avviso-fondo, #fff4e5);
+}
 .tg-vuoto { margin: 0 0 12px; color: var(--grigio); font-size: .9rem; }
 @media (max-width: 430px) {
   .tg-schede { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }

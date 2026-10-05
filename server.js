@@ -6807,10 +6807,11 @@ app.post('/api/bot/testi/importa', (req, res) => {
 // - Chi ha SCRITTO un tavolo lo tiene: è una persona che vede la sala. Ma se
 //   a quell'ora quel tavolo è già di un altro gruppo glielo si dice prima, non
 //   quando arriva il secondo gruppo e il tavolo è apparecchiato per il primo.
-// - Chi non l'ha scritto ne riceve uno: il più piccolo libero che basta,
-//   contando anche i tavoli «solo sala».
-// - `forza`: la persona ha già letto l'avviso e ha detto di sì. Si salva
-//   senza tavolo, se non ce n'è uno — il posto lo trovano in sala.
+// - Chi non l'ha scritto NON ne riceve uno: il numero lo assegna l'operatore
+//   prima della serata (deciso dal titolare; vedi `daAssegnare`). Ma si
+//   controlla che un tavolo per quel gruppo ci sia, contando anche i «solo
+//   sala»: se non c'è, lo si dice prima.
+// - `forza`: la persona ha già letto l'avviso e ha detto di sì.
 function tavoloPerLaSala(cfg, { data, ora, persone, tavolo, forza, escludiId, preferito }) {
   if (tavolo) {
     const chi = bot.chiTieneIlTavolo(db, cfg, data, ora, tavolo, escludiId);
@@ -6824,8 +6825,7 @@ function tavoloPerLaSala(cfg, { data, ora, persone, tavolo, forza, escludiId, pr
     return { tavolo };
   }
   const t = bot.trovaTavolo(db, cfg, data, ora, persone, { ancheSala: true, escludiId, preferito });
-  if (t) return { tavolo: t.nome };
-  if (forza) return { tavolo: '' };
+  if (t || forza) return { tavolo: '' };
   const piu = bot.gruppoMassimo(db, cfg, data, ora, { ancheSala: true, escludiId });
   return { errore: {
     error: `Per ${bot.dataItaliana(data)} alle ${ora} non c'è un tavolo libero per ${persone} `
@@ -6989,6 +6989,14 @@ const rottaServizio = (req, res) => {
     // Com'è messa la giornata, per turno o per servizio: è quello che si
     // MOSTRA. `turni` resta per le tendine, che hanno bisogno di ogni orario.
     riepilogo: bot.riepilogoDelGiorno(db, cfg, data),
+    // Le prenotazioni che aspettano ancora il numero del tavolo: l'avviso in
+    // sala. Solo da oggi in avanti — di una serata passata non si assegna più
+    // niente — e solo coi tavoli elencati.
+    daAssegnare: data >= bot.comeData(new Date()) ? (() => {
+      const a = bot.daAssegnare(db, data);
+      return { senza: a.senza.length,
+               sconosciuti: a.sconosciuti.map((r) => ({ id: r.id, tavolo: r.tavolo, nome: bot.nomeInSala(r) })) };
+    })() : null,
     // I tavoli del locale, per chi in sala ne sceglie uno, e il più grande:
     // oltre quello la tendina delle persone non va.
     tavoli: tavoli.map((t) => ({ nome: t.nome, posti: t.posti, soloSala: !!t.solo_sala })),
@@ -7340,13 +7348,12 @@ const rottaModificaPrenotazione = async (req, res) => {
     const esito = tavoloPerLaSala(cfg, { ...nuovi, tavolo: '', forza: b.forza || !cambiata,
       escludiId: p.id, preferito: p.tavolo });
     if (esito.errore) return res.status(409).json(esito.errore);
-    // Con la forza e nessun tavolo libero: se è cambiato solo il numero di
-    // persone il gruppo resta dov'era — si aggiunge una sedia. Spostato su
-    // un'altra ora, il tavolo di prima lì è di qualcun altro. E ⚠️ riaperta
-    // dopo una cancellazione il tavolo NON è più suo: mentre era cancellata
-    // non lo teneva, e può averlo preso un altro gruppo.
-    nuovi.tavolo = esito.tavolo
-      || (bot.STATI_VIVI.includes(p.stato) && nuovi.data === p.data && nuovi.ora === p.ora ? p.tavolo : '');
+    // Il tavolo che l'operatore aveva assegnato resta, se all'ora nuova è
+    // ancora libero; sennò si azzera, e l'avviso «da assegnare» lo ricorda.
+    // ⚠️ Riaperta dopo una cancellazione vale lo stesso controllo: mentre era
+    // cancellata il tavolo non lo teneva, e può averlo preso un altro gruppo.
+    // (Un numero nuovo non lo sceglie il programma.)
+    nuovi.tavolo = esito.tavolo || bot.tavoloCheResta(db, cfg, nuovi.data, nuovi.ora, p.tavolo, p.id);
   }
 
   if (cambiata && bot.STATI_VIVI.includes(nuovi.stato) && !bot.usaTavoli(db)) {

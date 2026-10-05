@@ -1050,22 +1050,36 @@ function disegnaAttese(attese) {
   });
 }
 
+// ⚠️ Se non si salva, il campo torna com'era: un «7» rimasto scritto in un
+// campo che non è stato salvato è un tavolo che la sala crede assegnato, e
+// l'avviso «senza tavolo» che resta acceso sembra un guasto.
 async function salvaTavolo(campo, riga) {
-  let d = {};
-  let ok = false;
-  try {
-    const r = await fetch('/api/bot/prenotazioni/' + campo.dataset.tavolo, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tavolo: campo.value.trim() }),
-    });
-    ok = r.ok;
-    d = await r.json().catch(() => ({}));
-  } catch { /* rete che balla: lo dice l'alert qui sotto */ }
-  if (!ok || d.error) { alert(d.error || 'Non riesco a salvare il tavolo: riprova'); return; }
+  const manda = async (forza) => {
+    try {
+      const r = await fetch('/api/bot/prenotazioni/' + campo.dataset.tavolo, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tavolo: campo.value.trim(), ...(forza ? { forza: true } : {}) }),
+      });
+      return { ok: r.ok, d: await r.json().catch(() => ({})) };
+    } catch { return { ok: false, d: {} }; /* rete che balla: lo dice l'alert qui sotto */ }
+  };
+  let { ok, d } = await manda(false);
+  // Il tavolo è già di un altro a quell'ora: lo si dice, e decide la sala.
+  if (!ok && d.tavoloOccupato) {
+    if (confirm(`${d.error}\n\nMetterlo lo stesso?`)) ({ ok, d } = await manda(true));
+    else { campo.value = riga ? (riga.tavolo || '') : ''; return; }
+  }
+  if (!ok || d.error) {
+    alert(d.error || 'Non riesco a salvare il tavolo: riprova');
+    campo.value = riga ? (riga.tavolo || '') : '';
+    return;
+  }
   // Com'è stato salvato davvero: spazi stretti, venti caratteri al massimo.
   campo.value = d.tavolo || '';
   if (riga) riga.tavolo = d.tavolo || '';
   toast(d.tavolo ? `Tavolo ${d.tavolo} assegnato` : 'Tavolo tolto');
+  // L'avviso «mancano i tavoli» scende subito, senza rifare l'elenco.
+  Turni.aggiornaRiepilogo($('#turni'), $('#giorno').value);
 }
 
 function apri(p) {

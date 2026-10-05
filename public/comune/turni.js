@@ -212,6 +212,9 @@ window.Turni = (function () {
     const numero = r.tipo === 'chiuso'
       ? `<b>${r.coperti}</b> ${r.coperti === 1 ? 'coperto prenotato' : 'coperti prenotati'}`
       : `<b>${r.occupati}</b><span class="tg-di">/${r.totale} ${r.unita}</span>`;
+    // Quante prenotazioni di questo turno aspettano ancora il numero del tavolo.
+    const daAssegnare = r.senzaTavolo > 0
+      ? `<div class="tg-da-assegnare">⚠️ ${r.senzaTavolo} senza tavolo</div>` : '';
     const sotto = [
       r.tipo === 'chiuso' ? 'il servizio è chiuso' : (r.unita === 'tavoli' ? coperti : ''),
       r.tipo === 'servizio' ? 'al massimo insieme' : '',
@@ -223,8 +226,37 @@ window.Turni = (function () {
       <div class="tg-num">${numero}</div>
       ${r.tipo === 'chiuso' ? '' : `<div class="meter" role="img" aria-label="${r.occupati} su ${r.totale} ${r.unita}"><i class="${stato}" style="width:${Math.round(quota * 100)}%"></i></div>`}
       ${sotto ? `<div class="tg-sotto">${sicuro(sotto)}</div>` : ''}
+      ${daAssegnare}
     </div>`;
   }
+  // ── L'avviso «mancano i tavoli» ──
+  //
+  // ⚠️ Deciso dal titolare: il bot conta coi tavoli ma il NUMERO non lo
+  // scrive — lo assegna l'operatore prima della serata. Allora la sala deve
+  // vedere quante prenotazioni lo aspettano ancora, e arrivarci con un tocco.
+  // Il server lo manda solo da oggi in avanti, e solo coi tavoli elencati.
+  function avvisoTavoli(d) {
+    const a = d && d.daAssegnare;
+    if (!a || (!a.senza && !(a.sconosciuti || []).length)) return '';
+    const parti = [];
+    if (a.senza) parti.push(`<b>${a.senza} ${a.senza === 1 ? 'prenotazione' : 'prenotazioni'} senza tavolo</b>`);
+    if ((a.sconosciuti || []).length) {
+      const quali = [...new Set(a.sconosciuti.map((x) => x.tavolo))].map(sicuro).join(', ');
+      parti.push(`<b>${a.sconosciuti.length} con un tavolo che non c'è</b> (${quali})`);
+    }
+    return `<div class="tg-assegna" role="status">
+      <span>⚠️ ${parti.join(' · ')}: assegnale prima del servizio.</span>
+      ${a.senza ? '<button type="button" class="btn btn-secondario btn-piccolo" data-vai-al-tavolo>Vai alla prima</button>' : ''}
+    </div>`;
+  }
+  // Porta al primo campo «tavolo» ancora vuoto, e ci mette il cursore.
+  function vaiAlPrimoSenzaTavolo() {
+    const campo = [...document.querySelectorAll('.tavolo-campo')].find((i) => !i.value.trim());
+    if (!campo) return;
+    campo.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    campo.focus({ preventScroll: true });
+  }
+
   // `d` è la risposta di /api/bot/prenotazioni: riepilogo, soldOut, chiuso.
   function disegnaRiepilogo(el, d) {
     if (!el) return;
@@ -232,8 +264,16 @@ window.Turni = (function () {
     // Il cartello «pieno» sta PRIMA dei numeri: è la cosa che cambia il senso
     // di tutto il resto. Chi legge «3/10» senza sapere che il bot rifiuta
     // crede che i sette tavoli siano ancora vendibili.
-    const cartello = d && d.soldOut ? '<p class="tg-cartello">🚫 Sold out — il bot non prende prenotazioni</p>'
-      : d && d.chiuso ? '<p class="tg-cartello">🔒 Chiusura — il bot non prende prenotazioni</p>' : '';
+    const avviso = avvisoTavoli(d);
+    const cartello = (d && d.soldOut ? '<p class="tg-cartello">🚫 Sold out — il bot non prende prenotazioni</p>'
+      : d && d.chiuso ? '<p class="tg-cartello">🔒 Chiusura — il bot non prende prenotazioni</p>' : '')
+      + avviso;
+    // I campi «tavolo» vuoti si fanno notare nell'elenco, quando c'è da
+    // assegnarli (vedi planning.css, «tavoli-da-assegnare»).
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.classList.toggle('tavoli-da-assegnare', !!avviso);
+    }
+    el.onclick = (e) => { if (e.target.closest('[data-vai-al-tavolo]')) vaiAlPrimoSenzaTavolo(); };
     if (!righe.length) {
       el.innerHTML = cartello || '<p class="tg-vuoto">Chiuso in questo giorno</p>';
       return;
@@ -246,8 +286,19 @@ window.Turni = (function () {
       </section>`).join('') + '</div>';
   }
 
+  // Rifà SOLO il riepilogo — le schede e l'avviso dei tavoli — senza toccare
+  // l'elenco: chi assegna i tavoli passa da un campo all'altro, e ridisegnare
+  // le righe sotto le sue dita gli porterebbe via quello che sta scrivendo.
+  async function aggiornaRiepilogo(el, data) {
+    try {
+      const d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent(data))).json();
+      if (!d.error) disegnaRiepilogo(el, d);
+    } catch { /* la rete che balla: resta quello di prima, e lo dice la barra */ }
+  }
+
   // Quando cambia il giorno, i turni possono essere altri (pranzo, chiusure).
   function dimentica() { ultimaData = null; ultimiTurni = []; ultimaCapienza = 0; conTavoli = false; quando = 0; }
 
-  return { dellaGiornata, riempi, riempiPersone, liberiPer, capienza, dimentica, opzioniOrari, disegnaRiepilogo };
+  return { dellaGiornata, riempi, riempiPersone, liberiPer, capienza, dimentica, opzioniOrari, disegnaRiepilogo,
+           aggiornaRiepilogo };
 })();
