@@ -6538,9 +6538,16 @@ app.post('/api/bot/impostazioni', (req, res) => {
           + 'Per le ferie usa i giorni di chiusura, che poi finiscono da soli.',
       });
     }
-    // Se qualcosa è stato tolto o corretto, chi ha salvato lo deve vedere.
+    // Se qualcosa di scritto male è stato tolto, chi ha salvato lo deve
+    // vedere. ⚠️ Ma SOLO quello: un turno scritto dopo un altro più tardi
+    // viene riordinato, un doppione sparisce, «9:30» diventa «09:30» — e
+    // dire «ho tolto le fasce sbagliate» per una di queste cose è un avviso
+    // falso, che insegna a non leggere quelli veri. Si confrontano gli orari
+    // come insieme, scritti bene.
     const grezze = typeof valori.bot_fasce === 'string' ? JSON.parse(valori.bot_fasce) : valori.bot_fasce;
-    const comeTesto = (f, g) => (Array.isArray(f[g]) ? f[g] : []).map((x) => `${x && x.da}-${x && x.a}`).join(',');
+    const ora = (v) => bot.turniValidi(v)[0] || String(v);
+    const comeTesto = (f, g) => [...new Set((Array.isArray(f[g]) ? f[g] : [])
+      .map((x) => `${ora(x && x.da)}-${ora(x && x.a)}`))].sort().join(',');
     for (let g = 0; g < 7; g++) if (comeTesto(grezze, g) !== comeTesto(fasce, g)) fasceRipulite = true;
     valori.bot_fasce = JSON.stringify(fasce);
   }

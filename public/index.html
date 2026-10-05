@@ -979,13 +979,17 @@
   }
   .fascia-giorno .fg-nome { font-weight: 600; padding-top: 8px; }
   .fascia-giorno .fg-fasce { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  .fascia { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .servizio { display: grid; grid-template-columns: 64px 160px 1fr; gap: 8px; align-items: center; }
+  .servizio .sv-nome { color: var(--grigio); font-size: .88rem; }
+  .servizio .sv-modo { width: 100%; }
+  .servizio .sv-campi { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+  .servizio .turno { display: inline-flex; align-items: center; gap: 4px; }
   /* Testo e non «type=time»: quel campo segue la lingua del computer, e su
      uno in inglese diventa «07:30 PM», tagliato a metà. Tutta la pagina scrive
      le ore come «19:30», e qui si fa lo stesso. */
-  .fascia input.ora-fascia { width: 76px; flex: 0 0 auto; text-align: center; font-variant-numeric: tabular-nums; }
-  .fascia input.storta { border-color: var(--male-testo); }
-  .fascia .freccia { color: var(--grigio); }
+  #pren-fasce input.ora-fascia { width: 76px; flex: 0 0 auto; text-align: center; font-variant-numeric: tabular-nums; }
+  #pren-fasce input.storta { border-color: var(--male-testo); }
+  #pren-fasce .freccia { color: var(--grigio); }
   .fg-azioni { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .fg-anteprima { color: var(--grigio); font-size: .82rem; line-height: 1.35; }
   .fg-anteprima.chiuso { font-style: italic; }
@@ -999,6 +1003,11 @@
   @media (max-width: 560px) {
     .fascia-giorno { grid-template-columns: 1fr; }
     .fascia-giorno .fg-nome { padding-top: 0; }
+    /* Sul telefono il nome del servizio e la tendina stanno sulla stessa
+       riga, e gli orari vanno sotto: tre colonne in 360 pixel non ci stanno. */
+    .servizio { grid-template-columns: 64px 1fr; }
+    .servizio .sv-campi { grid-column: 1 / -1; }
+    .servizio .sv-campi:empty { display: none; }
   }
 
   /* ── Tavoli ──
@@ -1779,10 +1788,12 @@
       <div class="card" id="pren-card-fasce">
         <h2 style="font-size:1rem;margin:0 0 6px">Orari di apertura</h2>
         <p class="conteggio" style="margin:0 0 12px">
-          Per ogni giorno, <b>dal primo all'ultimo arrivo</b>: il bot propone gli orari dentro queste fasce.
-          Un giorno senza orari è chiuso. Per le ferie usa i giorni di chiusura, che finiscono da soli.
+          Per ogni giorno, il pranzo e la cena. <b>Orari continui</b>: dal primo all'ultimo arrivo, un orario
+          ogni tot minuti, e il tavolo resta occupato per la durata del tavolo. <b>Turni fissi</b>: solo gli
+          orari che scrivi, e il tavolo di un turno <b>si libera quando comincia il turno dopo</b>.
+          Per le ferie usa i giorni di chiusura, che finiscono da soli.
         </p>
-        <label class="fasce-passo">Proponi un orario ogni
+        <label class="fasce-passo">Orari continui: proponi un orario ogni
           <select id="cfg-bot_passo" autocomplete="off">
             <option value="15">15 minuti</option>
             <option value="20">20 minuti</option>
@@ -5028,6 +5039,8 @@ const TESTI_BOT = [
   ['bot_t_troppo_lontano', 'Chiede un giorno troppo lontano', 'Oltre un anno il bot non prenota da solo: passa la richiesta a una persona, che è chi può dire se a quella data il locale ci sarà ancora e con che orari.'],
   [null, 'L\'orario'],
   ['bot_t_ora', 'Propone gli orari liberi', ''],
+  ['bot_t_servizio_chiuso', 'Chiuso a pranzo (o a cena), aperto nell\'altro', 'Il cliente ha chiesto «a pranzo» o «a cena», e quel giorno quel servizio non c\'è: si propongono gli orari dell\'altro. <b>{servizio}</b> è «pranzo» o «cena».'],
+  ['bot_t_servizio_pieno', 'Pieno a pranzo (o a cena), posto nell\'altro', 'Come sopra, ma il servizio chiesto c\'è ed è pieno. <b>{servizio}</b> è «pranzo» o «cena».'],
   ['bot_t_ora_no', 'Non ha capito l\'orario', ''],
   ['bot_t_ora_piena', 'Ha chiesto un orario pieno', 'Quando il cliente chiede un orario che il locale fa, ma che è già al completo. Sotto arrivano da soli gli orari ancora liberi.'],
   ['bot_t_ora_tardi', 'Ha chiesto un orario troppo vicino', 'Quando l\'orario chiesto è già passato o è troppo a ridosso, secondo il preavviso che hai impostato.'],
@@ -7056,7 +7069,7 @@ async function salvaConfigBot(doveDirlo) {
   // ⚠️ Le fasce partono SOLO se le si è toccate. Mandarle sempre vorrebbe dire
   // che un «Salva» qualunque — quello dei promemoria — salva anche gli orari
   // com'erano disegnati in pagina, magari mezzi scritti in un'altra scheda.
-  if (fasceToccate && fasceUI) corpo.bot_fasce = JSON.stringify(fasceUI);
+  if (fasceToccate && fasceUI) corpo.bot_fasce = JSON.stringify(fasceDaSalvare());
   const r = await fetch('/api/bot/impostazioni', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
   });
@@ -7104,9 +7117,22 @@ $('#coperti-salva').addEventListener('click', () => salvaConfigBot('coperti-salv
 
 // ═══ Gli orari di apertura ═══
 // Una riga per giorno, dal lunedì: è l'ordine in cui un ristoratore pensa la
-// sua settimana. Sotto ogni giorno, in piccolo, gli orari che il bot
+// sua settimana. Ogni giorno ha due servizi, Pranzo e Cena, e ognuno è
+// chiuso, a orari continui («dalle 19:30 alle 22:30, ogni mezz'ora») o a
+// turni fissi («19:30 e 21:30»). Sotto, in piccolo, gli orari che il bot
 // proporrà davvero — calcolati come li calcola lui (`orariDellaFascia`).
+//
+// Nell'archivio le fasce sono un elenco per giorno, ognuna col suo servizio;
+// un turno fisso è una fascia di un orario solo, segnata `turno` — è quella
+// che dice al bot di liberare il tavolo al turno dopo invece che a fine durata.
 const ORDINE_GIORNI_UI = [1, 2, 3, 4, 5, 6, 0];
+const SERVIZI_UI = [['pranzo', 'Pranzo'], ['cena', 'Cena']];
+// Quello che si propone aprendo un servizio chiuso: il caso più comune, da
+// correggere in un attimo, invece di due campi vuoti da riempire da zero.
+const SERVIZIO_DI_PARTENZA = {
+  pranzo: { da: '12:30', a: '14:30', turni: ['12:30', '14:00'] },
+  cena: { da: '19:30', a: '22:30', turni: ['19:30', '21:30'] },
+};
 let fasceUI = null;
 let fasceToccate = false;
 
@@ -7121,84 +7147,157 @@ function passoUI() {
   const p = Number($('#cfg-bot_passo').value);
   return p >= 5 && p <= 240 ? p : 30;
 }
-function fasciaStorta(f) {
-  const da = inMinutiUI(f.da);
-  const a = inMinutiUI(f.a);
-  if (da === null || a === null) return 'manca un\'ora';
-  if (a < da) return 'l\'ultimo arrivo è prima del primo';
+function orariContinuiUI(da, a) {
+  const inizio = inMinutiUI(da);
+  const fine = inMinutiUI(a);
+  if (inizio === null || fine === null || fine < inizio) return [];
+  const orari = [];
+  for (let m = inizio; m <= fine; m += passoUI()) orari.push(daMinutiUI(m));
+  if (orari[orari.length - 1] !== a) orari.push(a);
+  return orari;
+}
+// Cosa non va in un servizio, o '' se va bene.
+function servizioStorto(sv) {
+  if (sv.modo === 'continui') {
+    if (inMinutiUI(sv.da) === null || inMinutiUI(sv.a) === null) return 'manca un\'ora';
+    if (inMinutiUI(sv.a) < inMinutiUI(sv.da)) return 'l\'ultimo arrivo è prima del primo';
+  }
+  if (sv.modo === 'turni') {
+    if (!sv.turni.length) return 'nessun turno';
+    if (sv.turni.some((t) => inMinutiUI(t) === null)) return 'un turno senza un\'ora giusta';
+  }
   return '';
 }
-// Gli orari di un giorno, come li proporrà il bot.
-function orariDelGiornoUI(elenco) {
-  const passo = passoUI();
-  const tutti = new Set();
-  for (const f of elenco) {
-    if (fasciaStorta(f)) continue;
-    const fine = inMinutiUI(f.a);
-    for (let m = inMinutiUI(f.da); m <= fine; m += passo) tutti.add(daMinutiUI(m));
-    tutti.add(daMinutiUI(fine));
-  }
-  return [...tutti].sort();
+function orariDelServizioUI(sv) {
+  if (servizioStorto(sv)) return [];
+  if (sv.modo === 'continui') return orariContinuiUI(sv.da, sv.a);
+  if (sv.modo === 'turni') return [...new Set(sv.turni)].sort();
+  return [];
 }
+
+// Dall'archivio alla pagina. ⚠️ I turni di prima delle fasce — quelli che il
+// bot propone a un locale che non ha mai salvato questa pagina — non sono
+// turni fissi: sono orari, spesso a mezz'ora l'uno dall'altro. Si mostrano
+// come turni fissi solo se sono distanti almeno la durata del tavolo, cioè se
+// erano davvero due giri di sala; sennò come orari continui dal primo
+// all'ultimo, e l'anteprima dice cosa si proporrà salvando.
+function servizioDaFasce(fasce, durata) {
+  if (!fasce.length) return { modo: 'chiuso', da: '', a: '', turni: [] };
+  if (fasce.every((f) => f.turno)) return { modo: 'turni', da: '', a: '', turni: fasce.map((f) => f.da).sort() };
+  if (fasce.length === 1 && fasce[0].da !== fasce[0].a) return { modo: 'continui', da: fasce[0].da, a: fasce[0].a, turni: [] };
+  const orari = [...new Set(fasce.flatMap((f) => orariContinuiUI(f.da, f.a)))].sort();
+  const distanti = orari.every((o, i) => !i || inMinutiUI(o) - inMinutiUI(orari[i - 1]) >= durata);
+  return distanti
+    ? { modo: 'turni', da: '', a: '', turni: orari }
+    : { modo: 'continui', da: orari[0], a: orari[orari.length - 1], turni: [] };
+}
+// Dalla pagina all'archivio.
+function fasceDaSalvare() {
+  const fasce = {};
+  for (let g = 0; g < 7; g++) {
+    fasce[g] = [];
+    for (const [s] of SERVIZI_UI) {
+      const sv = fasceUI[g][s];
+      if (sv.modo === 'continui') fasce[g].push({ da: sv.da, a: sv.a, servizio: s });
+      if (sv.modo === 'turni') for (const t of sv.turni) fasce[g].push({ da: t, a: t, servizio: s, turno: true });
+    }
+  }
+  return fasce;
+}
+
 function anteprimaFasce(g) {
   const el = $(`#pren-fasce [data-anteprima="${g}"]`);
   if (!el) return;
-  const elenco = fasceUI[g] || [];
-  const storte = elenco.map(fasciaStorta).filter(Boolean);
-  const orari = orariDelGiornoUI(elenco);
-  el.classList.toggle('chiuso', !orari.length && !storte.length);
-  el.classList.toggle('male', storte.length > 0);
-  if (storte.length) el.textContent = `Da sistemare: ${storte[0]}.`;
-  else if (!orari.length) el.textContent = 'Chiuso';
-  else {
+  const storte = [];
+  const parti = [];
+  for (const [s, nome] of SERVIZI_UI) {
+    const sv = fasceUI[g][s];
+    const guaio = servizioStorto(sv);
+    if (sv.modo !== 'chiuso' && guaio) storte.push(`${nome.toLowerCase()}: ${guaio}`);
+    const orari = orariDelServizioUI(sv);
+    if (!orari.length) continue;
     // Tutti, se sono pochi; se sono tanti, l'inizio e la fine bastano a
     // capire — un elenco di venti orari non lo legge nessuno.
     const lista = orari.length <= 8 ? orari.join(' · ')
       : `${orari.slice(0, 3).join(' · ')} … ${orari.slice(-2).join(' · ')}`;
-    el.textContent = `${orari.length === 1 ? '1 orario' : `${orari.length} orari`}: ${lista}`;
+    parti.push(`${nome}: ${lista}`);
   }
+  el.classList.toggle('male', storte.length > 0);
+  el.classList.toggle('chiuso', !storte.length && !parti.length);
+  el.textContent = storte.length ? `Da sistemare — ${storte.join('; ')}.` : (parti.join('   ·   ') || 'Chiuso tutto il giorno');
   document.querySelectorAll(`#pren-fasce [data-giorno="${g}"] input.ora-fascia`).forEach((i) => {
-    const f = elenco[+i.dataset.fascia];
-    i.classList.toggle('storta', !!(f && fasciaStorta(f)));
+    const sv = fasceUI[g][i.closest('[data-servizio]').dataset.servizio];
+    const storta = sv.modo === 'turni' ? inMinutiUI(i.value) === null
+      : (inMinutiUI(i.value) === null || (sv.modo === 'continui' && inMinutiUI(sv.a) !== null
+        && inMinutiUI(sv.da) !== null && inMinutiUI(sv.a) < inMinutiUI(sv.da)));
+    i.classList.toggle('storta', storta);
   });
+}
+
+function campoOra(valore, attributi, etichetta) {
+  return `<input class="ora-fascia" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="19:30"
+    value="${esc(valore)}" ${attributi} aria-label="${etichetta}">`;
 }
 function disegnaFasce() {
   $('#pren-fasce').innerHTML = ORDINE_GIORNI_UI.map((g) => {
-    const nome = NOMI_GIORNI_UI[g];
-    const elenco = fasceUI[g] || [];
-    return `<div class="fascia-giorno" data-giorno="${g}">
-      <div class="fg-nome">${nome}</div>
-      <div class="fg-fasce">
-        ${elenco.map((f, i) => `<div class="fascia">
-          <input class="ora-fascia" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="19:30" value="${esc(f.da)}" data-fascia="${i}" data-campo="da" aria-label="${nome}, primo arrivo">
+    const giorno = NOMI_GIORNI_UI[g];
+    const righe = SERVIZI_UI.map(([s, nome]) => {
+      const sv = fasceUI[g][s];
+      const qui = `${giorno}, ${nome.toLowerCase()}`;
+      let campi = '';
+      if (sv.modo === 'continui') {
+        campi = `${campoOra(sv.da, 'data-campo="da"', `${qui}, primo arrivo`)}
           <span class="freccia" aria-hidden="true">→</span>
-          <input class="ora-fascia" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="22:00" value="${esc(f.a)}" data-fascia="${i}" data-campo="a" aria-label="${nome}, ultimo arrivo">
-          <button type="button" class="tasto-togli" data-togli-fascia="${i}" aria-label="Togli questa fascia di ${nome}">✕</button>
-        </div>`).join('')}
-        <div class="fg-azioni">
-          <button type="button" class="btn btn-secondario btn-piccolo" data-aggiungi-fascia>+ Fascia</button>
-          <span class="fg-anteprima" data-anteprima="${g}"></span>
-        </div>
+          ${campoOra(sv.a, 'data-campo="a"', `${qui}, ultimo arrivo`)}`;
+      } else if (sv.modo === 'turni') {
+        campi = sv.turni.map((t, i) => `<span class="turno">
+            ${campoOra(t, `data-turno="${i}"`, `${qui}, ${i + 1}° turno`)}
+            <button type="button" class="tasto-togli" data-togli-turno="${i}" aria-label="Togli il ${i + 1}° turno di ${qui}">✕</button>
+          </span>`).join('')
+          + '<button type="button" class="btn btn-secondario btn-piccolo" data-aggiungi-turno>+ Turno</button>';
+      }
+      return `<div class="servizio" data-servizio="${s}">
+        <span class="sv-nome">${nome}</span>
+        <select class="sv-modo" autocomplete="off" aria-label="${qui}">
+          <option value="chiuso"${sv.modo === 'chiuso' ? ' selected' : ''}>Chiuso</option>
+          <option value="continui"${sv.modo === 'continui' ? ' selected' : ''}>Orari continui</option>
+          <option value="turni"${sv.modo === 'turni' ? ' selected' : ''}>Turni fissi</option>
+        </select>
+        <div class="sv-campi">${campi}</div>
+      </div>`;
+    }).join('');
+    return `<div class="fascia-giorno" data-giorno="${g}">
+      <div class="fg-nome">${giorno}</div>
+      <div class="fg-fasce">
+        ${righe}
+        <span class="fg-anteprima" data-anteprima="${g}"></span>
       </div>
     </div>`;
   }).join('');
   ORDINE_GIORNI_UI.forEach(anteprimaFasce);
 }
 function mostraFasce(d) {
-  fasceUI = {};
-  for (let g = 0; g < 7; g++) fasceUI[g] = ((d.fasce && d.fasce[g]) || []).map((f) => ({ da: f.da, a: f.a }));
+  const durata = Math.max(Number(d.impostazioni && d.impostazioni.bot_durata_tavolo) || 120, 1);
   // Un passo che la tendina non ha (scritto da un'altra parte) si aggiunge:
   // senza, la tendina mostrerebbe vuoto e il prossimo Salva lo perderebbe.
   const passo = String((d.impostazioni && d.impostazioni.bot_passo) || '30');
   const sel = $('#cfg-bot_passo');
   if (![...sel.options].some((o) => o.value === passo)) sel.insertAdjacentHTML('beforeend', `<option value="${esc(passo)}">${esc(passo)} minuti</option>`);
   sel.value = passo;
-  // ⚠️ Un locale che non ha mai salvato le fasce le vede ricavate dai turni di
-  // prima. Va detto: sono gli orari che il bot propone GIÀ, non una proposta.
+  fasceUI = {};
+  for (let g = 0; g < 7; g++) {
+    const delGiorno = (d.fasce && d.fasce[g]) || [];
+    fasceUI[g] = {};
+    for (const [s] of SERVIZI_UI) {
+      fasceUI[g][s] = servizioDaFasce(delGiorno.filter((f) => f.servizio === s), durata);
+    }
+  }
+  // ⚠️ Un locale che non ha mai salvato questa pagina la vede ricavata dai
+  // turni di prima. Va detto: il bot propone ancora quelli, finché non si salva.
   const nota = $('#fasce-nota');
   nota.hidden = !!d.fasceSalvate;
-  nota.textContent = 'Questi orari vengono dai turni che avevi impostato prima: il bot propone già questi. '
-    + 'Cambiali qui e salva.';
+  nota.textContent = 'Questi orari vengono dai turni che avevi impostato prima. Controllali e salva: '
+    + 'da quel momento il bot propone quelli scritti qui sotto.';
   disegnaFasce();
 }
 // Un'ora scritta come viene: «1930», «19.30», «19», «9:30». Si riscrive
@@ -7206,45 +7305,56 @@ function mostraFasce(d) {
 // del telefono non ha i due punti a portata di dito.
 function oraScritta(testo) {
   const t = String(testo || '').trim().replace(/[.,h ]/g, ':');
-  let m = t.match(/^(\d{1,2})(?::(\d{2}))?$/) || t.match(/^(\d{1,2})(\d{2})$/);
+  const m = t.match(/^(\d{1,2})(?::(\d{2}))?$/) || t.match(/^(\d{1,2})(\d{2})$/);
   if (!m) return t;
   const h = +m[1];
   const mi = m[2] === undefined ? 0 : +m[2];
   return h <= 23 && mi <= 59 ? daMinutiUI(h * 60 + mi) : t;
 }
+function servizioDi(el) {
+  const g = +el.closest('[data-giorno]').dataset.giorno;
+  return { g, sv: fasceUI[g][el.closest('[data-servizio]').dataset.servizio],
+           s: el.closest('[data-servizio]').dataset.servizio };
+}
 $('#pren-fasce').addEventListener('input', (e) => {
   const i = e.target.closest('input.ora-fascia');
   if (!i) return;
-  const g = +i.closest('[data-giorno]').dataset.giorno;
-  fasceUI[g][+i.dataset.fascia][i.dataset.campo] = oraScritta(i.value);
+  const { g, sv } = servizioDi(i);
+  const ora = oraScritta(i.value);
+  if (i.dataset.campo) sv[i.dataset.campo] = ora;
+  else sv.turni[+i.dataset.turno] = ora;
   fasceToccate = true;
   anteprimaFasce(g);
 });
 $('#pren-fasce').addEventListener('change', (e) => {
   const i = e.target.closest('input.ora-fascia');
-  if (i) i.value = oraScritta(i.value);
-});
-$('#pren-fasce').addEventListener('click', (e) => {
-  const riga = e.target.closest('[data-giorno]');
-  if (!riga) return;
-  const g = +riga.dataset.giorno;
-  const togli = e.target.closest('[data-togli-fascia]');
-  if (togli) {
-    fasceUI[g].splice(+togli.dataset.togliFascia, 1);
-  } else if (e.target.closest('[data-aggiungi-fascia]')) {
-    // La fascia nuova indovina quella che manca: chi ha solo la cena sta
-    // aggiungendo il pranzo, e viceversa.
-    const elenco = fasceUI[g];
-    const sera = elenco.some((f) => inMinutiUI(f.da) >= 17 * 60);
-    const giorno = elenco.some((f) => inMinutiUI(f.da) !== null && inMinutiUI(f.da) < 17 * 60);
-    elenco.push(sera && !giorno ? { da: '12:30', a: '14:00' }
-      : !sera ? { da: '19:30', a: '22:00' } : { da: '', a: '' });
-  } else return;
+  if (i) { i.value = oraScritta(i.value); return; }
+  const modo = e.target.closest('select.sv-modo');
+  if (!modo) return;
+  const { sv, s } = servizioDi(modo);
+  sv.modo = modo.value;
+  // Aprendo un servizio si parte da qualcosa di sensato, non da campi vuoti.
+  const base = SERVIZIO_DI_PARTENZA[s];
+  if (sv.modo === 'continui' && !sv.da && !sv.a) { sv.da = base.da; sv.a = base.a; }
+  if (sv.modo === 'turni' && !sv.turni.length) sv.turni = [...base.turni];
   fasceToccate = true;
   disegnaFasce();
 });
-// Cambiando il passo cambiano gli orari di tutti i giorni: le fasce vanno
-// salvate come le si vede, e le anteprime rifatte.
+$('#pren-fasce').addEventListener('click', (e) => {
+  const togli = e.target.closest('[data-togli-turno]');
+  const aggiungi = e.target.closest('[data-aggiungi-turno]');
+  if (!togli && !aggiungi) return;
+  const { sv } = servizioDi(e.target);
+  if (togli) sv.turni.splice(+togli.dataset.togliTurno, 1);
+  else sv.turni.push('');
+  // Togliendo l'ultimo turno il servizio è chiuso: dirlo con la tendina, non
+  // con una riga vuota che sembra rotta.
+  if (!sv.turni.length) sv.modo = 'chiuso';
+  fasceToccate = true;
+  disegnaFasce();
+});
+// Cambiando il passo cambiano gli orari continui di tutti i giorni: vanno
+// salvati come li si vede, e le anteprime rifatte.
 $('#cfg-bot_passo').addEventListener('change', () => {
   fasceToccate = true;
   if (fasceUI) ORDINE_GIORNI_UI.forEach(anteprimaFasce);
