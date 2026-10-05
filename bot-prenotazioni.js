@@ -758,6 +758,16 @@ const PREDEFINITI = {
   bot_t_troppo_lontano: 'Per {data} siamo troppo in l\u00e0 nel tempo: ti faccio rispondere da una persona del locale.',
   bot_t_chiuso: 'Purtroppo quel giorno {locale} è chiuso. \n\nTi va di scegliere un altro giorno?',
   bot_t_ora: 'Per {data} abbiamo disponibilità nei seguenti orari:\n',
+  // Pranzo o cena, prima degli orari (deciso dal titolare). Si chiede solo
+  // quando quel giorno sono aperti e liberi tutti e due i servizi, e il
+  // cliente non l'ha già detto.
+  bot_t_servizio: 'Per {data} preferisci pranzo o cena? 🍽️',
+  bot_t_servizio_no: 'Non ho capito: per {data} preferisci pranzo o cena?',
+  // Sotto l'elenco dei turni: come si risponde.
+  bot_t_ora_come: 'Scrivimi il turno che preferisci (per esempio «il primo») oppure l’orario.',
+  // Un servizio con un turno solo: invece di un elenco di una riga, si chiede
+  // se va bene. {fascia} è «dalle 13:00 alle 15:00», o «alle 13:00».
+  bot_t_turno_unico: 'Per {data} a {servizio} c’è un solo turno disponibile, {fascia}. ✨\n\nTi va bene? Scrivi SÌ per continuare.',
   // Il cliente ha chiesto un servizio — «a pranzo» — che quel giorno non c'è,
   // o è pieno. Non è un «non ho capito»: si dice com'è, e si propone l'altro.
   bot_t_servizio_chiuso: 'Per {data} a {servizio} siamo chiusi, ma abbiamo disponibilità in questi orari:\n',
@@ -2744,7 +2754,7 @@ function minutiFermi(riga, adesso = new Date()) {
 //    vorrebbe dire far perdere l'offerta a chi stava per accettarla;
 //  - «sposta_*» e «annulla_*»: sono percorsi corti e voluti, non ci si perde;
 //  - «sala_*»: sono i comandi del locale, hanno una scadenza loro.
-const PASSI_CHE_RIAPRONO = ['persone', 'giorno', 'ora', 'telefono', 'email'];
+const PASSI_CHE_RIAPRONO = ['persone', 'giorno', 'servizio', 'ora', 'telefono', 'email'];
 
 function riapreConUnSaluto(cfg, riga, testo, adesso = new Date()) {
   if (!riga || !PASSI_CHE_RIAPRONO.includes(riga.passo)) return false;
@@ -2760,6 +2770,7 @@ function riapreConUnSaluto(cfg, riga, testo, adesso = new Date()) {
 const COSA_MANCA = {
   persone: 'per quante persone',
   giorno: 'per che giorno',
+  servizio: 'scegliere tra pranzo e cena',
   ora: "l'orario",
   nome: 'il nome',
   telefono: 'il numero di telefono',
@@ -3133,12 +3144,88 @@ function contaRisposta(db, telefono, adesso) {
 // sono pranzo E cena, dodici righe di fila non si leggono più — e il cliente
 // che vuole cenare deve scorrere tutto il pranzo per arrivarci. Allora una
 // riga per servizio, con gli orari separati dal punto in mezzo.
+//
+// ⚠️ Coi TURNI ogni riga dice anche la fascia: «*1° turno* · dalle 19:30
+// alle 21:00». Deciso dal titolare: chi prenota sa da subito fin quando il
+// tavolo è suo, e nessuno si sente dire a sorpresa «dobbiamo liberare il
+// tavolo». La fine si scrive solo se il titolare l'ha scritta: i turni salvati
+// col solo inizio dicono «alle 19:30», senza inventare un orario.
 function elencoTurni(turni, cfg, iso) {
   if (!cfg || !iso) return turni.join('\n');
+  const riga = (t) => rigaTurno(cfg, iso, t);
+  const conTurni = turni.some((t) => numeroDelTurno(cfg, iso, t));
   const pranzo = turni.filter((t) => servizioDellOra(cfg, iso, t) === 'pranzo');
   const cena = turni.filter((t) => !pranzo.includes(t));
-  if (!pranzo.length || !cena.length) return turni.join('\n');
+  if (!pranzo.length || !cena.length) return turni.map(riga).join('\n');
+  if (conTurni) return `*Pranzo*\n${pranzo.map(riga).join('\n')}\n\n*Cena*\n${cena.map(riga).join('\n')}`;
   return `Pranzo: ${pranzo.join(' · ')}\nCena: ${cena.join(' · ')}`;
+}
+
+// Il turno di un orario, per dirlo al cliente: { numero, da, a }. `a` c'è solo
+// se il titolare ha scritto la fine del turno. null se l'orario non è un turno.
+function turnoDellOra(cfg, iso, ora) {
+  const numero = numeroDelTurno(cfg, iso, ora);
+  if (!numero) return null;
+  const f = fasceDelGiorno(cfg, iso).find((x) => x.turno && x.da === ora);
+  return { numero, da: ora, a: f && inMinuti(f.a) > inMinuti(f.da) ? f.a : '' };
+}
+function rigaTurno(cfg, iso, ora) {
+  const t = turnoDellOra(cfg, iso, ora);
+  if (!t) return ora;
+  return `*${t.numero}° turno* · ${t.a ? `dalle ${t.da} alle ${t.a}` : `alle ${t.da}`}`;
+}
+// «dalle 13:00 alle 15:00», o «alle 13:00» se la fine non è scritta.
+function fasciaDetta(cfg, iso, ora) {
+  const t = turnoDellOra(cfg, iso, ora);
+  return t && t.a ? `dalle ${ora} alle ${t.a}` : `alle ${ora}`;
+}
+// Il numero detto, come turno: «il primo», «2°», «secondo», «turno 3».
+// null se il messaggio non sceglie un turno per numero.
+function ordinaleDi(testo) {
+  const t = normalizza(testo).replace(/^(il|la|al|per il|per la)\s+/, '').replace(/\s*turno\s*/, ' ').trim();
+  if (/\d{1,2}\s*[:.,]\s*\d{2}/.test(t) || /\b\d{2}\b/.test(t)) return null;
+  const parole = t.split(' ');
+  return (ORDINALI.find(([, ovunque, sole]) => sole.includes(t) || parole.some((p) => ovunque.includes(p))) || [])[0] || null;
+}
+
+// L'orario col suo turno, per il riepilogo e lo spostamento:
+// «19:30 (1° turno, fino alle 21:00)». Fuori dai turni, l'orario e basta.
+function oraColTurno(cfg, iso, ora) {
+  const t = turnoDellOra(cfg, iso, ora);
+  if (!t) return ora;
+  return `${ora} (${t.numero}° turno${t.a ? `, fino alle ${t.a}` : ''})`;
+}
+
+// «il primo», «2° turno», «secondo», o un «1» da solo: il turno scelto,
+// come orario, o null. Fra i turni PROPOSTI (`turni`), e del servizio
+// `servizio` se c'è: «il primo» a pranzo e a cena sono due turni diversi, e
+// senza sapere quale non si indovina.
+//
+// ⚠️ Un «1» da solo, davanti a un elenco di turni numerati, è il primo turno
+// e non l'una: leggerlo come orario lo trasformava nelle 13:00 («alle 1» =
+// le 13), cioè in un turno che il cliente non aveva chiesto.
+// I passi della scelta dell'orario, prenotando e spostando: le stesse
+// domande, in due conversazioni diverse.
+const PASSI_NUOVA = { servizio: 'servizio', ora: 'ora' };
+const PASSI_SPOSTA = { servizio: 'sposta_servizio', ora: 'sposta_ora' };
+
+// Le parole valgono ovunque nel messaggio («va bene il primo»); le cifre e
+// «uno», «due»… solo da sole («2», «turno 2»): «alle 2» è un orario, e «siamo
+// in due» non è una scelta di turno.
+const ORDINALI = [
+  [1, ['primo', 'prima', '1°', '1º', '1o'], ['1', 'uno']],
+  [2, ['secondo', 'seconda', '2°', '2º', '2o'], ['2', 'due']],
+  [3, ['terzo', 'terza', '3°', '3º', '3o'], ['3', 'tre']],
+  [4, ['quarto', 'quarta', '4°', '4º', '4o'], ['4', 'quattro']],
+];
+function interpretaTurno(testo, cfg, iso, turni, servizio) {
+  // Un orario scritto («alle 19:30», «20») non è un turno: lo legge interpretaOra.
+  const quale = ordinaleDi(testo);
+  if (!quale) return null;
+  const servizi = servizio ? [servizio] : [...new Set(turni.map((o) => servizioDellOra(cfg, iso, o)))];
+  const trovati = servizi.flatMap((sv) => turni.filter((o) => servizioDellOra(cfg, iso, o) === sv
+    && numeroDelTurno(cfg, iso, o) === quale));
+  return trovati.length === 1 ? trovati[0] : null;
 }
 
 // «a pranzo», «domani sera», «per cena»: il servizio che il cliente ha detto,
@@ -4454,23 +4541,28 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       salvaStato(db, telefono, 'sposta_giorno', { ...avanzato(dati), giorni: alternativi });
       return esito;
     }
-    return proponiOrari('sposta_ora', dati, iso, turni, servizioDetto(testo));
+    return chiediServizio(PASSI_SPOSTA, dati, iso, turni, servizioDetto(testo));
+  }
+
+  if (stato.passo === 'sposta_servizio') {
+    const chiesto = servizioDetto(testo);
+    if (chiesto) return proponiOrari('sposta_ora', dati, dati.data, dati.turni || [], chiesto);
+    if (!oraScelta(dati)) {
+      return nonCapito('sposta_servizio', dati, di('bot_t_servizio_no', { data: dataItaliana(dati.data) }));
+    }
+    stato.passo = 'sposta_ora';
   }
 
   if (stato.passo === 'sposta_ora') {
-    const ora = interpretaOra(testo, dati.turni || []);
+    const ora = oraScelta(dati);
     if (!ora) {
       const no = oraNonProposta(db, cfg, dati, testo);
       if (no) return rispondiOraNo(no, 'sposta_ora', dati, { escludiId: dati.id, senzaPreavviso: true });
       const chiesto = servizioDetto(testo);
       if (chiesto) return proponiOrari('sposta_ora', dati, dati.data, dati.turni || [], chiesto);
-      return nonCapito('sposta_ora', dati, `${di('bot_t_ora_no')}\n${elencoTurni(dati.turni || [], cfg, dati.data)}`);
+      return nonCapito('sposta_ora', dati, `${di('bot_t_ora_no')}\n${elencoTurni(turniDaMostrare(dati), cfg, dati.data)}`);
     }
-    salvaStato(db, telefono, 'sposta_conferma', { ...avanzato(dati), ora });
-    risposte.push(di('bot_t_sposta_conferma', {
-      data: dataItaliana(dati.data), ora, persone: dati.persone,
-    }));
-    return esito;
+    return chiediConfermaSposta(avanzato(dati), ora);
   }
 
   if (stato.passo === 'sposta_conferma') {
@@ -4520,7 +4612,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       dopo: db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(p.id),
     };
     risposte.push(di('bot_t_spostata', {
-      data: dataItaliana(dati.data), ora: dati.ora, persone: p.persone,
+      data: dataItaliana(dati.data), ora: oraColTurno(cfg, dati.data, dati.ora), persone: p.persone,
     }));
     azzeraStato(db, telefono);
     return esito;
@@ -4754,18 +4846,73 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   // ne ha chiesto uno. Si salvano comunque TUTTI: chi ha chiesto il pranzo e
   // poi scrive «20:00» ha cambiato idea, non sbagliato.
   function proponiOrari(passo, d, iso, turni, servizio) {
-    const suoi = servizio ? turni.filter((o) => servizioDellOra(cfg, iso, o) === servizio) : turni;
+    let suoi = servizio ? turni.filter((o) => servizioDellOra(cfg, iso, o) === servizio) : turni;
+    let prima = di('bot_t_ora', { data: dataItaliana(iso) });
+    let resta = servizio;
     if (servizio && !suoi.length) {
       // Chiuso e pieno, di nuovo, sono due notizie diverse.
       const esiste = turniDelGiorno(cfg, iso).some((o) => servizioDellOra(cfg, iso, o) === servizio);
-      salvaStato(db, telefono, passo, { ...avanzato(d), data: iso, turni, servizio: undefined });
-      risposte.push(`${di(esiste ? 'bot_t_servizio_pieno' : 'bot_t_servizio_chiuso',
-        { data: dataItaliana(iso), servizio })}\n${elencoTurni(turni, cfg, iso)}`);
+      prima = di(esiste ? 'bot_t_servizio_pieno' : 'bot_t_servizio_chiuso', { data: dataItaliana(iso), servizio });
+      suoi = turni;
+      resta = undefined;
+    } else if (suoi.length === 1 && numeroDelTurno(cfg, iso, suoi[0])) {
+      // ⚠️ Un turno solo: un elenco di una riga e «scrivimi l'orario» farebbero
+      // ricopiare l'unica scelta possibile. Spostando, è già la domanda di
+      // conferma; prenotando, si chiede se va bene.
+      const ora = suoi[0];
+      if (passo === 'sposta_ora') return chiediConfermaSposta({ ...avanzato(d), data: iso, turni }, ora);
+      salvaStato(db, telefono, passo, { ...avanzato(d), data: iso, turni, servizio: servizioDellOra(cfg, iso, ora), unico: ora });
+      risposte.push(di('bot_t_turno_unico', {
+        data: dataItaliana(iso), servizio: servizioDellOra(cfg, iso, ora), fascia: fasciaDetta(cfg, iso, ora), ora,
+      }));
       return esito;
     }
-    salvaStato(db, telefono, passo, { ...avanzato(d), data: iso, turni, ...(servizio ? { servizio } : {}) });
-    risposte.push(`${di('bot_t_ora', { data: dataItaliana(iso) })}\n${elencoTurni(suoi, cfg, iso)}`);
+    salvaStato(db, telefono, passo, { ...avanzato(d), data: iso, turni, servizio: resta, unico: undefined });
+    const come = suoi.some((o) => numeroDelTurno(cfg, iso, o)) ? `\n\n${di('bot_t_ora_come')}` : '';
+    risposte.push(`${prima}\n${elencoTurni(suoi, cfg, iso)}${come}`);
     return esito;
+  }
+
+  // Pranzo o cena? Prima degli orari, deciso dal titolare — ma solo quando
+  // serve: ogni domanda in più su WhatsApp è un'attesa, e un'occasione per
+  // lasciar perdere. Non si chiede se il cliente l'ha già detto («sabato a
+  // cena»), né se quel giorno c'è un servizio solo con posto: lì si va dritti
+  // agli orari, e se l'altro c'è ma è pieno lo si dice.
+  function chiediServizio(passi, d, iso, turni, servizio) {
+    if (servizio) return proponiOrari(passi.ora, d, iso, turni, servizio);
+    const liberi = [...new Set(turni.map((o) => servizioDellOra(cfg, iso, o)))];
+    if (liberi.length > 1) {
+      salvaStato(db, telefono, passi.servizio, { ...avanzato(d), data: iso, turni, servizio: undefined, unico: undefined });
+      risposte.push(di('bot_t_servizio', { data: dataItaliana(iso) }));
+      return esito;
+    }
+    const pieno = turniDelGiorno(cfg, iso).map((o) => servizioDellOra(cfg, iso, o)).find((x) => x !== liberi[0]);
+    // L'altro servizio c'è ma è pieno: «a pranzo non abbiamo più posto, ma…».
+    return proponiOrari(passi.ora, d, iso, turni, pieno || liberi[0]);
+  }
+
+  function chiediConfermaSposta(d, ora) {
+    salvaStato(db, telefono, 'sposta_conferma', { ...d, ora, unico: undefined });
+    risposte.push(di('bot_t_sposta_conferma', {
+      data: dataItaliana(d.data), ora: oraColTurno(cfg, d.data, ora), persone: d.persone,
+    }));
+    return esito;
+  }
+
+  // I turni da rimettere sotto un «non ho capito»: quelli del servizio scelto,
+  // se ne ha scelto uno — chi ha detto «cena» non deve rileggersi il pranzo.
+  function turniDaMostrare(d) {
+    const tutti = d.turni || [];
+    const suoi = d.servizio ? tutti.filter((o) => servizioDellOra(cfg, d.data, o) === d.servizio) : [];
+    return suoi.length ? suoi : tutti;
+  }
+
+  // L'orario scelto: un turno per numero («il primo») o un orario («19:30»).
+  // ⚠️ Chi sceglie un turno per numero non ricade sull'orario: «1» a cui non
+  // corrisponde un turno non diventa le 13:00.
+  function oraScelta(d) {
+    if (ordinaleDi(testo)) return interpretaTurno(testo, cfg, d.data, d.turni || [], d.servizio);
+    return interpretaOra(testo, d.turni || []);
   }
 
   function passoPersone(persone) {
@@ -4836,14 +4983,42 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       salvaStato(db, telefono, 'giorno', { ...dati, giorni: alternativi, ...(pieno && listaAttiva ? { attesaData: iso } : {}) });
       return esito;
     }
-    return proponiOrari('ora', dati, iso, turni, conServizio().servizio);
+    return chiediServizio(PASSI_NUOVA, dati, iso, turni, conServizio().servizio);
+  }
+
+  // La risposta a «pranzo o cena?». Chi risponde già con un orario o un turno
+  // («20:00», «il secondo») ha saltato un passo, non sbagliato: lo legge il
+  // passo dell'orario, qui sotto.
+  if (stato.passo === 'servizio') {
+    const chiesto = servizioDetto(testo);
+    if (chiesto) return proponiOrari('ora', dati, dati.data, dati.turni || [], chiesto);
+    if (!oraScelta(dati)) {
+      return nonCapito('servizio', dati, di('bot_t_servizio_no', { data: dataItaliana(dati.data) }));
+    }
+    stato.passo = 'ora';
   }
 
   if (stato.passo === 'ora') {
     // Un messaggio fa gli è stato detto che il suo orario era pieno, e gli è
     // stata proposta la lista: «sì» vuol dire quello, non un orario.
     if (dati.attesaOra && vuoleLaAttesa()) return mettiInLista({ ...dati, ora: dati.attesaOra });
-    const ora = interpretaOra(testo, dati.turni || []);
+    // «Ti va bene il turno unico?» — sì è quello; no, si propone l'altro
+    // servizio o un altro giorno.
+    let ora = null;
+    if (dati.unico) {
+      const si = interpretaSiNo(testo);
+      if (si === true) ora = dati.unico;
+      if (si === false) {
+        const suo = servizioDellOra(cfg, dati.data, dati.unico);
+        const altro = (dati.turni || []).find((o) => servizioDellOra(cfg, dati.data, o) !== suo);
+        if (altro) return proponiOrari('ora', dati, dati.data, dati.turni, servizioDellOra(cfg, dati.data, altro));
+        const giorni = giorniDisponibili(db, cfg, dati.persone, adesso);
+        salvaStato(db, telefono, 'giorno', { persone: dati.persone, giorni });
+        risposte.push(`${di('bot_t_giorno')}\n${elencoGiorni(giorni)}`);
+        return esito;
+      }
+    }
+    if (!ora) ora = oraScelta(dati);
     if (!ora) {
       // Prima di dire «non ho capito»: forse ha capito benissimo, e quell'ora
       // semplicemente non c'è più. Non conta come equivoco — perché non lo è.
@@ -4853,7 +5028,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       // rispondono gli orari del pranzo.
       const chiesto = servizioDetto(testo);
       if (chiesto) return proponiOrari('ora', dati, dati.data, dati.turni || [], chiesto);
-      return nonCapito('ora', dati, `${di('bot_t_ora_no')}\n${elencoTurni(dati.turni || [], cfg, dati.data)}`);
+      return nonCapito('ora', dati, `${di('bot_t_ora_no')}\n${elencoTurni(turniDaMostrare(dati), cfg, dati.data)}`);
     }
     // Ricontrollo: fra la proposta e la risposta può essersi riempito
     if (!ciStanno(db, cfg, dati.data, ora, dati.persone)) {
@@ -5105,7 +5280,8 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     // quando non c'è niente da segnalare.
     const valoriRiepilogo = {
       ...valori,
-      data: dataItaliana(d.data), ora: d.ora, persone: d.persone,
+      // L'orario col suo turno e la fine: «19:30 (1° turno, fino alle 21:00)».
+      data: dataItaliana(d.data), ora: oraColTurno(cfg, d.data, d.ora), persone: d.persone,
       nome: [d.nome, d.cognome].filter(Boolean).join(' ') || '—',
       cognome: d.cognome || '',
       telefono: d.telefono || '',
@@ -5339,7 +5515,7 @@ module.exports = {
   turniDelGiorno,
   turniValidi,
   fasceDi, fasceValide, fasceDaiTurni, fasceDelGiorno, fineDelTavolo, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
-  servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI,
+  servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI, turnoDellOra, rigaTurno, oraColTurno, fasciaDetta, ordinaleDi, interpretaTurno,
   tavoliDi, usaTavoli, capienzaDi, trovaTavolo, postoPer, ciStanno, gruppoMassimo, tavoliLiberi,
   chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, numeroDelTurno, tavoloCheResta, daAssegnare, tavoliPresiPer, minimoDi, adattoA, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
   importoDaPagare,
