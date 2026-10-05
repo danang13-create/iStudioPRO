@@ -6515,13 +6515,6 @@ app.post('/api/bot/impostazioni', (req, res) => {
   // ⚠️ Le fasce arrivano come oggetto o come testo: si salvano SEMPRE
   // ripulite, come testo. Una fascia che non si legge non si accetta in
   // silenzio — il locale crederebbe di aver aperto il sabato a pranzo.
-  if (valori.bot_passo !== undefined) {
-    const passo = Number(valori.bot_passo);
-    if (!Number.isInteger(passo) || passo < 5 || passo > 240) {
-      return res.status(400).json({ error: 'Ogni quanti minuti proporre un orario: un numero fra 5 e 240.' });
-    }
-    valori.bot_passo = String(passo);
-  }
   let fasceRipulite = false;
   if (valori.bot_fasce !== undefined) {
     const fasce = bot.fasceValide(valori.bot_fasce);
@@ -6966,18 +6959,18 @@ const rottaServizio = (req, res) => {
   // numero che la tendina «quante persone» usa come tetto. Qui conta anche i
   // tavoli «solo sala»: chi guarda questa pagina è il personale, che li può dare.
   const conTavoli = bot.usaTavoli(db);
-  const turni = bot.turniDelGiorno(cfg, data).map((t) => (conTavoli
-    ? {
-      ora: t,
-      occupati: bot.copertiOccupati(db, cfg, data, t),
-      liberi: bot.gruppoMassimo(db, cfg, data, t, { ancheSala: true }),
-      tavoliLiberi: bot.tavoliLiberi(db, cfg, data, t, { ancheSala: true }).length,
-    }
-    : {
-      ora: t,
-      occupati: bot.copertiOccupati(db, cfg, data, t),
-      liberi: bot.postiLiberi(db, cfg, data, t),
-    }));
+  // Il servizio e il numero del turno servono alla tendina degli orari, che li
+  // raggruppa: «Pranzo — 1° turno · 12:30», invece di una lista unica.
+  const turni = bot.turniDelGiorno(cfg, data).map((t) => ({
+    ora: t,
+    servizio: bot.servizioDellOra(cfg, data, t),
+    turno: bot.numeroDelTurno(cfg, data, t),
+    occupati: bot.copertiOccupati(db, cfg, data, t),
+    ...(conTavoli
+      ? { liberi: bot.gruppoMassimo(db, cfg, data, t, { ancheSala: true }),
+          tavoliLiberi: bot.tavoliLiberi(db, cfg, data, t, { ancheSala: true }).length }
+      : { liberi: bot.postiLiberi(db, cfg, data, t) }),
+  }));
   const tavoli = bot.tavoliDi(db);
   // Chi è già in rubrica lo si deve vedere PRIMA di premere il pulsante:
   // scoprirlo dopo, con un messaggio d'errore, fa sembrare rotto qualcosa che

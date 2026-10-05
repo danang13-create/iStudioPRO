@@ -554,14 +554,12 @@ const PREDEFINITI = {
 
   // Orari — 0 è domenica, come getDay() di JavaScript
   //
-  // ⚠️ `bot_fasce` è il modo nuovo: per ogni giorno della settimana una o più
-  // fasce «dal primo all'ultimo arrivo», e il bot propone un orario ogni
-  // `bot_passo` minuti dentro ciascuna. Finché è vuota valgono ancora i tre
-  // campi di prima — giorni, pranzo, cena — letti ESATTAMENTE come prima: un
-  // locale che si aggiorna non deve trovarsi orari diversi da quelli che aveva.
-  // Vedi `fasceDi`.
+  // ⚠️ `bot_fasce` è il modo nuovo: per ogni giorno della settimana il pranzo
+  // e la cena, a turni — ogni turno con un inizio e una fine. Finché è vuota
+  // valgono ancora i tre campi di prima — giorni, pranzo, cena — letti
+  // ESATTAMENTE come prima: un locale che si aggiorna non deve trovarsi orari
+  // diversi da quelli che aveva. Vedi `fasceDi`.
   bot_fasce: '',
-  bot_passo: '30',
   bot_giorni: '1,2,3,4,5,6,0',
   bot_turni_pranzo: '',
   bot_turni_cena: '19:30,20:00,21:30',
@@ -1554,9 +1552,16 @@ function servizioPerOrario(hhmm) {
   return inMinuti(hhmm) < INIZIO_CENA ? 'pranzo' : 'cena';
 }
 
-function passoDi(cfg) {
-  const p = Math.round(num(cfg.bot_passo, 30));
-  return p >= 5 && p <= 240 ? p : 30;
+// ⚠️ Il passo NON si imposta più. C'era una tendina «proponi un orario ogni…»
+// in cima agli orari, e il titolare l'ha fatta togliere: stava da sola,
+// staccata da tutto, e contraddiceva il modo in cui il locale lavora — a turni,
+// ognuno con l'orario scritto da lui. Resta solo per due cose che non si
+// scrivono più ma possono esserci: le fasce «dalle… alle…» salvate prima, e i
+// turni di prima delle fasce (vedi `fasceDaiTurni`, che resta esatto con
+// qualunque passo).
+const PASSO_FISSO = 30;
+function passoDi() {
+  return PASSO_FISSO;
 }
 
 function daMinuti(m) {
@@ -1583,10 +1588,15 @@ function fasceValide(valore) {
       const [a] = turniValidi(f.a);
       if (!da || !a || inMinuti(a) < inMinuti(da)) continue;
       const servizio = SERVIZI.includes(f.servizio) ? f.servizio : servizioPerOrario(da);
-      // Un turno fisso è un orario solo: «dalle 19:30 alle 22» non è un turno.
-      const turno = f.turno === true && da === a;
+      // Un turno ha un inizio e una fine: il cliente arriva all'inizio, il
+      // tavolo è suo fino alla fine. (I turni salvati prima avevano solo
+      // l'inizio: `da` uguale ad `a`, e la fine la decide `fineDelTavolo`.)
+      const turno = f.turno === true;
       const uguale = buone.find((x) => x.da === da && x.a === a && x.servizio === servizio);
       if (uguale) { if (turno) uguale.turno = true; continue; }
+      // Due turni dello stesso servizio che cominciano alla stessa ora sono
+      // uno solo: il cliente arriva a quell'ora, e non si saprebbe in quale.
+      if (turno && buone.some((x) => x.turno && x.servizio === servizio && x.da === da)) continue;
       buone.push(turno ? { da, a, servizio, turno } : { da, a, servizio });
     }
     buone.sort((x, y) => inMinuti(x.da) - inMinuti(y.da));
@@ -1627,6 +1637,9 @@ function fasceDi(cfg) {
 // su un passo: è l'ora che il locale ha scritto, e toglierla vorrebbe dire
 // chiudere prima di quando ha detto.
 function orariDellaFascia(f, passo) {
+  // Un turno si propone solo al suo inizio: «19:30 → 21:00» vuol dire che si
+  // arriva alle 19:30, non ogni mezz'ora fino alle 21.
+  if (f.turno) return [f.da];
   const fine = inMinuti(f.a);
   const orari = [];
   for (let m = inMinuti(f.da); m <= fine; m += passo) orari.push(daMinuti(m));
@@ -1648,11 +1661,24 @@ function servizioDellOra(cfg, iso, ora) {
   return f ? f.servizio : servizioPerOrario(ora);
 }
 
+// Che turno è quell'orario: 1, 2… se il suo servizio quel giorno è a turni
+// fissi, null se è a orari continui (lì non ci sono «turni» da numerare).
+function numeroDelTurno(cfg, iso, ora) {
+  const fasce = fasceDelGiorno(cfg, iso);
+  const servizio = servizioDellOra(cfg, iso, ora);
+  const sue = fasce.filter((f) => f.servizio === servizio);
+  if (!sue.length || !sue.every((f) => f.turno)) return null;
+  const i = sue.map((f) => f.da).sort().indexOf(ora);
+  return i < 0 ? null : i + 1;
+}
+
 // Fin quando tiene il tavolo chi arriva a quell'ora, in minuti dalla
 // mezzanotte di quel giorno.
 //
-// ⚠️ Con i TURNI FISSI decide il turno, non la durata: chi prenota il primo
-// turno tiene il tavolo fino a quando comincia il secondo, e da lì il tavolo è
+// ⚠️ Con i TURNI decide il turno, non la durata: chi prenota un turno tiene il
+// tavolo fino alla FINE del turno, scritta dal titolare («19:30 → 21:00»).
+// I turni salvati prima che avessero una fine ce l'hanno implicita: chi
+// prenota il primo turno tiene il tavolo fino a quando comincia il secondo, e da lì il tavolo è
 // di nuovo prenotabile. È il modo in cui lavora un locale a turni: con primo
 // turno alle 19:30 e secondo alle 21:00, il tavolo delle 19:30 si rivende alle
 // 21:00 anche se la «durata del tavolo» è di due ore. L'ultimo turno di un
@@ -1667,6 +1693,9 @@ function fineDelTavolo(cfg, fasceGiorno, ora) {
   const inizio = inMinuti(ora);
   const turno = fasceGiorno.find((x) => x.turno && inMinuti(x.da) === inizio);
   if (!turno) return inizio + durata;
+  // Il turno con la sua fine scritta: il tavolo è suo fino a lì, né prima né
+  // dopo. È il caso normale da quando ogni turno ha inizio e fine.
+  if (inMinuti(turno.a) > inizio) return inMinuti(turno.a);
   const dopo = fasceGiorno
     .filter((x) => x.turno && x.servizio === turno.servizio && inMinuti(x.da) > inizio)
     .map((x) => inMinuti(x.da));
@@ -1973,7 +2002,7 @@ function riepilogoDelGiorno(db, cfg, iso) {
     // Orari singoli — i turni fissi, e anche i turni di prima come «20:00,
     // 22:00», che erano due giri di sala — si leggono uno per riga. Solo i
     // turni fissi si chiamano «1° turno».
-    if (sue.every((f) => f.da === f.a)) {
+    if (sue.every((f) => f.turno || f.da === f.a)) {
       orari.forEach((o, i) => {
         // Al turno va chi arriva da quell'ora fino al turno dopo: un orario
         // scritto a mano a metà fra due turni sta in quello cominciato.
@@ -1983,7 +2012,8 @@ function riepilogoDelGiorno(db, cfg, iso) {
         const occupati = occupatiAlle(o);
         const pieno = occupati >= totale;
         const fissa = sue.find((f) => f.da === o);
-        righe.push({ servizio, etichetta: `${NOMI[servizio]} ${fissa && fissa.turno ? `· ${i + 1}° turno ` : ''}${o}`,
+        const fascia = fissa && fissa.turno && fissa.a !== fissa.da ? `${o}–${fissa.a}` : o;
+        righe.push({ servizio, etichetta: `${NOMI[servizio]} ${fissa && fissa.turno ? `· ${i + 1}° turno ` : ''}${fascia}`,
                      testo: conTavoli ? `${misura(occupati)} · ${cop(coperti)}${pieno ? ' · pieno' : ''}`
                        : `${misura(occupati)} coperti${pieno ? ' · pieno' : ''}`,
                      pieno, occupati, totale, coperti });
@@ -5249,7 +5279,7 @@ module.exports = {
   fasceDi, fasceValide, fasceDaiTurni, fasceDelGiorno, fineDelTavolo, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
   servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI,
   tavoliDi, usaTavoli, capienzaDi, trovaTavolo, postoPer, ciStanno, gruppoMassimo, tavoliLiberi,
-  chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
+  chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, numeroDelTurno, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
   importoDaPagare,
   serveIlPagamento,
   pagamentoObbligatorio,

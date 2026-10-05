@@ -130,6 +130,37 @@ window.Turni = (function () {
     el.innerHTML = voci.join('');
   }
 
+  // Le voci della tendina degli orari, divise per servizio.
+  //
+  // ⚠️ Chiesto dal titolare: con pranzo e cena la tendina era una lista unica
+  // di nove, dieci orari, e il turno non si leggeva. Adesso un gruppo per
+  // servizio («Pranzo», «Cena»), e coi turni fissi ogni voce dice quale turno
+  // è. Il VALORE resta l'orario: è quello che si salva.
+  function opzioniOrari(turni, oraAttuale) {
+    const NOMI = { pranzo: 'Pranzo', cena: 'Cena' };
+    const voce = (t) => {
+      // Con i tavoli si contano i TAVOLI liberi: «12 liberi» farebbe
+      // pensare a dodici sedie per chiunque, mentre sono magari sei tavoli
+      // da due.
+      let liberi = '';
+      if (typeof t.tavoliLiberi === 'number') {
+        liberi = t.tavoliLiberi > 0
+          ? ` · ${t.tavoliLiberi === 1 ? '1 tavolo libero' : `${t.tavoliLiberi} tavoli liberi`}`
+          : ' · pieno';
+      } else if (typeof t.liberi === 'number') {
+        liberi = t.liberi > 0 ? ` · ${t.liberi} liberi` : ' · pieno';
+      }
+      const turno = t.turno ? `${t.turno}° turno · ` : '';
+      return `<option value="${t.ora}"${t.ora === oraAttuale ? ' selected' : ''}>${turno}${t.ora}${liberi}</option>`;
+    };
+    const servizi = [...new Set(turni.map((t) => t.servizio).filter(Boolean))];
+    if (!servizi.length) return turni.map(voce).join('');
+    return servizi.map((s) => `<optgroup label="${NOMI[s] || s}">`
+      + turni.filter((t) => t.servizio === s).map(voce).join('') + '</optgroup>').join('')
+      // Un orario senza servizio (non dovrebbe esserci) non sparisce.
+      + turni.filter((t) => !t.servizio).map(voce).join('');
+  }
+
   // Riempie la tendina con i turni del giorno.
   // `oraAttuale` è quella della prenotazione che si sta modificando: se non è
   // fra i turni — perché il locale ha cambiato orari dopo, o perché era stata
@@ -145,20 +176,7 @@ window.Turni = (function () {
       voci.push('<option value="">— il locale è chiuso in questo giorno —</option>');
     } else {
       voci.push('<option value="">Scegli l\'orario…</option>');
-      for (const t of turni) {
-        // Con i tavoli si contano i TAVOLI liberi: «12 liberi» farebbe
-        // pensare a dodici sedie per chiunque, mentre sono magari sei tavoli
-        // da due.
-        let liberi = '';
-        if (typeof t.tavoliLiberi === 'number') {
-          liberi = t.tavoliLiberi > 0
-            ? ` · ${t.tavoliLiberi === 1 ? '1 tavolo libero' : `${t.tavoliLiberi} tavoli liberi`}`
-            : ' · pieno';
-        } else if (typeof t.liberi === 'number') {
-          liberi = t.liberi > 0 ? ` · ${t.liberi} liberi` : ' · pieno';
-        }
-        voci.push(`<option value="${t.ora}"${t.ora === oraAttuale ? ' selected' : ''}>${t.ora}${liberi}</option>`);
-      }
+      voci.push(opzioniOrari(turni, oraAttuale));
     }
     // L'ora che c'è già ma che non è un turno: si tiene, e si dice che è fuori
     // turno invece di farla sparire.
@@ -171,5 +189,5 @@ window.Turni = (function () {
   // Quando cambia il giorno, i turni possono essere altri (pranzo, chiusure).
   function dimentica() { ultimaData = null; ultimiTurni = []; ultimaCapienza = 0; conTavoli = false; quando = 0; }
 
-  return { dellaGiornata, riempi, riempiPersone, liberiPer, capienza, dimentica };
+  return { dellaGiornata, riempi, riempiPersone, liberiPer, capienza, dimentica, opzioniOrari };
 })();
