@@ -1707,7 +1707,7 @@
           <button class="btn btn-secondario" id="pren-oggi">Oggi</button>
           <button class="btn" id="pren-aggiungi">+ Aggiungi prenotazione</button>
           <span style="flex:1"></span>
-          <span id="pren-turni" class="conteggio" style="margin:0"></span>
+          <span id="pren-turni" class="conteggio" style="margin:0;white-space:pre-line"></span>
         </div>
         <!-- LA LISTA D'ATTESA del giorno. Sta sopra l'elenco perché è la
              domanda che si fa PRIMA di dare via un tavolo: c'è qualcuno che
@@ -5285,8 +5285,10 @@ async function caricaRiepilogo() {
   $('#riep-coperti-eti').textContent = `coperti su ${stato.prenotazioni} ${stato.prenotazioni === 1 ? 'prenotazione' : 'prenotazioni'}, oggi`;
 
   const d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent(stato.oggi))).json();
-  $('#riep-turni').innerHTML = (d.turni || []).length
-    ? d.turni.map((t) => `<div class="riga"><span>${t.ora}</span><b>${t.occupati}/${d.capienza} coperti</b></div>`).join('')
+  // Una riga per turno, o per servizio — non una per ogni mezz'ora: con gli
+  // orari continui erano quindici righe uguali di «0/52 coperti».
+  $('#riep-turni').innerHTML = (d.riepilogo || []).length
+    ? d.riepilogo.map((r) => `<div class="riga"><span>${testoSicuro(r.etichetta)}</span><b>${testoSicuro(r.testo)}</b></div>`).join('')
     : '<div class="riga"><span>Oggi il locale è chiuso</span></div>';
 
   // «Da guardare»: solo le cose che hanno un numero diverso da zero. Un elenco
@@ -5498,13 +5500,15 @@ async function caricaServizio() {
   const d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent(data))).json();
   $('#lista-tavoli').innerHTML = (d.tavoli || []).map((t) => `<option value="${testoSicuro(t.nome)}">`
     + `${t.posti} ${t.posti === 1 ? 'posto' : 'posti'}${t.soloSala ? ' · solo sala' : ''}</option>`).join('');
-  $('#pren-turni').textContent = d.turni.length
-    ? d.turni.map((t) => `${t.ora}: ${t.occupati}/${d.capienza}`).join('  ·  ')
+  $('#pren-turni').textContent = (d.riepilogo || []).length
+    // Uno per riga: in fila, separati dallo stesso «·» che sta dentro ogni
+    // turno, non si capiva dove finiva uno e cominciava l'altro.
+    ? d.riepilogo.map((r) => `${r.etichetta}: ${r.testo}`).join('\n')
     : 'Chiuso in questo giorno';
   // Il cartello «pieno» sta PRIMA dei numeri: è la cosa che cambia il senso di
   // tutto il resto. Chi legge «20:00: 3/6» senza sapere che il bot rifiuta
   // crede che i tre posti siano ancora vendibili.
-  if (d.soldOut) $('#pren-turni').textContent = '🚫 Sold out — il bot non prende prenotazioni  ·  ' + $('#pren-turni').textContent;
+  if (d.soldOut) $('#pren-turni').textContent = '🚫 Sold out — il bot non prende prenotazioni\n' + $('#pren-turni').textContent;
   else if (d.chiuso) $('#pren-turni').textContent = '🔒 Chiusura — il bot non prende prenotazioni';
   disegnaAttese($('#pren-attese'), d.attese || [], caricaServizio);
   const corpo = $('#pren-righe');

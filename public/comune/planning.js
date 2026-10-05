@@ -58,8 +58,13 @@ window.Planning = (function () {
       // Mezzogiorno, non mezzanotte: costruire la data a mezzanotte e leggerne
       // il giorno espone allo scarto di fuso, che sposta il giorno di uno.
       const settimanale = new Date(g.data + 'T12:00:00').getDay();
-      const quota = g.capienza ? Math.min(g.coperti / g.capienza, 1) : 0;
-      const pieno = !!g.capienza && g.coperti >= g.capienza;
+      // ⚠️ Con i tavoli si misura a TAVOLI (vedi il server): a coperti un
+      // giorno coi tavoli tutti presi da coppie sembrava mezzo vuoto.
+      const occupati = g.conTavoli ? g.tavoliOccupati : g.coperti;
+      const possibili = g.conTavoli ? g.tavoliCapienza : g.capienza;
+      const unita = g.conTavoli ? 'tavoli' : 'coperti';
+      const quota = possibili ? Math.min(occupati / possibili, 1) : 0;
+      const pieno = !!possibili && occupati >= possibili;
       const quasi = !pieno && quota >= 0.8;
       // ⚠️ Lo stato NON è affidato al colore: il numero c'è sempre, e quando il
       // giorno è pieno lo dice anche a parole. Il colore rinforza, non informa —
@@ -78,7 +83,9 @@ window.Planning = (function () {
         : chiusoConGente ? `⚠️ chiuso, ma ${g.prenotazioni} pren.`
         : g.chiuso ? 'chiuso'
         : !g.prenotazioni ? 'libero'
-        : `${g.prenotazioni} pren.${pieno ? ' · pieno' : quasi ? ' · quasi pieno' : ''}`;
+        // Coi tavoli il numero grande sono già le prenotazioni (un tavolo
+        // ciascuna): sotto ci vanno i coperti, che servono alla cucina.
+        : `${g.conTavoli ? `${g.coperti} coperti` : `${g.prenotazioni} pren.`}${pieno ? ' · pieno' : quasi ? ' · quasi pieno' : ''}`;
       const classi = ['giorno', g.oggi ? 'oggi' : '', g.chiuso ? 'chiuso' : '',
         g.soldOut ? 'sold-out' : '',
         chiusoConGente ? 'chiuso-con-gente' : '', g.passato ? 'passato' : '']
@@ -87,11 +94,13 @@ window.Planning = (function () {
         <button class="${classi}" data-giorno="${g.data}"
                 title="${sicuro(g.etichetta)}${g.chiuso
                   ? (chiusoConGente ? ` — chiuso, ma ci sono ${g.prenotazioni} prenotazioni per ${g.coperti} coperti` : ' — chiuso')
-                  : ` — ${g.coperti} coperti su ${g.capienza}, ${g.prenotazioni} prenotazioni`}">
+                  : g.conTavoli
+                    ? ` — ${g.tavoliOccupati} tavoli su ${g.tavoliCapienza}, ${g.coperti} coperti`
+                    : ` — ${g.coperti} coperti su ${g.capienza}, ${g.prenotazioni} prenotazioni`}">
           <span class="gg">${GG[settimanale]} ${gg}${g.oggi ? ' · oggi' : ''}</span>
-          <span class="num">${g.chiuso && !chiusoConGente ? '—' : g.coperti}</span>
+          <span class="num">${g.chiuso && !chiusoConGente ? '—' : occupati}</span>
           ${g.chiuso ? '' : `<span class="meter"><i class="${pieno ? 'pieno' : quasi ? 'quasi' : ''}" style="width:${Math.round(quota * 100)}%"></i></span>`}
-          <span class="sotto capienza">${g.chiuso ? 'chiuso' : `su ${g.capienza} coperti`}</span>
+          <span class="sotto capienza">${g.chiuso ? 'chiuso' : `su ${possibili} ${unita}`}</span>
           <span class="sotto">${nota}</span>
         </button>`;
     }).join('');

@@ -739,7 +739,7 @@
         </svg>
         <span class="etichetta">Aggiorna</span>
       </button>
-      <span id="turni" class="conteggio"></span>
+      <span id="turni" class="conteggio" style="white-space:pre-line"></span>
     </div>
     <!-- Chi aspetta un posto per questo giorno: sta sopra l'elenco perché è la
          domanda che si fa PRIMA di dare via un tavolo. -->
@@ -937,13 +937,15 @@ async function caricaGiorno() {
   if (d.error) return;
   $('#lista-tavoli').innerHTML = (d.tavoli || []).map((t) => `<option value="${sicuro(t.nome)}">`
     + `${t.posti} ${t.posti === 1 ? 'posto' : 'posti'}${t.soloSala ? ' · solo sala' : ''}</option>`).join('');
-  $('#turni').textContent = d.turni.length
-    ? d.turni.map((t) => `${t.ora}: ${t.occupati}/${d.capienza}`).join('  ·  ')
+  // Una riga per turno, o per servizio — non una per ogni mezz'ora.
+  $('#turni').textContent = (d.riepilogo || []).length
+    // Uno per riga: in fila non si capiva dove finiva un turno.
+    ? d.riepilogo.map((r) => `${r.etichetta}: ${r.testo}`).join('\n')
     : 'Chiuso in questo giorno';
   // Il cartello «pieno» sta PRIMA dei numeri: è la cosa che cambia il senso di
   // tutto il resto. Chi legge «20:00: 3/6» senza sapere che il bot rifiuta
   // crede che i tre posti siano ancora vendibili.
-  if (d.soldOut) $('#turni').textContent = '🚫 Sold out — il bot non prende prenotazioni  ·  ' + $('#turni').textContent;
+  if (d.soldOut) $('#turni').textContent = '🚫 Sold out — il bot non prende prenotazioni\n' + $('#turni').textContent;
   else if (d.chiuso) $('#turni').textContent = '🔒 Chiusura — il bot non prende prenotazioni';
   disegnaAttese(d.attese || []);
   const vive = d.righe;

@@ -6993,6 +6993,9 @@ const rottaServizio = (req, res) => {
   // arrivano più prenotazioni.
   res.json({
     data, righe, turni, capienza: bot.capienzaDi(db, cfg),
+    // Com'è messa la giornata, per turno o per servizio: è quello che si
+    // MOSTRA. `turni` resta per le tendine, che hanno bisogno di ogni orario.
+    riepilogo: bot.riepilogoDelGiorno(db, cfg, data),
     // I tavoli del locale, per chi in sala ne sceglie uno, e il più grande:
     // oltre quello la tendina delle persone non va.
     tavoli: tavoli.map((t) => ({ nome: t.nome, posti: t.posti, soloSala: !!t.solo_sala })),
@@ -7041,6 +7044,12 @@ const rottaSettimana = (req, res) => {
   // una settimana e se ne otteneva un'altra, senza un errore.
   const partenza = dataVera(String(req.query.dal || '')) ? req.query.dal : oggi;
   const perTurno = bot.capienzaDi(db, cfg);
+  // ⚠️ Con i tavoli la giornata si misura a TAVOLI. A coperti, quattordici
+  // tavoli presi da quattordici coppie fanno 28 coperti su 52: il planning
+  // disegnava la barra a metà, e il bot intanto rifiutava tutti. Una
+  // prenotazione occupa un tavolo, quindi i tavoli occupati sono le
+  // prenotazioni; quelli possibili, i tavoli per i giri della giornata.
+  const quantiTavoli = bot.tavoliDi(db).length;
 
   const giorni = [];
   for (let i = 0; i < 7; i++) {
@@ -7079,6 +7088,9 @@ const rottaSettimana = (req, res) => {
       oggi: data === oggi,
       coperti: righe.reduce((n, r) => n + r.persone, 0),
       prenotazioni: righe.length,
+      conTavoli: quantiTavoli > 0,
+      tavoliOccupati: righe.length,
+      tavoliCapienza: chiuso ? 0 : quantiTavoli * bot.giriDelGiorno(cfg, data),
     });
   }
   res.json({ oggi, dal: partenza, giorni });

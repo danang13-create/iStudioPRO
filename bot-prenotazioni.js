@@ -1929,6 +1929,88 @@ function tavoliLiberi(db, cfg, iso, ora, opzioni = {}) {
 // Chi ha già quel tavolo a quell'ora, se qualcuno ce l'ha. Per la sala, che lo
 // scrive a mano: due gruppi allo stesso tavolo si scoprono quando arriva il
 // secondo, ed è il momento peggiore per scoprirlo.
+// Com'è messa una giornata, per chi la guarda: una riga per TURNO (turni
+// fissi) o per SERVIZIO (orari continui) — mai una per ogni mezz'ora.
+//
+// ⚠️ Visto dal titolare nel pannello: con gli orari continui la scheda «Oggi»
+// scriveva quindici righe uguali, «12:30 0/52 coperti», «13:00 0/52
+// coperti»… fino alle 23:00. Un elenco così non si legge, e non dice la cosa
+// che serve: quanto è pieno il pranzo, quanto la cena.
+//
+// Con i tavoli si contano i TAVOLI: due sedie vuote al tavolo di una coppia
+// non sono vendibili, e un turno coi tavoli tutti presi è pieno anche a metà
+// coperti — è così che lo vede il bot. I coperti restano scritti: alla cucina
+// servono.
+//
+// Ogni riga: { servizio, etichetta, testo, pieno, occupati, totale, coperti }.
+function riepilogoDelGiorno(db, cfg, iso) {
+  const fasce = fasceDelGiorno(cfg, iso);
+  const tavoli = tavoliDi(db);
+  const conTavoli = tavoli.length > 0;
+  const totale = conTavoli ? tavoli.length : capienzaDi(db, cfg);
+  const passo = passoDi(cfg);
+  const vive = db.prepare('SELECT ora, persone FROM prenotazioni WHERE data = ? AND stato IN ' + dentro(STATI_VIVI)).all(iso);
+  const occupatiAlle = (ora) => (conTavoli
+    ? occupazioneTavoli(db, cfg, iso, ora, null, tavoli).size
+    : copertiOccupati(db, cfg, iso, ora));
+  const misura = (occupati) => (conTavoli ? `${occupati}/${totale} tavoli` : `${occupati}/${totale}`);
+  const cop = (n) => `${n} ${n === 1 ? 'coperto' : 'coperti'}`;
+  const NOMI = { pranzo: 'Pranzo', cena: 'Cena' };
+  const righe = [];
+  for (const servizio of SERVIZI) {
+    const sue = fasce.filter((f) => f.servizio === servizio);
+    const delServizio = vive.filter((r) => servizioDellOra(cfg, iso, r.ora) === servizio);
+    const coperti = delServizio.reduce((n, r) => n + r.persone, 0);
+    if (!sue.length) {
+      // ⚠️ Chiuso, ma con gente dentro: è il caso che spariva. Si dice.
+      if (delServizio.length) {
+        righe.push({ servizio, etichetta: `${NOMI[servizio]} (chiuso)`, testo: `⚠️ ${cop(coperti)} prenotati`,
+                     pieno: false, occupati: 0, totale, coperti });
+      }
+      continue;
+    }
+    const orari = [...new Set(sue.flatMap((f) => orariDellaFascia(f, passo)))].sort();
+    // Orari singoli — i turni fissi, e anche i turni di prima come «20:00,
+    // 22:00», che erano due giri di sala — si leggono uno per riga. Solo i
+    // turni fissi si chiamano «1° turno».
+    if (sue.every((f) => f.da === f.a)) {
+      orari.forEach((o, i) => {
+        // Al turno va chi arriva da quell'ora fino al turno dopo: un orario
+        // scritto a mano a metà fra due turni sta in quello cominciato.
+        const fino = orari[i + 1] ? inMinuti(orari[i + 1]) : Infinity;
+        const loro = delServizio.filter((r) => (i === 0 || inMinuti(r.ora) >= inMinuti(o)) && inMinuti(r.ora) < fino);
+        const coperti = loro.reduce((n, r) => n + r.persone, 0);
+        const occupati = occupatiAlle(o);
+        const pieno = occupati >= totale;
+        const fissa = sue.find((f) => f.da === o);
+        righe.push({ servizio, etichetta: `${NOMI[servizio]} ${fissa && fissa.turno ? `· ${i + 1}° turno ` : ''}${o}`,
+                     testo: conTavoli ? `${misura(occupati)} · ${cop(coperti)}${pieno ? ' · pieno' : ''}`
+                       : `${misura(occupati)} coperti${pieno ? ' · pieno' : ''}`,
+                     pieno, occupati, totale, coperti });
+      });
+    } else {
+      // Orari continui: il momento più pieno del servizio, perché è lì che
+      // il bot comincia a dire di no.
+      // ⚠️ Chi è seduto NELLO STESSO MOMENTO, non chi darebbe fastidio a un
+      // nuovo arrivo di quell'ora: quella è la domanda del bot, e conta anche
+      // chi arriverà fra un'ora. Con le 20:00 e le 22:00 — mai sedute insieme —
+      // la riga diceva «al massimo 6 insieme». (Trovato dalla sua prova.) Il
+      // momento più pieno cade sempre su un arrivo: si guardano quelli.
+      const seduti = (t) => vive.filter((r) => inMinuti(r.ora) <= t && t < fineDelTavolo(cfg, fasce, r.ora));
+      const picco = delServizio.reduce((m, r) => {
+        const insieme = seduti(inMinuti(r.ora));
+        return Math.max(m, conTavoli ? insieme.length : insieme.reduce((n, x) => n + x.persone, 0));
+      }, 0);
+      const pieno = picco >= totale;
+      righe.push({ servizio, etichetta: `${NOMI[servizio]} ${orari[0]}${orari.length > 1 ? `–${orari[orari.length - 1]}` : ''}`,
+                   testo: !delServizio.length ? 'nessuna prenotazione'
+                     : `${cop(coperti)} · al massimo ${misura(picco)} insieme${pieno ? ' · pieno' : ''}`,
+                   pieno, occupati: picco, totale, coperti });
+    }
+  }
+  return righe;
+}
+
 function chiTieneIlTavolo(db, cfg, iso, ora, nome, escludiId) {
   const chiave = chiaveTavolo(nome);
   if (!chiave) return null;
@@ -4029,12 +4111,9 @@ function elencoPrenotazioni(db, cfg, iso, adesso = new Date()) {
   });
 
   // I totali per turno: è la riga che serve davvero prima di aprire, perché
-  // dice quanti posti restano senza doverli contare a mente.
-  const turni = turniDelGiorno(cfg, iso);
-  const capienza = capienzaDi(db, cfg);
-  const riepilogo = turni
-    .map((o) => `${o} ${copertiOccupati(db, cfg, iso, o)}/${capienza}`)
-    .join(' · ');
+  // dice quanti posti restano senza doverli contare a mente. Per turno o per
+  // servizio, non per ogni mezz'ora (vedi `riepilogoDelGiorno`).
+  const riepilogo = riepilogoDelGiorno(db, cfg, iso).map((r) => `${r.etichetta}: ${r.testo}`).join('\n');
 
   parti.push('');
   parti.push(`Totale: ${coperti} ${coperti === 1 ? 'coperto' : 'coperti'} su ${righe.length} ${righe.length === 1 ? 'prenotazione' : 'prenotazioni'}.`);
@@ -5170,7 +5249,7 @@ module.exports = {
   fasceDi, fasceValide, fasceDaiTurni, fasceDelGiorno, fineDelTavolo, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
   servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI,
   tavoliDi, usaTavoli, capienzaDi, trovaTavolo, postoPer, ciStanno, gruppoMassimo, tavoliLiberi,
-  chiTieneIlTavolo, chiaveTavolo, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
+  chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
   importoDaPagare,
   serveIlPagamento,
   pagamentoObbligatorio,
