@@ -6585,6 +6585,21 @@ function postiDelTavolo(v) {
   return Number.isInteger(n) && n >= 1 && n <= bot.POSTI_MASSIMI_TAVOLO ? n : null;
 }
 
+// Il minimo di persone di un tavolo (deciso dal titolare: «R19 da 6 a 10»).
+// Da 1 ai posti del tavolo; null se non è un numero buono.
+function minimoDelTavolo(v, posti) {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= posti ? n : null;
+}
+
+// Il prefisso dei nomi aggiunti in fila: «R» → R1, R2… Lettere, al massimo
+// otto, e niente cifre: una cifra in fondo al prefisso si confonderebbe col
+// numero («R1» + 4 = «R14» o «R1-4»?).
+function prefissoPulito(v) {
+  const p = String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  return /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .-]{0,7}$/.test(p) ? p : (p ? null : '');
+}
+
 function rispostaTavoli(res, extra = {}) {
   const cfg = bot.config(db);
   res.json({ ...extra, tavoli: bot.tavoliDi(db), capienza: bot.capienzaDi(db, cfg),
@@ -6593,14 +6608,16 @@ function rispostaTavoli(res, extra = {}) {
 
 // I nomi dei tavoli aggiunti in fila: i numeri che vengono dopo il più alto
 // già usato. In sala i tavoli si chiamano quasi sempre col numero — è anche
-// quello che la riga della prenotazione suggerisce, «es. 12».
-function prossimiNomiTavolo(quanti) {
+// quello che la riga della prenotazione suggerisce, «es. 12». Col prefisso
+// («R») si continua la SUA numerazione: R1, R2, R3 → R4.
+function prossimiNomiTavolo(quanti, prefisso = '') {
   const usati = new Set(bot.tavoliDi(db).map((t) => bot.chiaveTavolo(t.nome)));
-  let n = bot.tavoliDi(db).reduce((m, t) => (/^\d+$/.test(t.nome) ? Math.max(m, +t.nome) : m), 0);
+  const forma = new RegExp('^' + prefisso.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&') + '(\\d+)$', 'i');
+  let n = bot.tavoliDi(db).reduce((m, t) => { const x = forma.exec(t.nome); return x ? Math.max(m, +x[1]) : m; }, 0);
   const nomi = [];
   while (nomi.length < quanti) {
     n += 1;
-    if (!usati.has(String(n))) nomi.push(String(n));
+    if (!usati.has(bot.chiaveTavolo(prefisso + n))) nomi.push(prefisso + n);
   }
   return nomi;
 }
@@ -6642,13 +6659,22 @@ app.post('/api/bot/tavoli', (req, res) => {
   if (nome && bot.tavoliDi(db).some((t) => bot.chiaveTavolo(t.nome) === bot.chiaveTavolo(nome))) {
     return res.status(409).json({ error: `C'è già un tavolo «${nome}».` });
   }
-  const nomi = nome ? [nome] : prossimiNomiTavolo(quanti);
+  const minimo = b.minimo === undefined || b.minimo === '' ? 1 : minimoDelTavolo(b.minimo, posti);
+  if (!minimo) {
+    return res.status(400).json({ error: `Il minimo va da 1 a ${posti}: non può superare i posti del tavolo.` });
+  }
+  const prefisso = prefissoPulito(b.prefisso);
+  if (prefisso === null) {
+    return res.status(400).json({ error: 'L\'inizio del nome sono solo lettere, al massimo otto: per esempio «R» o «Sala».' });
+  }
+  const nomi = nome ? [nome] : prossimiNomiTavolo(quanti, prefisso);
   const primo = (db.prepare('SELECT MAX(ordine) AS m FROM bot_tavoli').get().m || 0) + 1;
-  const metti = db.prepare('INSERT INTO bot_tavoli (nome, posti, solo_sala, ordine) VALUES (?, ?, ?, ?)');
-  db.transaction(() => nomi.forEach((n, i) => metti.run(n, posti, b.soloSala ? 1 : 0, primo + i)))();
+  const metti = db.prepare('INSERT INTO bot_tavoli (nome, posti, posti_min, solo_sala, ordine) VALUES (?, ?, ?, ?, ?)');
+  db.transaction(() => nomi.forEach((n, i) => metti.run(n, posti, minimo, b.soloSala ? 1 : 0, primo + i)))();
+  const misura = minimo > 1 ? `da ${minimo} a ${posti}` : `da ${posti}`;
   annota('tavoli', nomi.length === 1
-    ? `aggiunto il tavolo ${nomi[0]} da ${posti}`
-    : `aggiunti ${nomi.length} tavoli da ${posti} (${nomi[0]}–${nomi[nomi.length - 1]})`);
+    ? `aggiunto il tavolo ${nomi[0]} ${misura}`
+    : `aggiunti ${nomi.length} tavoli ${misura} (${nomi[0]}–${nomi[nomi.length - 1]})`);
   rispostaTavoli(res, { ok: true, aggiunti: nomi });
 });
 
@@ -6657,10 +6683,20 @@ app.patch('/api/bot/tavoli/:id', (req, res) => {
   const t = db.prepare('SELECT * FROM bot_tavoli WHERE id = ?').get(req.params.id);
   if (!t) return res.status(404).json({ error: 'Tavolo inesistente' });
   const b = req.body || {};
-  const nuovo = { nome: t.nome, posti: t.posti, solo_sala: t.solo_sala };
+  const nuovo = { nome: t.nome, posti: t.posti, posti_min: t.posti_min || 1, solo_sala: t.solo_sala };
   if (b.posti !== undefined) {
     nuovo.posti = postiDelTavolo(b.posti);
     if (!nuovo.posti) return res.status(400).json({ error: `Un tavolo ha da 1 a ${bot.POSTI_MASSIMI_TAVOLO} posti.` });
+  }
+  if (b.minimo !== undefined) {
+    nuovo.posti_min = minimoDelTavolo(b.minimo, nuovo.posti);
+    if (!nuovo.posti_min) {
+      return res.status(400).json({ error: `Il minimo va da 1 a ${nuovo.posti}: non può superare i posti del tavolo.` });
+    }
+  } else if (nuovo.posti_min > nuovo.posti) {
+    // Tolti dei posti sotto il minimo: il minimo scende con loro, invece di
+    // rifiutare un cambio che il titolare ha appena chiesto.
+    nuovo.posti_min = nuovo.posti;
   }
   if (b.nome !== undefined) {
     nuovo.nome = tavoloPulito(b.nome);
@@ -6676,12 +6712,12 @@ app.patch('/api/bot/tavoli/:id', (req, res) => {
   // gruppo mentre la sala ci aspetta ancora quello di prima.
   const spostate = bot.chiaveTavolo(nuovo.nome) !== bot.chiaveTavolo(t.nome) ? prenotazioniFutureAlTavolo(t.nome) : [];
   db.transaction(() => {
-    db.prepare('UPDATE bot_tavoli SET nome = ?, posti = ?, solo_sala = ? WHERE id = ?')
-      .run(nuovo.nome, nuovo.posti, nuovo.solo_sala, t.id);
+    db.prepare('UPDATE bot_tavoli SET nome = ?, posti = ?, posti_min = ?, solo_sala = ? WHERE id = ?')
+      .run(nuovo.nome, nuovo.posti, nuovo.posti_min, nuovo.solo_sala, t.id);
     const segna = db.prepare('UPDATE prenotazioni SET tavolo = ? WHERE id = ?');
     for (const r of spostate) segna.run(nuovo.nome, r.id);
   })();
-  annota('tavoli', `tavolo ${t.nome}: ${nuovo.nome}, ${nuovo.posti} posti${nuovo.solo_sala ? ', solo sala' : ''}`);
+  annota('tavoli', `tavolo ${t.nome}: ${nuovo.nome}, ${nuovo.posti_min > 1 ? `da ${nuovo.posti_min} a ${nuovo.posti} persone` : `${nuovo.posti} posti`}${nuovo.solo_sala ? ', solo sala' : ''}`);
   // Meno posti di quanti ne aspetta una prenotazione già fatta: si salva lo
   // stesso — il tavolo è quello, e la sala deve poterlo dire — ma si avvisa.
   const strette = prenotazioniFutureAlTavolo(nuovo.nome).filter((r) => r.persone > nuovo.posti);
@@ -6826,6 +6862,19 @@ function tavoloPerLaSala(cfg, { data, ora, persone, tavolo, forza, escludiId, pr
   }
   const t = bot.trovaTavolo(db, cfg, data, ora, persone, { ancheSala: true, escludiId, preferito });
   if (t || forza) return { tavolo: '' };
+  // Liberi ci sono, ma solo più grandi del gruppo (sotto il loro minimo): lo
+  // si dice così, e si dice come fare — la sala può sempre scegliere a mano.
+  const grandi = bot.tavoliLiberi(db, cfg, data, ora, { ancheSala: true, escludiId })
+    .filter((x) => x.posti >= persone).sort((x, y) => x.posti - y.posti);
+  if (grandi.length) {
+    return { errore: {
+      error: `Per ${bot.dataItaliana(data)} alle ${ora} i tavoli per ${persone} `
+        + `${persone === 1 ? 'persona' : 'persone'} sono tutti presi: restano liberi solo tavoli più grandi `
+        + `(${grandi.slice(0, 3).map((x) => `${x.nome}, da ${bot.minimoDi(x)} a ${x.posti}`).join('; ')}). `
+        + 'Se vuoi metterli lì, scrivi il tavolo nella prenotazione.',
+      liberi: 0,
+    } };
+  }
   const piu = bot.gruppoMassimo(db, cfg, data, ora, { ancheSala: true, escludiId });
   return { errore: {
     error: `Per ${bot.dataItaliana(data)} alle ${ora} non c'è un tavolo libero per ${persone} `
@@ -7004,8 +7053,8 @@ const rottaServizio = (req, res) => {
     // oltre quello la tendina delle persone non va.
     // Dal più piccolo al più grande (chiesto dal titolare): è l'ordine in
     // cui si cerca un tavolo per un gruppo, lo stesso del bot.
-    tavoli: [...tavoli].sort((x, y) => x.posti - y.posti || x.ordine - y.ordine || x.id - y.id)
-      .map((t) => ({ nome: t.nome, posti: t.posti, soloSala: !!t.solo_sala })),
+    tavoli: [...tavoli].sort((x, y) => x.posti - y.posti || bot.minimoDi(x) - bot.minimoDi(y) || x.ordine - y.ordine || x.id - y.id)
+      .map((t) => ({ nome: t.nome, posti: t.posti, minimo: bot.minimoDi(t), soloSala: !!t.solo_sala })),
     gruppoMassimo: tavoli.reduce((m, t) => Math.max(m, t.posti), 0),
     soldOut: bot.ePieno(db, data), chiuso: bot.eChiuso(db, data),
     // Chi aspetta un posto per questo giorno: la sala lo deve vedere, sia per

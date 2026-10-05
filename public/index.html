@@ -1019,14 +1019,18 @@
   .tavoli-riassunto .sotto { font-weight: 400; color: var(--grigio); }
   .tavoli-aggiungi { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .tavoli-aggiungi input { width: 72px; }
+  .tavoli-aggiungi #tav-prefisso { width: 64px; text-transform: none; }
   .tavoli-aggiungi select { width: auto; }
   .tavoli-elenco {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 10px; margin-top: 12px;
   }
   .tavolo {
-    display: grid; grid-template-columns: minmax(90px, 1fr) auto auto; gap: 8px; align-items: center;
+    display: grid; grid-template-columns: minmax(90px, 1fr) auto; gap: 8px; align-items: center;
     padding: 10px; border: 1px solid var(--bordo); border-radius: 10px; background: var(--carta-2);
   }
+  .tavolo .tav-misura { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+                        font-size: .9rem; }
+  .tavolo .tav-misura select { width: auto; }
   .tavolo.sala { border-style: dashed; }
   .tavolo label { display: flex; align-items: center; gap: 6px; font-weight: 400; font-size: .85rem; }
   .tavolo .tav-nome { min-width: 0; font-weight: 600; }
@@ -1810,17 +1814,24 @@
       <div class="card" id="pren-card-tavoli">
         <h2 style="font-size:1rem;margin:0 0 6px">Tavoli</h2>
         <p class="conteggio" style="margin:0 0 12px">
-          Una prenotazione, un tavolo: due gruppi non dividono mai lo stesso tavolo. Il bot dà a ogni gruppo
-          il tavolo <b>più piccolo in cui ci sta</b>, e quello grande solo se non è rimasto altro. Un tavolo torna
-          libero passata la durata del tavolo. I tavoli <b>solo sala</b> il bot non li dà mai: sono per chi entra
-          senza prenotare. Si salvano subito.
+          Una prenotazione, un tavolo: due gruppi non dividono mai lo stesso tavolo. Ogni tavolo è
+          <b>da … a … persone</b>: il bot dà a un gruppo solo i tavoli della sua misura, il più piccolo per primo —
+          una coppia non va mai al tavolo da 6–10, che resta per il gruppo. Se nessun tavolo è della misura giusta
+          (5 persone coi tavoli da 2–4 e da 6–10), usa il più piccolo in cui ci stanno. I tavoli <b>solo sala</b>
+          il bot non li dà mai: sono per chi entra senza prenotare. Si salvano subito.
         </p>
         <p id="tavoli-riassunto" class="tavoli-riassunto"></p>
         <div class="tavoli-aggiungi">
           <span>Aggiungi</span>
           <input id="tav-quanti" type="number" min="1" max="50" value="1" inputmode="numeric" autocomplete="off" aria-label="Quanti tavoli">
           <span>tavoli da</span>
-          <select id="tav-posti" autocomplete="off" aria-label="Posti per tavolo"></select>
+          <select id="tav-minimo" autocomplete="off" aria-label="Persone, almeno"></select>
+          <span>a</span>
+          <select id="tav-posti" autocomplete="off" aria-label="Persone, al massimo"></select>
+          <span>persone, nomi</span>
+          <input id="tav-prefisso" maxlength="8" autocomplete="off" placeholder="R" aria-label="Inizio dei nomi, per esempio R"
+                 title="Facoltativo: con «R» i tavoli si chiamano R1, R2, R3… Vuoto: 1, 2, 3…">
+          <span class="conteggio" id="tav-esempio"></span>
           <button class="btn btn-secondario" id="tav-aggiungi" type="button">Aggiungi</button>
         </div>
         <p id="tav-esito" class="conteggio" role="status" style="margin:8px 0 0"></p>
@@ -7418,12 +7429,43 @@ $('#pren-fasce').addEventListener('click', (e) => {
 // quello: così quello che si vede è quello che c'è, non quello che si spera.
 let tavoliMassimo = 12;
 
-function opzioniPosti(scelto) {
+function opzioniPosti(scelto, da = 1, a = tavoliMassimo) {
   let voci = '';
-  for (let n = 1; n <= tavoliMassimo; n++) {
-    voci += `<option value="${n}"${n === scelto ? ' selected' : ''}>${n} ${n === 1 ? 'posto' : 'posti'}</option>`;
+  for (let n = da; n <= a; n++) {
+    voci += `<option value="${n}"${n === scelto ? ' selected' : ''}>${n}</option>`;
   }
   return voci;
+}
+// I numeri di persone per cui nessun tavolo prenotabile è della misura giusta.
+// Il bot li mette al più piccolo in cui ci stanno (deciso dal titolare), ma il
+// titolare lo deve SAPERE: un buco fra «da 2 a 4» e «da 6 a 10» non si vede
+// guardando i tavoli uno per uno.
+function buchiDiMisura(tavoli) {
+  const prenotabili = tavoli.filter((t) => !t.solo_sala);
+  const fino = prenotabili.reduce((m, t) => Math.max(m, t.posti), 0);
+  const buchi = [];
+  for (let n = 1; n <= fino; n++) {
+    if (!prenotabili.some((t) => (t.posti_min || 1) <= n && n <= t.posti)) buchi.push(n);
+  }
+  return buchi;
+}
+// [5] → «5», [5, 11] → «5 e 11», [5, 6, 7] → «5–7».
+function elencoNumeri(numeri) {
+  const tratti = [];
+  for (const n of numeri) {
+    const ultimo = tratti[tratti.length - 1];
+    if (ultimo && n === ultimo[1] + 1) ultimo[1] = n; else tratti.push([n, n]);
+  }
+  const parti = tratti.map(([a, b]) => (a === b ? String(a) : `${a}–${b}`));
+  return parti.length > 1 ? parti.slice(0, -1).join(', ') + ' e ' + parti[parti.length - 1] : parti[0];
+}
+function misuraTavolo(t) {
+  const min = t.posti_min || 1;
+  return min > 1 ? `da ${min} a ${t.posti}` : `fino a ${t.posti}`;
+}
+function esempioNomi() {
+  const p = $('#tav-prefisso').value.trim();
+  $('#tav-esempio').textContent = p ? `(${p}1, ${p}2…)` : '';
 }
 function esitoTavoli(testo, male) {
   const el = $('#tav-esito');
@@ -7434,7 +7476,9 @@ function disegnaTavoli(d) {
   tavoliMassimo = d.postiMassimi || 12;
   const tavoli = d.tavoli || [];
   const scelto = +$('#tav-posti').value || 4;
+  const sceltoMin = Math.min(+$('#tav-minimo').value || 1, scelto);
   $('#tav-posti').innerHTML = opzioniPosti(scelto);
+  $('#tav-minimo').innerHTML = opzioniPosti(sceltoMin, 1, scelto);
   const prenotabili = tavoli.filter((t) => !t.solo_sala);
   const sala = tavoli.length - prenotabili.length;
   const piuGrande = prenotabili.reduce((m, t) => Math.max(m, t.posti), 0);
@@ -7444,6 +7488,10 @@ function disegnaTavoli(d) {
         ? `Il bot prende gruppi fino a ${piuGrande} persone`
         : 'Nessun tavolo prenotabile: il bot passa ogni richiesta a una persona'}`
       + `${sala ? ` · ${sala} solo sala` : ''}</span>`
+      + (buchiDiMisura(tavoli).length && prenotabili.length
+        ? `<br><span class="sotto">⚠️ Nessun tavolo è della misura giusta per ${elencoNumeri(buchiDiMisura(tavoli))} `
+          + `${buchiDiMisura(tavoli).length === 1 && buchiDiMisura(tavoli)[0] === 1 ? 'persona' : 'persone'}: `
+          + 'il bot li mette al tavolo più piccolo in cui ci stanno.</span>' : '')
     : 'Nessun tavolo ancora<br><span class="sotto">Il bot conta solo i coperti, qui sotto. '
       + 'Aggiungi i tavoli e sceglierà lui il tavolo giusto per ogni gruppo.</span>';
   // I coperti a mano servono solo finché non ci sono tavoli: dopo, mostrarli
@@ -7452,8 +7500,12 @@ function disegnaTavoli(d) {
   $('#pren-tavoli').innerHTML = tavoli.map((t) => `
     <div class="tavolo${t.solo_sala ? ' sala' : ''}" data-tavolo-id="${t.id}">
       <input class="tav-nome" value="${esc(t.nome)}" maxlength="20" autocomplete="off" aria-label="Nome del tavolo ${esc(t.nome)}">
-      <select class="tav-posti" autocomplete="off" aria-label="Posti del tavolo ${esc(t.nome)}">${opzioniPosti(t.posti)}</select>
       <button type="button" class="tasto-togli" data-togli-tavolo aria-label="Togli il tavolo ${esc(t.nome)}">✕</button>
+      <div class="tav-misura">da
+        <select class="tav-minimo" autocomplete="off" aria-label="Il tavolo ${esc(t.nome)}: persone, almeno">${opzioniPosti(t.posti_min || 1, 1, t.posti)}</select>
+        a
+        <select class="tav-posti" autocomplete="off" aria-label="Il tavolo ${esc(t.nome)}: persone, al massimo">${opzioniPosti(t.posti)}</select>
+        persone</div>
       <label class="tav-sala"><input type="checkbox" class="tav-solo-sala"${t.solo_sala ? ' checked' : ''}> solo sala: il bot non lo dà</label>
     </div>`).join('');
 }
@@ -7491,13 +7543,21 @@ async function mandaTavoli(url, metodo, corpo) {
 $('#tav-aggiungi').addEventListener('click', async () => {
   const quanti = +$('#tav-quanti').value;
   const posti = +$('#tav-posti').value;
-  const d = await mandaTavoli('/api/bot/tavoli', 'POST', { quanti, posti });
+  const minimo = +$('#tav-minimo').value || 1;
+  const d = await mandaTavoli('/api/bot/tavoli', 'POST', { quanti, posti, minimo, prefisso: $('#tav-prefisso').value });
   if (!d) return;
   const n = d.aggiunti.length;
-  esitoTavoli(n === 1 ? `Aggiunto il tavolo ${d.aggiunti[0]}.`
-    : `Aggiunti ${n} tavoli da ${posti}: ${d.aggiunti[0]}–${d.aggiunti[n - 1]}.`);
+  const misura = misuraTavolo({ posti, posti_min: minimo });
+  esitoTavoli(n === 1 ? `Aggiunto il tavolo ${d.aggiunti[0]}, ${misura} persone.`
+    : `Aggiunti ${n} tavoli ${misura} persone: ${d.aggiunti[0]}–${d.aggiunti[n - 1]}.`);
   $('#tav-quanti').value = 1;
 });
+// Il minimo non può superare il massimo: la tendina del minimo si accorcia.
+$('#tav-posti').addEventListener('change', () => {
+  const max = +$('#tav-posti').value;
+  $('#tav-minimo').innerHTML = opzioniPosti(Math.min(+$('#tav-minimo').value || 1, max), 1, max);
+});
+$('#tav-prefisso').addEventListener('input', esempioNomi);
 $('#pren-tavoli').addEventListener('change', async (e) => {
   const scheda = e.target.closest('[data-tavolo-id]');
   if (!scheda) return;
@@ -7505,6 +7565,7 @@ $('#pren-tavoli').addEventListener('change', async (e) => {
   let corpo = null;
   if (e.target.matches('.tav-nome')) corpo = { nome: e.target.value };
   else if (e.target.matches('.tav-posti')) corpo = { posti: +e.target.value };
+  else if (e.target.matches('.tav-minimo')) corpo = { minimo: +e.target.value };
   else if (e.target.matches('.tav-solo-sala')) corpo = { soloSala: e.target.checked };
   if (!corpo) return;
   const d = await mandaTavoli(url, 'PATCH', corpo);

@@ -311,29 +311,43 @@ window.Turni = (function () {
   //
   // ⚠️ I tavoli troppo piccoli per il gruppo NON si propongono: la tendina
   // del browser, per 7 persone, metteva in cima un tavolo da 2 (visto dal
-  // titolare). Restano dietro «Mostra anche i tavoli troppo piccoli», per la
-  // sera in cui in sala si stringono — e si vedono se li si cerca per nome.
+  // titolare). E nemmeno quelli troppo grandi (sotto il loro minimo: una
+  // coppia al tavolo da 6–10). Restano dietro «Mostra anche…», perché la sala
+  // può sempre scegliere — e si vedono se li si cerca per nome.
   //
   // `presi` può mancare (il pannello di una prenotazione nuova, o con l'ora
   // cambiata): allora non si dice «libero» di nessuno — non lo si sa.
   const chiaveT = (x) => String(x == null ? '' : x).trim().toLowerCase();
-  function elencoTavoli({ tavoli = [], presi, persone = 0 } = {}, valore = '', filtro = '', conPiccoli = false) {
+  // Il minimo di un tavolo, e quando vale: la stessa regola del bot
+  // (`adattoA` in bot-prenotazioni.js). Sotto il minimo il tavolo è troppo
+  // grande — salvo che nessun tavolo del locale sia della misura giusta.
+  const minimoT = (t) => Math.max(1, Number(t.minimo) || 1);
+  const giustoT = (t, n) => minimoT(t) <= n && n <= t.posti;
+  function elencoTavoli({ tavoli = [], presi, persone = 0 } = {}, valore = '', filtro = '', conAltri = false) {
     if (!tavoli.length) return '';
     const diChi = new Map((presi || []).map((p) => [chiaveT(p.nome), p]));
-    const vaBene = (t) => !diChi.has(chiaveT(t.nome)) && t.posti >= persone;
-    // Il più adatto: il più piccolo libero che basta, prima fra quelli che
-    // non sono «solo sala» — lo stesso che sceglierebbe il bot.
-    const adatto = chiaveT((tavoli.find((t) => vaBene(t) && !t.soloSala) || tavoli.find(vaBene) || {}).nome);
+    const minimoVale = tavoli.some((t) => giustoT(t, persone));
+    const stretto = (t) => t.posti < persone;
+    const grande = (t) => persone > 0 && minimoVale && persone < minimoT(t);
+    const vaBene = (t) => !diChi.has(chiaveT(t.nome)) && !stretto(t) && !grande(t);
+    // Il consigliato: il più piccolo libero della misura giusta, prima fra
+    // quelli che non sono «solo sala» — lo stesso che sceglierebbe il bot.
+    const ordinati = [...tavoli].sort((x, y) => x.posti - y.posti || minimoT(x) - minimoT(y));
+    const adatto = chiaveT((ordinati.find((t) => vaBene(t) && !t.soloSala) || ordinati.find(vaBene) || {}).nome);
     const cerca = chiaveT(filtro);
-    const nascondiPiccoli = !cerca && !conPiccoli && persone > 0;
-    const piccoli = tavoli.filter((t) => t.posti < persone && chiaveT(t.nome) !== chiaveT(valore));
-    const visibili = tavoli.filter((t) => (!cerca || chiaveT(t.nome).startsWith(cerca))
-        && !(nascondiPiccoli && piccoli.includes(t)))
-      .sort((x, y) => x.posti - y.posti);
-    const altri = nascondiPiccoli && piccoli.length
-      ? `<button type="button" class="tv-togli tv-piccoli" data-piccoli>Mostra anche ${piccoli.length === 1
-        ? 'il tavolo troppo piccolo' : `i ${piccoli.length} tavoli troppo piccoli`} (fino a ${
-        Math.max(...piccoli.map((t) => t.posti))} posti)</button>` : '';
+    const nascondi = !cerca && !conAltri && persone > 0;
+    const suo = (t) => !!valore && chiaveT(t.nome) === chiaveT(valore);
+    const piccoli = tavoli.filter((t) => stretto(t) && !suo(t));
+    const grandi = tavoli.filter((t) => grande(t) && !suo(t));
+    const visibili = ordinati.filter((t) => (!cerca || chiaveT(t.nome).startsWith(cerca))
+      && !(nascondi && (piccoli.includes(t) || grandi.includes(t))));
+    // «il tavolo troppo piccolo», «i 3 tavoli troppo grandi».
+    const conta = (n, uno, tanti) => (n === 1 ? `il tavolo troppo ${uno}` : `i ${n} tavoli troppo ${tanti}`);
+    const altri = nascondi && (piccoli.length || grandi.length)
+      ? `<button type="button" class="tv-togli tv-piccoli" data-piccoli>Mostra anche ${[
+        piccoli.length ? conta(piccoli.length, 'piccolo', 'piccoli') : '',
+        grandi.length ? conta(grandi.length, 'grande', 'grandi') : '',
+      ].filter(Boolean).join(' e ')}</button>` : '';
     if (!visibili.length && cerca) {
       return `<p class="tv-vuoto">«${sicuro(String(filtro).trim())}» non è fra i tavoli del locale: se lo lasci, si salva scritto così.</p>`;
     }
@@ -342,21 +356,24 @@ window.Turni = (function () {
     }
     const chip = (t) => {
       const p = diChi.get(chiaveT(t.nome));
-      const suo = !!valore && chiaveT(t.nome) === chiaveT(valore);
-      const stretto = t.posti < persone;
-      const stato = suo ? 'suo' : p ? 'preso' : stretto ? 'stretto' : chiaveT(t.nome) === adatto && presi ? 'adatto' : '';
-      const sotto = suo ? '✓ assegnato' : p ? `di ${p.di}` : stretto ? 'troppo piccolo'
-        : stato === 'adatto' ? 'consigliato' : t.soloSala ? 'solo sala' : presi ? 'libero' : '';
-      const titolo = `Tavolo ${t.nome}, ${t.posti} ${t.posti === 1 ? 'posto' : 'posti'}`
-        + (p ? ` — già di ${p.di} (${p.persone} pers., alle ${p.ora})` : stretto ? ` — troppo piccolo per ${persone}` : '');
+      const stato = suo(t) ? 'suo' : p ? 'preso' : stretto(t) ? 'stretto' : grande(t) ? 'stretto grande'
+        : chiaveT(t.nome) === adatto && presi ? 'adatto' : '';
+      const sotto = suo(t) ? '✓ assegnato' : p ? `di ${p.di}` : stretto(t) ? 'troppo piccolo'
+        : grande(t) ? 'troppo grande' : stato === 'adatto' ? 'consigliato' : t.soloSala ? 'solo sala' : presi ? 'libero' : '';
+      const titolo = `Tavolo ${t.nome}, ${minimoT(t) > 1 ? `da ${minimoT(t)} a ${t.posti} persone` : `fino a ${t.posti} persone`}`
+        + (p ? ` — già di ${p.di} (${p.persone} pers., alle ${p.ora})`
+          : stretto(t) ? ` — troppo piccolo per ${persone}` : grande(t) ? ` — troppo grande per ${persone}` : '');
       return `<button type="button" class="tv-chip${stato ? ' ' + stato : ''}" data-scegli="${sicuro(t.nome)}"
-        aria-pressed="${suo}" title="${sicuro(titolo)}"><b>${sicuro(t.nome)}</b>${sotto ? `<small>${sicuro(sotto)}</small>` : ''}</button>`;
+        aria-pressed="${suo(t)}" title="${sicuro(titolo)}"><b>${sicuro(t.nome)}</b>${sotto ? `<small>${sicuro(sotto)}</small>` : ''}</button>`;
     };
-    const misure = [...new Set(visibili.map((t) => t.posti))];
+    // Un gruppo per misura: «Da 6 a 10 persone», «Fino a 2 persone».
+    const chiaveMisura = (t) => `${minimoT(t)}-${t.posti}`;
+    const misure = [...new Set(visibili.map(chiaveMisura))];
+    const titoloMisura = (k) => { const [a, b] = k.split('-').map(Number); return a > 1 ? `Da ${a} a ${b} persone` : `Fino a ${b} ${b === 1 ? 'persona' : 'persone'}`; };
     return (persone ? `<div class="tv-testa">Tavolo per <b>${persone}</b> ${persone === 1 ? 'persona' : 'persone'}</div>` : '')
-      + misure.map((n) => `<div class="tv-gruppo">
-          <div class="tv-titolo">Da ${n} ${n === 1 ? 'posto' : 'posti'}</div>
-          <div class="tv-chips">${visibili.filter((t) => t.posti === n).map(chip).join('')}</div>
+      + misure.map((k) => `<div class="tv-gruppo">
+          <div class="tv-titolo">${titoloMisura(k)}</div>
+          <div class="tv-chips">${visibili.filter((t) => chiaveMisura(t) === k).map(chip).join('')}</div>
         </div>`).join('')
       + altri
       + (valore ? '<button type="button" class="tv-togli" data-scegli="">Togli il tavolo</button>' : '');

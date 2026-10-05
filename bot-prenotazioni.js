@@ -305,11 +305,14 @@ function preparaDatabase(db) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nome TEXT NOT NULL,
       posti INTEGER NOT NULL,
+      posti_min INTEGER NOT NULL DEFAULT 1,   -- sotto, il tavolo è troppo grande
       solo_sala INTEGER NOT NULL DEFAULT 0,   -- 1 = il bot non lo dà mai
       ordine INTEGER NOT NULL DEFAULT 0
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_tavoli_nome ON bot_tavoli(nome COLLATE NOCASE);
   `);
+  // Il minimo è arrivato dopo: i tavoli già fatti partono da 1, cioè come prima.
+  try { db.exec('ALTER TABLE bot_tavoli ADD COLUMN posti_min INTEGER NOT NULL DEFAULT 1'); } catch {}
 
   // ⚠️ Gli stati sono passati da quattro a tre: «non presentato» non si può più
   // assegnare. Le righe che ce l'hanno ancora resterebbero in uno stato che
@@ -1850,10 +1853,30 @@ function usaTavoli(db) {
   return !!db.prepare('SELECT 1 FROM bot_tavoli LIMIT 1').get();
 }
 
-// Il più piccolo prima; a pari posti uno della sala viene dopo uno
-// prenotabile, poi l'ordine in cui il locale li ha elencati.
+// Il più piccolo prima; a pari posti quello col minimo più basso, poi uno
+// prenotabile prima di uno della sala, poi l'ordine in cui il locale li ha
+// elencati.
 function perMisura(x, y) {
-  return x.posti - y.posti || x.solo_sala - y.solo_sala || x.ordine - y.ordine || x.id - y.id;
+  return x.posti - y.posti || minimoDi(x) - minimoDi(y) || x.solo_sala - y.solo_sala
+    || x.ordine - y.ordine || x.id - y.id;
+}
+
+// ── Il minimo di un tavolo ──
+//
+// Deciso dal titolare: ogni tavolo è «da 2 a 4», «da 6 a 10». Sotto il minimo
+// il tavolo è troppo grande: una coppia non va al tavolo da 6–10 nemmeno se è
+// l'ultimo libero — quello serve al gruppo che arriva dopo.
+//
+// ⚠️ Con UNA eccezione, scelta da lui: se nessun tavolo del locale copre quel
+// numero (5 persone, coi tavoli da 2–4 e da 6–10), il minimo non vale e il
+// gruppo va al più piccolo in cui ci sta. Sennò un gruppo da 5 non
+// troverebbe posto mai, in un locale mezzo vuoto.
+function minimoDi(t) { return Math.max(1, Number(t.posti_min) || 1); }
+function giustoPer(t, persone) { return minimoDi(t) <= persone && persone <= t.posti; }
+function adattoA(t, persone, tavoli) {
+  if (t.posti < persone) return false;
+  if (minimoDi(t) <= persone) return true;
+  return !tavoli.some((x) => giustoPer(x, persone));
 }
 
 // I coperti della sala: la somma dei tavoli, o il numero di prima se di
@@ -1887,7 +1910,11 @@ function occupazioneTavoli(db, cfg, iso, ora, escludiId, tavoli = tavoliDi(db)) 
   senza.sort((x, y) => y.persone - x.persone || x.id - y.id);
   for (const r of senza) {
     const liberi = tavoli.filter((t) => !presi.has(t.id));
-    const uno = liberi.filter((t) => t.posti >= r.persone).sort(perMisura)[0];
+    // Prima un tavolo della misura giusta; ma la prenotazione c'è già, e
+    // quelle persone si siedono comunque: se non resta che uno più grande del
+    // suo minimo, nei conti va lì.
+    const uno = liberi.filter((t) => adattoA(t, r.persone, tavoli)).sort(perMisura)[0]
+      || liberi.filter((t) => t.posti >= r.persone).sort(perMisura)[0];
     if (uno) { presi.set(uno.id, r.id); continue; }
     // Più grande di ogni tavolo libero: in sala li hanno uniti. Si tolgono i
     // più grandi finché ci stanno tutti.
@@ -1943,7 +1970,7 @@ function daAssegnare(db, iso) {
 function trovaTavolo(db, cfg, iso, ora, persone, opzioni = {}) {
   const tavoli = tavoliDi(db);
   const presi = occupazioneTavoli(db, cfg, iso, ora, opzioni.escludiId, tavoli);
-  const buoni = tavoli.filter((t) => !presi.has(t.id) && t.posti >= persone
+  const buoni = tavoli.filter((t) => !presi.has(t.id) && adattoA(t, persone, tavoli)
     && (opzioni.ancheSala || !t.solo_sala));
   if (!buoni.length) return null;
   const preferito = chiaveTavolo(opzioni.preferito);
@@ -5314,7 +5341,7 @@ module.exports = {
   fasceDi, fasceValide, fasceDaiTurni, fasceDelGiorno, fineDelTavolo, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
   servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI,
   tavoliDi, usaTavoli, capienzaDi, trovaTavolo, postoPer, ciStanno, gruppoMassimo, tavoliLiberi,
-  chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, numeroDelTurno, tavoloCheResta, daAssegnare, tavoliPresiPer, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
+  chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, numeroDelTurno, tavoloCheResta, daAssegnare, tavoliPresiPer, minimoDi, adattoA, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
   importoDaPagare,
   serveIlPagamento,
   pagamentoObbligatorio,
