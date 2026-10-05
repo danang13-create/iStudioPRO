@@ -2091,6 +2091,24 @@ function chiTieneIlTavolo(db, cfg, iso, ora, nome, escludiId) {
   return r ? db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(r.id) : null;
 }
 
+// Per la tendina della sala: i tavoli che, all'ora di questa prenotazione,
+// hanno già il numero scritto su un'ALTRA, e di chi sono. Solo quelli scritti:
+// le prenotazioni senza numero un tavolo non ce l'hanno ancora — è proprio
+// quello che la sala sta assegnando — e dirle «sedute» al tavolo che il bot
+// ha immaginato per i suoi conti farebbe sembrare occupati tavoli liberi.
+function tavoliPresiPer(db, cfg, p, tavoli = tavoliDi(db)) {
+  const perNome = new Map(tavoli.map((t) => [chiaveTavolo(t.nome), t]));
+  const presi = new Map();
+  // La più vecchia tiene il tavolo, come in `occupazioneTavoli`.
+  for (const r of prenotazioniSovrapposte(db, cfg, p.data, p.ora, p.id).sort((x, y) => x.id - y.id)) {
+    const t = perNome.get(chiaveTavolo(r.tavolo));
+    if (!t || presi.has(t.id)) continue;
+    const chi = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(r.id);
+    presi.set(t.id, { nome: t.nome, di: nomeInSala(chi), ora: r.ora, persone: r.persone });
+  }
+  return [...presi.values()];
+}
+
 // Il gruppo più grande che il bot prende da solo. Con i tavoli è anche il
 // tavolo prenotabile più grande: un gruppo che non entra in nessun tavolo il
 // bot lo cercherebbe giorno dopo giorno senza trovarlo mai, e alla fine
@@ -5296,7 +5314,7 @@ module.exports = {
   fasceDi, fasceValide, fasceDaiTurni, fasceDelGiorno, fineDelTavolo, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
   servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI,
   tavoliDi, usaTavoli, capienzaDi, trovaTavolo, postoPer, ciStanno, gruppoMassimo, tavoliLiberi,
-  chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, numeroDelTurno, tavoloCheResta, daAssegnare, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
+  chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, numeroDelTurno, tavoloCheResta, daAssegnare, tavoliPresiPer, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
   importoDaPagare,
   serveIlPagamento,
   pagamentoObbligatorio,

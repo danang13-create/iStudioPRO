@@ -6978,6 +6978,9 @@ const rottaServizio = (req, res) => {
   const rubrica = db.prepare('SELECT id, nome, cognome, telefono, opt_out FROM contacts').all()
     .map((c) => ({ ...c, chiave: normalizePhone(c.telefono) }));
   for (const r of righe) r.inRubrica = contattoDellaPrenotazione(rubrica, r);
+  // Per la tendina dei tavoli: a ogni riga, quali sono già di un altro a
+  // quell'ora. Si calcola qui, una volta, invece di chiederlo a ogni tocco.
+  if (tavoli.length) for (const r of righe) r.tavoliPresi = bot.tavoliPresiPer(db, cfg, r, tavoli);
   // ⚠️ Se il giorno è segnato pieno o chiuso, chi guarda la giornata lo deve
   // SAPERE. La griglia della settimana lo diceva, l'intestazione del giorno
   // no: uno in sala vedeva «20:00: 3/6» e non aveva modo di accorgersi che il
@@ -6999,7 +7002,10 @@ const rottaServizio = (req, res) => {
     })() : null,
     // I tavoli del locale, per chi in sala ne sceglie uno, e il più grande:
     // oltre quello la tendina delle persone non va.
-    tavoli: tavoli.map((t) => ({ nome: t.nome, posti: t.posti, soloSala: !!t.solo_sala })),
+    // Dal più piccolo al più grande (chiesto dal titolare): è l'ordine in
+    // cui si cerca un tavolo per un gruppo, lo stesso del bot.
+    tavoli: [...tavoli].sort((x, y) => x.posti - y.posti || x.ordine - y.ordine || x.id - y.id)
+      .map((t) => ({ nome: t.nome, posti: t.posti, soloSala: !!t.solo_sala })),
     gruppoMassimo: tavoli.reduce((m, t) => Math.max(m, t.posti), 0),
     soldOut: bot.ePieno(db, data), chiuso: bot.eChiuso(db, data),
     // Chi aspetta un posto per questo giorno: la sala lo deve vedere, sia per

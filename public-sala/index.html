@@ -799,10 +799,9 @@
       autocomplete="off" placeholder="nome@esempio.it"></label>
     <div style="display:grid;grid-template-columns:1fr 110px;gap:10px;margin-top:12px">
       <label>Note<input id="p-note" placeholder="allergie, compleanno, seggiolone…"></label>
-      <label>Tavolo<input id="p-tavolo" list="lista-tavoli" maxlength="20" autocomplete="off" placeholder="es. 12"></label>
-      <!-- I tavoli del locale, suggeriti mentre si scrive. Si può sempre
-           scriverne uno a mano: la tendina aiuta, non comanda. -->
-      <datalist id="lista-tavoli"></datalist>
+      <!-- I tavoli del locale in una tendina (Turni.sceltaTavolo). Si può
+           sempre scriverne uno a mano: la tendina aiuta, non comanda. -->
+      <label>Tavolo<input id="p-tavolo" maxlength="20" autocomplete="off" placeholder="es. 12"></label>
     </div>
     <label style="margin-top:12px">Stato<select id="p-stato">
       <option value="confermata">Confermata</option>
@@ -922,9 +921,12 @@ let quantePrima = null;   // quante prenotazioni ha il giorno che si sta guardan
 // Cambiando giorno si riparte da null, sennò tutte le righe dell'altro giorno
 // sembrerebbero appena arrivate.
 let idVisti = null;
+let tavoliDelLocale = [];
+let righeDelGiorno = [];
 let appenaArrivate = [];
 
 async function caricaGiorno() {
+  Planning.segna($('#giorno').value);
   // ⚠️ Senza questo «try», la rete caduta faceva scoppiare un'eccezione che
   // finiva nel gestore in cima alla pagina e stampava «Qualcosa non ha
   // funzionato. Ricarica la pagina.» — il consiglio esattamente sbagliato
@@ -935,8 +937,9 @@ async function caricaGiorno() {
     d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent($('#giorno').value))).json();
   } catch { return; }
   if (d.error) return;
-  $('#lista-tavoli').innerHTML = (d.tavoli || []).map((t) => `<option value="${sicuro(t.nome)}">`
-    + `${t.posti} ${t.posti === 1 ? 'posto' : 'posti'}${t.soloSala ? ' · solo sala' : ''}</option>`).join('');
+  // I tavoli del locale (dal più piccolo) e le righe, per la tendina dei tavoli.
+  tavoliDelLocale = d.tavoli || [];
+  righeDelGiorno = d.righe || [];
   // Una riga per turno, o per servizio — non una per ogni mezz'ora.
   // Una scheda per turno, con la barra dei tavoli — e il cartello del sold out
   // o della chiusura prima di tutto (vedi Turni.disegnaRiepilogo).
@@ -994,7 +997,7 @@ async function caricaGiorno() {
             ? `<br><span class="conteggio">${sicuro(numeroPulito(r.telefono_contatto || r.telefono))}</span>` : ''}
           ${r.note ? `<br><span class="note"><b>Attenzione:</b> ${sicuro(r.note)}</span>` : ''}
         </span>
-        ${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}" list="lista-tavoli"
+        ${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}"
           value="${sicuro(r.tavolo || '')}" maxlength="20" autocomplete="off" placeholder="Tavolo"
           enterkeyhint="done" aria-label="Tavolo di ${sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || 'questo cliente')}">`}
         <button class="matita" data-apri="${r.id}" title="Modifica la prenotazione"
@@ -1018,8 +1021,11 @@ async function caricaGiorno() {
   // ognuno sono venti pannelli. Invio chiude la tastiera e salva.
   $('#righe').querySelectorAll('[data-tavolo]').forEach((i) => {
     i.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') i.blur(); });
-    i.addEventListener('change', () => salvaTavolo(i, vive.find((x) => String(x.id) === i.dataset.tavolo)));
+    const riga = vive.find((x) => String(x.id) === i.dataset.tavolo);
+    i.addEventListener('change', () => salvaTavolo(i, riga));
     i.addEventListener('blur', ricaricaSeNonScrive);
+    Turni.sceltaTavolo(i, () => ({ tavoli: tavoliDelLocale, presi: (riga && riga.tavoliPresi) || [],
+                                   persone: riga ? riga.persone : 0 }));
   });
 }
 
@@ -1054,6 +1060,9 @@ function disegnaAttese(attese) {
 // campo che non è stato salvato è un tavolo che la sala crede assegnato, e
 // l'avviso «senza tavolo» che resta acceso sembra un guasto.
 async function salvaTavolo(campo, riga) {
+  // Uguale a com'era: non c'è niente da salvare (la tendina e il browser
+  // possono annunciare lo stesso cambio due volte).
+  if (riga && campo.value.trim() === (riga.tavolo || '')) return;
   const manda = async (forza) => {
     try {
       const r = await fetch('/api/bot/prenotazioni/' + campo.dataset.tavolo, {
@@ -1108,6 +1117,14 @@ function apri(p) {
   $('#p-email').value = p ? (p.email || '') : '';
   $('#p-note').value = p ? (p.note || '') : '';
   $('#p-tavolo').value = p ? (p.tavolo || '') : '';
+  // Chi tiene quali tavoli lo si sa per il giorno e l'ora della prenotazione
+  // com'era: cambiati nel pannello, la tendina non dice «libero» a vuoto.
+  Turni.sceltaTavolo($('#p-tavolo'), () => {
+    const r = righeDelGiorno.find((x) => x.id === idAperto);
+    const stessa = r && r.data === $('#p-data').value && r.ora === $('#p-ora').value;
+    return { tavoli: tavoliDelLocale, persone: +$('#p-persone').value || 0,
+             presi: stessa ? (r.tavoliPresi || []) : undefined };
+  });
   // ⚠️ Uno stato che non è fra i tre della tendina — «attesa_pagamento» — la
   // lasciava sulla PRIMA voce, «Confermata»: bastava aprire una prenotazione
   // non pagata e salvare per confermarla, saltando il controllo dei posti e

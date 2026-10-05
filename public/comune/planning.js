@@ -8,6 +8,7 @@
 // una sola, e chi la corregge la corregge per tutti.
 window.Planning = (function () {
   let dal = null;                     // null = i sette giorni da oggi
+  let scelto = null;                  // il giorno aperto sotto, nel servizio
   const GG = ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab'];
 
   // Il testo scritto dall'utente finisce dentro l'HTML: se contiene un < o una
@@ -86,12 +87,12 @@ window.Planning = (function () {
         // Coi tavoli il numero grande sono già le prenotazioni (un tavolo
         // ciascuna): sotto ci vanno i coperti, che servono alla cucina.
         : `${g.conTavoli ? `${g.coperti} coperti` : `${g.prenotazioni} pren.`}${pieno ? ' · pieno' : quasi ? ' · quasi pieno' : ''}`;
-      const classi = ['giorno', g.oggi ? 'oggi' : '', g.chiuso ? 'chiuso' : '',
+      const classi = ['giorno', g.oggi ? 'oggi' : '', g.data === scelto ? 'scelto' : '', g.chiuso ? 'chiuso' : '',
         g.soldOut ? 'sold-out' : '',
         chiusoConGente ? 'chiuso-con-gente' : '', g.passato ? 'passato' : '']
         .filter(Boolean).join(' ');
       return `
-        <button class="${classi}" data-giorno="${g.data}"
+        <button class="${classi}" data-giorno="${g.data}" aria-pressed="${g.data === scelto}"
                 title="${sicuro(g.etichetta)}${g.chiuso
                   ? (chiusoConGente ? ` — chiuso, ma ci sono ${g.prenotazioni} prenotazioni per ${g.coperti} coperti` : ' — chiuso')
                   : g.conTavoli
@@ -126,8 +127,10 @@ window.Planning = (function () {
   // scrollIntoView: quello sposta anche la pagina in verticale, e in sala non
   // deve muoversi niente che non si sia toccato. Su uno schermo largo, dove
   // la griglia non scorre, non fa niente.
+  // Se un giorno è aperto nel servizio si centra quello: è quello che si sta
+  // guardando, e acceso fuori dallo schermo non servirebbe a niente.
   function centraOggi(griglia) {
-    const oggi = griglia.querySelector('.giorno.oggi');
+    const oggi = griglia.querySelector('.giorno.scelto') || griglia.querySelector('.giorno.oggi');
     if (!oggi || griglia.scrollWidth <= griglia.clientWidth) return;
     griglia.scrollLeft = oggi.offsetLeft - griglia.offsetLeft - (griglia.clientWidth - oggi.offsetWidth) / 2;
   }
@@ -143,5 +146,20 @@ window.Planning = (function () {
   // planning è una settimana di calendario — la settimana in cui siamo.
   function daOggi(opzioni) { dal = null; return carica(opzioni); }
 
-  return { carica, sposta, daOggi, lunediDi };
+  // Il giorno aperto nel servizio resta acceso nella settimana. Chiesto dal
+  // titolare: prima l'unico segno era il contorno del fuoco del browser, che
+  // spariva al primo tocco altrove — e non si capiva più quale giorno si
+  // stava guardando. Lo chiamano le pagine ogni volta che aprono un giorno,
+  // da qualunque parte arrivi (un riquadro, il calendario, «Oggi», un avviso).
+  function segna(iso) {
+    scelto = iso || null;
+    if (!ultimaGriglia) return;
+    ultimaGriglia.querySelectorAll('[data-giorno]').forEach((b) => {
+      const si = b.dataset.giorno === scelto;
+      b.classList.toggle('scelto', si);
+      b.setAttribute('aria-pressed', String(si));
+    });
+  }
+
+  return { carica, sposta, daOggi, lunediDi, segna };
 })();

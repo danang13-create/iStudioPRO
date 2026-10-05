@@ -296,9 +296,157 @@ window.Turni = (function () {
     } catch { /* la rete che balla: resta quello di prima, e lo dice la barra */ }
   }
 
+  // ── La tendina dei tavoli ──
+  //
+  // Chiesto dal titolare: la tendina del browser elencava i tavoli
+  // nell'ordine in cui erano stati creati, in un riquadro nero che non si
+  // poteva toccare, e per un gruppo da 2 proponeva per primo il tavolo da 10.
+  // Qui: dal più piccolo al più grande, raggruppati per posti, e per ognuno
+  // se va bene per QUESTA prenotazione — libero, già di qualcun altro a
+  // quell'ora, troppo piccolo — col più adatto segnato.
+  //
+  // ⚠️ Il campo resta un campo: un tavolo che non è in elenco («terrazza») si
+  // scrive ancora a mano, e il salvataggio è quello di sempre (l'evento
+  // «change» del campo): la tendina sceglie, non salva per conto suo.
+  //
+  // ⚠️ I tavoli troppo piccoli per il gruppo NON si propongono: la tendina
+  // del browser, per 7 persone, metteva in cima un tavolo da 2 (visto dal
+  // titolare). Restano dietro «Mostra anche i tavoli troppo piccoli», per la
+  // sera in cui in sala si stringono — e si vedono se li si cerca per nome.
+  //
+  // `presi` può mancare (il pannello di una prenotazione nuova, o con l'ora
+  // cambiata): allora non si dice «libero» di nessuno — non lo si sa.
+  const chiaveT = (x) => String(x == null ? '' : x).trim().toLowerCase();
+  function elencoTavoli({ tavoli = [], presi, persone = 0 } = {}, valore = '', filtro = '', conPiccoli = false) {
+    if (!tavoli.length) return '';
+    const diChi = new Map((presi || []).map((p) => [chiaveT(p.nome), p]));
+    const vaBene = (t) => !diChi.has(chiaveT(t.nome)) && t.posti >= persone;
+    // Il più adatto: il più piccolo libero che basta, prima fra quelli che
+    // non sono «solo sala» — lo stesso che sceglierebbe il bot.
+    const adatto = chiaveT((tavoli.find((t) => vaBene(t) && !t.soloSala) || tavoli.find(vaBene) || {}).nome);
+    const cerca = chiaveT(filtro);
+    const nascondiPiccoli = !cerca && !conPiccoli && persone > 0;
+    const piccoli = tavoli.filter((t) => t.posti < persone && chiaveT(t.nome) !== chiaveT(valore));
+    const visibili = tavoli.filter((t) => (!cerca || chiaveT(t.nome).startsWith(cerca))
+        && !(nascondiPiccoli && piccoli.includes(t)))
+      .sort((x, y) => x.posti - y.posti);
+    const altri = nascondiPiccoli && piccoli.length
+      ? `<button type="button" class="tv-togli tv-piccoli" data-piccoli>Mostra anche ${piccoli.length === 1
+        ? 'il tavolo troppo piccolo' : `i ${piccoli.length} tavoli troppo piccoli`} (fino a ${
+        Math.max(...piccoli.map((t) => t.posti))} posti)</button>` : '';
+    if (!visibili.length && cerca) {
+      return `<p class="tv-vuoto">«${sicuro(String(filtro).trim())}» non è fra i tavoli del locale: se lo lasci, si salva scritto così.</p>`;
+    }
+    if (!visibili.length) {
+      return `<p class="tv-vuoto">Nessun tavolo del locale ha ${persone} posti: in sala si uniscono, e il numero lo scrivi a mano.</p>` + altri;
+    }
+    const chip = (t) => {
+      const p = diChi.get(chiaveT(t.nome));
+      const suo = !!valore && chiaveT(t.nome) === chiaveT(valore);
+      const stretto = t.posti < persone;
+      const stato = suo ? 'suo' : p ? 'preso' : stretto ? 'stretto' : chiaveT(t.nome) === adatto && presi ? 'adatto' : '';
+      const sotto = suo ? '✓ assegnato' : p ? `di ${p.di}` : stretto ? 'troppo piccolo'
+        : stato === 'adatto' ? 'consigliato' : t.soloSala ? 'solo sala' : presi ? 'libero' : '';
+      const titolo = `Tavolo ${t.nome}, ${t.posti} ${t.posti === 1 ? 'posto' : 'posti'}`
+        + (p ? ` — già di ${p.di} (${p.persone} pers., alle ${p.ora})` : stretto ? ` — troppo piccolo per ${persone}` : '');
+      return `<button type="button" class="tv-chip${stato ? ' ' + stato : ''}" data-scegli="${sicuro(t.nome)}"
+        aria-pressed="${suo}" title="${sicuro(titolo)}"><b>${sicuro(t.nome)}</b>${sotto ? `<small>${sicuro(sotto)}</small>` : ''}</button>`;
+    };
+    const misure = [...new Set(visibili.map((t) => t.posti))];
+    return (persone ? `<div class="tv-testa">Tavolo per <b>${persone}</b> ${persone === 1 ? 'persona' : 'persone'}</div>` : '')
+      + misure.map((n) => `<div class="tv-gruppo">
+          <div class="tv-titolo">Da ${n} ${n === 1 ? 'posto' : 'posti'}</div>
+          <div class="tv-chips">${visibili.filter((t) => t.posti === n).map(chip).join('')}</div>
+        </div>`).join('')
+      + altri
+      + (valore ? '<button type="button" class="tv-togli" data-scegli="">Togli il tavolo</button>' : '');
+  }
+
+  let aperta = null;   // { campo, pannello, filtro, disegna, posiziona }
+  function chiudiTavoli() {
+    if (!aperta) return;
+    aperta.pannello.remove();
+    aperta.campo.setAttribute('aria-expanded', 'false');
+    aperta = null;
+  }
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    // Anche lo scorrere dentro un pannello o una lista: «true» li prende tutti.
+    window.addEventListener('scroll', () => { if (aperta) aperta.posiziona(); }, true);
+    window.addEventListener('resize', () => { if (aperta) aperta.posiziona(); });
+    // La tastiera del telefono che si apre non è un «resize» della finestra.
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { if (aperta) aperta.posiziona(); });
+  }
+
+  // `dammi()` restituisce { tavoli, presi, persone } al momento dell'apertura:
+  // le persone del pannello possono essere cambiate un attimo fa.
+  function sceltaTavolo(campo, dammi) {
+    if (!campo || campo.dataset.sceltaTavolo) return;
+    campo.dataset.sceltaTavolo = '1';
+    campo.setAttribute('aria-haspopup', 'dialog');
+    campo.setAttribute('aria-expanded', 'false');
+    const posiziona = () => {
+      const p = aperta && aperta.pannello;
+      if (!p) return;
+      const r = campo.getBoundingClientRect();
+      // Con la tastiera del telefono aperta lo schermo «vero» è più basso.
+      const alto = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+      const largo = document.documentElement.clientWidth;
+      const sotto = alto - r.bottom - 12;
+      const sopra = r.top - 12;
+      const suSopra = sotto < Math.min(p.scrollHeight, 240) && sopra > sotto;
+      p.style.maxHeight = Math.max(160, (suSopra ? sopra : sotto) - 6) + 'px';
+      const w = p.offsetWidth;
+      // Coordinate dello schermo («fixed»), non della pagina: con un pannello
+      // aperto la pagina sotto è bloccata e spostata, e la tendina finiva
+      // lontana dal campo (visto nel browser). Si ricalcola a ogni scorrere.
+      p.style.left = Math.max(12, Math.min(r.left, largo - w - 12)) + 'px';
+      p.style.top = (suSopra ? r.top - 6 - Math.min(p.scrollHeight, parseFloat(p.style.maxHeight)) : r.bottom + 6) + 'px';
+    };
+    const disegna = () => {
+      aperta.pannello.innerHTML = elencoTavoli(dammi() || {}, campo.value, aperta.filtro, aperta.piccoli);
+      posiziona();
+    };
+    const apri = () => {
+      if (aperta && aperta.campo === campo) return;
+      chiudiTavoli();
+      // Senza tavoli elencati resta il campo e basta.
+      if (!((dammi() || {}).tavoli || []).length) return;
+      const pannello = document.createElement('div');
+      pannello.className = 'tv-pannello';
+      pannello.setAttribute('role', 'dialog');
+      pannello.setAttribute('aria-label', 'Scegli il tavolo');
+      // Toccare la tendina non deve togliere il fuoco al campo: chiuderebbe
+      // la tendina prima che il tocco arrivi al tavolo.
+      pannello.addEventListener('mousedown', (e) => e.preventDefault());
+      pannello.addEventListener('click', (e) => {
+        if (e.target.closest('[data-piccoli]')) { aperta.piccoli = true; disegna(); return; }
+        const b = e.target.closest('[data-scegli]');
+        if (!b) return;
+        campo.value = b.dataset.scegli;
+        chiudiTavoli();
+        campo.dispatchEvent(new Event('change', { bubbles: true }));
+        campo.blur();
+      });
+      document.body.appendChild(pannello);
+      aperta = { campo, pannello, filtro: '', piccoli: false, disegna, posiziona };
+      campo.setAttribute('aria-expanded', 'true');
+      disegna();
+    };
+    campo.addEventListener('focus', apri);
+    campo.addEventListener('click', apri);
+    // Scrivendo, la tendina si stringe ai tavoli che cominciano così.
+    campo.addEventListener('input', () => {
+      if (aperta && aperta.campo === campo) { aperta.filtro = campo.value; disegna(); }
+    });
+    campo.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && aperta && aperta.campo === campo) { e.preventDefault(); e.stopPropagation(); chiudiTavoli(); }
+    });
+    campo.addEventListener('blur', () => { if (aperta && aperta.campo === campo) chiudiTavoli(); });
+  }
+
   // Quando cambia il giorno, i turni possono essere altri (pranzo, chiusure).
   function dimentica() { ultimaData = null; ultimiTurni = []; ultimaCapienza = 0; conTavoli = false; quando = 0; }
 
   return { dellaGiornata, riempi, riempiPersone, liberiPer, capienza, dimentica, opzioniOrari, disegnaRiepilogo,
-           aggiornaRiepilogo };
+           aggiornaRiepilogo, sceltaTavolo, elencoTavoli, chiudiTavoli };
 })();

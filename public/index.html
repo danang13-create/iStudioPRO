@@ -2555,10 +2555,9 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 120px;gap:10px;margin-top:12px">
           <label>Note<input id="pann-note" autocomplete="off" placeholder="allergie, compleanno, seggiolone…"></label>
-          <label>Tavolo<input id="pann-tavolo" list="lista-tavoli" autocomplete="off" maxlength="20" placeholder="es. 12"></label>
-          <!-- I tavoli del locale, suggeriti mentre si scrive. Si può sempre
-               scriverne uno a mano: la tendina aiuta, non comanda. -->
-          <datalist id="lista-tavoli"></datalist>
+          <!-- I tavoli del locale in una tendina (Turni.sceltaTavolo). Si può
+               sempre scriverne uno a mano: la tendina aiuta, non comanda. -->
+          <label>Tavolo<input id="pann-tavolo" autocomplete="off" maxlength="20" placeholder="es. 12"></label>
         </div>
         <label style="display:flex;align-items:flex-start;gap:8px;margin-top:14px;font-weight:400;cursor:pointer">
           <input type="checkbox" id="pann-avvisa" autocomplete="off" checked style="margin-top:3px">
@@ -5488,9 +5487,10 @@ async function caricaServizio() {
   // battuto. Si rifà appena lascia il campo (vedi ricaricaSeNonScrive).
   if (scrivendoUnTavolo()) { ricaricaDopoIlTavolo = true; return; }
   const data = $('#pren-data').value;
+  Planning.segna(data);
   const d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent(data))).json();
-  $('#lista-tavoli').innerHTML = (d.tavoli || []).map((t) => `<option value="${testoSicuro(t.nome)}">`
-    + `${t.posti} ${t.posti === 1 ? 'posto' : 'posti'}${t.soloSala ? ' · solo sala' : ''}</option>`).join('');
+  // I tavoli del locale (dal più piccolo), per la tendina dei tavoli.
+  tavoliDelLocale = d.tavoli || [];
   // Una scheda per turno, con la barra dei tavoli — e il cartello del sold out
   // o della chiusura prima di tutto (vedi Turni.disegnaRiepilogo).
   Turni.disegnaRiepilogo($('#pren-turni'), d);
@@ -5548,7 +5548,7 @@ async function caricaServizio() {
         r.telefono_contatto ? '📞 ' + numeroPulito(r.telefono_contatto) : numeroPulito(r.telefono)
       }</span></td>
       <td style="padding:8px;font-variant-numeric:tabular-nums">${r.persone}</td>
-      <td style="padding:8px">${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}" list="lista-tavoli"
+      <td style="padding:8px">${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}"
           value="${testoSicuro(r.tavolo || '')}" maxlength="20" autocomplete="off" placeholder="—"
           title="Il tavolo assegnato a questa prenotazione: si salva da solo"
           aria-label="Tavolo di ${testoSicuro([r.nome, r.cognome].filter(Boolean).join(' ') || 'questo cliente')}">`}</td>
@@ -5608,9 +5608,14 @@ async function caricaServizio() {
     i.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') i.blur(); });
     // ⚠️ Se non si salva, il campo torna com'era: un «7» rimasto scritto e
     // non salvato è un tavolo che la sala crede assegnato.
+    const riga = d.righe.find((x) => String(x.id) === i.dataset.tavolo);
+    Turni.sceltaTavolo(i, () => ({ tavoli: tavoliDelLocale, presi: (riga && riga.tavoliPresi) || [],
+                                   persone: riga ? riga.persone : 0 }));
     i.addEventListener('change', async () => {
-      const riga = d.righe.find((x) => String(x.id) === i.dataset.tavolo);
       const comEra = riga ? (riga.tavolo || '') : '';
+      // Uguale a com'era: niente da salvare (la tendina e il browser possono
+      // annunciare lo stesso cambio due volte).
+      if (i.value.trim() === comEra) return;
       const manda = (forza) => fetch('/api/bot/prenotazioni/' + i.dataset.tavolo, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tavolo: i.value.trim(), ...(forza ? { forza: true } : {}) }),
@@ -5638,6 +5643,7 @@ async function caricaServizio() {
 }
 
 let righeServizio = [];
+let tavoliDelLocale = [];
 let pannelloId = null;   // null = nuova prenotazione
 let ricaricaDopoIlTavolo = false;
 
@@ -5681,6 +5687,14 @@ function apriPannello(p) {
   $('#pann-cognome').value = p ? p.cognome : '';
   $('#pann-note').value = p ? (p.note || '') : '';
   $('#pann-tavolo').value = p ? (p.tavolo || '') : '';
+  // Chi tiene quali tavoli lo si sa per il giorno e l'ora della prenotazione
+  // com'era: cambiati nel pannello, la tendina non dice «libero» a vuoto.
+  Turni.sceltaTavolo($('#pann-tavolo'), () => {
+    const r = righeServizio.find((x) => x.id === pannelloId);
+    const stessa = r && r.data === $('#pann-data').value && r.ora === $('#pann-ora').value;
+    return { tavoli: tavoliDelLocale, persone: +$('#pann-persone').value || 0,
+             presi: stessa ? (r.tavoliPresi || []) : undefined };
+  });
   $('#pann-avvisa').checked = true;
   $('#pann-cerca').value = '';
   $('#pann-trovati').style.display = 'none';
