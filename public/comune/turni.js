@@ -186,8 +186,68 @@ window.Turni = (function () {
     el.innerHTML = voci.join('');
   }
 
+  // ── Com'è messa la giornata: una scheda per turno ──
+  //
+  // ⚠️ Chiesto dal titolare: il riepilogo stava schiacciato nell'intestazione,
+  // accanto alla data, come tre righe di testo grigio — «Cena · 1° turno
+  // 20:00–22:00: 0/10 tavoli · 0 coperti». Adesso un gruppo per servizio e una
+  // scheda per turno: la fascia, i tavoli occupati in grande con la barra, i
+  // coperti sotto. La barra è quella del planning (stesse classi, stessi
+  // colori verificati); e lo stato non sta nel solo colore: «pieno» e «quasi
+  // pieno» sono SCRITTI.
+  //
+  // Lo usano la piattaforma e la sala: una copia sola.
+  const sicuro = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const NOMI_SERVIZI = { pranzo: 'Pranzo', cena: 'Cena' };
+  function schedaTurno(r) {
+    const quota = r.totale ? Math.min(r.occupati / r.totale, 1) : 0;
+    const stato = r.pieno ? 'pieno' : quota >= 0.8 ? 'quasi' : '';
+    const titolo = r.tipo === 'turno' ? `${r.turno}° turno`
+      : r.tipo === 'servizio' ? 'Tutto il servizio'
+      : r.tipo === 'chiuso' ? '⚠️ Chiuso' : 'Orario';
+    const coperti = `${r.coperti} ${r.coperti === 1 ? 'coperto' : 'coperti'}`;
+    // Coi tavoli il numero grande sono i tavoli, e i coperti stanno sotto: alla
+    // cucina servono. Senza tavoli il numero grande sono già i coperti.
+    const numero = r.tipo === 'chiuso'
+      ? `<b>${r.coperti}</b> ${r.coperti === 1 ? 'coperto prenotato' : 'coperti prenotati'}`
+      : `<b>${r.occupati}</b><span class="tg-di">/${r.totale} ${r.unita}</span>`;
+    const sotto = [
+      r.tipo === 'chiuso' ? 'il servizio è chiuso' : (r.unita === 'tavoli' ? coperti : ''),
+      r.tipo === 'servizio' ? 'al massimo insieme' : '',
+      stato === 'pieno' ? 'pieno' : stato === 'quasi' ? 'quasi pieno' : '',
+    ].filter(Boolean).join(' · ');
+    return `<div class="tg-scheda${stato ? ' ' + stato : ''}${r.tipo === 'chiuso' ? ' chiuso' : ''}"
+        title="${sicuro(`${r.etichetta}: ${r.testo}`)}">
+      <div class="tg-testa"><span class="tg-titolo">${sicuro(titolo)}</span><span class="tg-ora">${sicuro(r.orario)}</span></div>
+      <div class="tg-num">${numero}</div>
+      ${r.tipo === 'chiuso' ? '' : `<div class="meter" role="img" aria-label="${r.occupati} su ${r.totale} ${r.unita}"><i class="${stato}" style="width:${Math.round(quota * 100)}%"></i></div>`}
+      ${sotto ? `<div class="tg-sotto">${sicuro(sotto)}</div>` : ''}
+    </div>`;
+  }
+  // `d` è la risposta di /api/bot/prenotazioni: riepilogo, soldOut, chiuso.
+  function disegnaRiepilogo(el, d) {
+    if (!el) return;
+    const righe = (d && d.riepilogo) || [];
+    // Il cartello «pieno» sta PRIMA dei numeri: è la cosa che cambia il senso
+    // di tutto il resto. Chi legge «3/10» senza sapere che il bot rifiuta
+    // crede che i sette tavoli siano ancora vendibili.
+    const cartello = d && d.soldOut ? '<p class="tg-cartello">🚫 Sold out — il bot non prende prenotazioni</p>'
+      : d && d.chiuso ? '<p class="tg-cartello">🔒 Chiusura — il bot non prende prenotazioni</p>' : '';
+    if (!righe.length) {
+      el.innerHTML = cartello || '<p class="tg-vuoto">Chiuso in questo giorno</p>';
+      return;
+    }
+    const servizi = [...new Set(righe.map((r) => r.servizio))];
+    el.innerHTML = cartello + '<div class="turni-giorno">' + servizi.map((s) => `
+      <section class="tg-servizio" aria-label="${sicuro(NOMI_SERVIZI[s] || s)}">
+        <h3>${sicuro(NOMI_SERVIZI[s] || s)}</h3>
+        <div class="tg-schede">${righe.filter((r) => r.servizio === s).map(schedaTurno).join('')}</div>
+      </section>`).join('') + '</div>';
+  }
+
   // Quando cambia il giorno, i turni possono essere altri (pranzo, chiusure).
   function dimentica() { ultimaData = null; ultimiTurni = []; ultimaCapienza = 0; conTavoli = false; quando = 0; }
 
-  return { dellaGiornata, riempi, riempiPersone, liberiPer, capienza, dimentica, opzioniOrari };
+  return { dellaGiornata, riempi, riempiPersone, liberiPer, capienza, dimentica, opzioniOrari, disegnaRiepilogo };
 })();

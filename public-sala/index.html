@@ -503,11 +503,9 @@
        prima riga, e «Aggiorna» sale accanto ai turni. */
     .riga-strumenti { gap: 8px; }
     #giorno { flex: 1 1 auto; min-width: 0; width: auto; }
-    /* I turni vanno a capo da soli: sono lunghi, e su una riga con la data
-       spezzerebbero tutto. Il tasto Aggiorna resta invece in alto, ridotto al
-       suo disegno — serve quando un altro prende una prenotazione mentre tu
-       guardi la pagina. */
-    #turni { flex: 1 1 100%; }
+    /* Il tasto Aggiorna resta in alto, ridotto al suo disegno — serve quando
+       un altro prende una prenotazione mentre tu guardi la pagina. (I turni
+       non stanno più in questa riga: hanno le loro schede, sotto.) */
     #aggiorna .etichetta { display: none; }
     #aggiorna { padding: 10px 12px; }
     .velo { padding: 0; align-items: flex-end; }
@@ -739,8 +737,10 @@
         </svg>
         <span class="etichetta">Aggiorna</span>
       </button>
-      <span id="turni" class="conteggio" style="white-space:pre-line"></span>
     </div>
+    <!-- Com'è messa la giornata, turno per turno: lo disegna
+         Turni.disegnaRiepilogo (comune/turni.js), lo stesso della piattaforma. -->
+    <div id="turni"></div>
     <!-- Chi aspetta un posto per questo giorno: sta sopra l'elenco perché è la
          domanda che si fa PRIMA di dare via un tavolo. -->
     <!-- Quello che i clienti hanno comunicato, tutto insieme: si legge una
@@ -938,15 +938,9 @@ async function caricaGiorno() {
   $('#lista-tavoli').innerHTML = (d.tavoli || []).map((t) => `<option value="${sicuro(t.nome)}">`
     + `${t.posti} ${t.posti === 1 ? 'posto' : 'posti'}${t.soloSala ? ' · solo sala' : ''}</option>`).join('');
   // Una riga per turno, o per servizio — non una per ogni mezz'ora.
-  $('#turni').textContent = (d.riepilogo || []).length
-    // Uno per riga: in fila non si capiva dove finiva un turno.
-    ? d.riepilogo.map((r) => `${r.etichetta}: ${r.testo}`).join('\n')
-    : 'Chiuso in questo giorno';
-  // Il cartello «pieno» sta PRIMA dei numeri: è la cosa che cambia il senso di
-  // tutto il resto. Chi legge «20:00: 3/6» senza sapere che il bot rifiuta
-  // crede che i tre posti siano ancora vendibili.
-  if (d.soldOut) $('#turni').textContent = '🚫 Sold out — il bot non prende prenotazioni\n' + $('#turni').textContent;
-  else if (d.chiuso) $('#turni').textContent = '🔒 Chiusura — il bot non prende prenotazioni';
+  // Una scheda per turno, con la barra dei tavoli — e il cartello del sold out
+  // o della chiusura prima di tutto (vedi Turni.disegnaRiepilogo).
+  Turni.disegnaRiepilogo($('#turni'), d);
   disegnaAttese(d.attese || []);
   const vive = d.righe;
   // Quante ce n'erano, per accorgersi che ne è arrivata una nuova: una riga

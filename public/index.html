@@ -1708,9 +1708,10 @@
           <input type="date" id="pren-data" style="width:auto">
           <button class="btn btn-secondario" id="pren-oggi">Oggi</button>
           <button class="btn" id="pren-aggiungi">+ Aggiungi prenotazione</button>
-          <span style="flex:1"></span>
-          <span id="pren-turni" class="conteggio" style="margin:0;white-space:pre-line"></span>
         </div>
+        <!-- Com'è messa la giornata, turno per turno: lo disegna
+             Turni.disegnaRiepilogo (comune/turni.js), lo stesso della sala. -->
+        <div id="pren-turni"></div>
         <!-- LA LISTA D'ATTESA del giorno. Sta sopra l'elenco perché è la
              domanda che si fa PRIMA di dare via un tavolo: c'è qualcuno che
              lo aspetta? -->
@@ -5492,16 +5493,9 @@ async function caricaServizio() {
   const d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent(data))).json();
   $('#lista-tavoli').innerHTML = (d.tavoli || []).map((t) => `<option value="${testoSicuro(t.nome)}">`
     + `${t.posti} ${t.posti === 1 ? 'posto' : 'posti'}${t.soloSala ? ' · solo sala' : ''}</option>`).join('');
-  $('#pren-turni').textContent = (d.riepilogo || []).length
-    // Uno per riga: in fila, separati dallo stesso «·» che sta dentro ogni
-    // turno, non si capiva dove finiva uno e cominciava l'altro.
-    ? d.riepilogo.map((r) => `${r.etichetta}: ${r.testo}`).join('\n')
-    : 'Chiuso in questo giorno';
-  // Il cartello «pieno» sta PRIMA dei numeri: è la cosa che cambia il senso di
-  // tutto il resto. Chi legge «20:00: 3/6» senza sapere che il bot rifiuta
-  // crede che i tre posti siano ancora vendibili.
-  if (d.soldOut) $('#pren-turni').textContent = '🚫 Sold out — il bot non prende prenotazioni\n' + $('#pren-turni').textContent;
-  else if (d.chiuso) $('#pren-turni').textContent = '🔒 Chiusura — il bot non prende prenotazioni';
+  // Una scheda per turno, con la barra dei tavoli — e il cartello del sold out
+  // o della chiusura prima di tutto (vedi Turni.disegnaRiepilogo).
+  Turni.disegnaRiepilogo($('#pren-turni'), d);
   disegnaAttese($('#pren-attese'), d.attese || [], caricaServizio);
   const corpo = $('#pren-righe');
   if (!d.righe.length) {

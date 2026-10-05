@@ -1971,7 +1971,14 @@ function tavoliLiberi(db, cfg, iso, ora, opzioni = {}) {
 // coperti — è così che lo vede il bot. I coperti restano scritti: alla cucina
 // servono.
 //
-// Ogni riga: { servizio, etichetta, testo, pieno, occupati, totale, coperti }.
+// Ogni riga: { servizio, etichetta, testo, pieno, occupati, totale, coperti,
+//              tipo, turno, orario, unita } — `etichetta` e `testo` per chi
+// legge una riga di testo (WhatsApp, la scheda «Oggi»), il resto per chi la
+// disegna (le schede per turno del servizio del giorno).
+//   tipo: 'turno' (turni), 'orario' (un orario solo dei turni di prima),
+//         'servizio' (orari continui di prima: il momento più pieno),
+//         'chiuso' (servizio chiuso, ma con gente prenotata).
+//   unita: 'tavoli' o 'coperti' — di cosa sono `occupati` e `totale`.
 function riepilogoDelGiorno(db, cfg, iso) {
   const fasce = fasceDelGiorno(cfg, iso);
   const tavoli = tavoliDi(db);
@@ -1994,7 +2001,8 @@ function riepilogoDelGiorno(db, cfg, iso) {
       // ⚠️ Chiuso, ma con gente dentro: è il caso che spariva. Si dice.
       if (delServizio.length) {
         righe.push({ servizio, etichetta: `${NOMI[servizio]} (chiuso)`, testo: `⚠️ ${cop(coperti)} prenotati`,
-                     pieno: false, occupati: 0, totale, coperti });
+                     pieno: false, occupati: 0, totale, coperti,
+                     tipo: 'chiuso', turno: null, orario: '', unita: conTavoli ? 'tavoli' : 'coperti' });
       }
       continue;
     }
@@ -2016,7 +2024,9 @@ function riepilogoDelGiorno(db, cfg, iso) {
         righe.push({ servizio, etichetta: `${NOMI[servizio]} ${fissa && fissa.turno ? `· ${i + 1}° turno ` : ''}${fascia}`,
                      testo: conTavoli ? `${misura(occupati)} · ${cop(coperti)}${pieno ? ' · pieno' : ''}`
                        : `${misura(occupati)} coperti${pieno ? ' · pieno' : ''}`,
-                     pieno, occupati, totale, coperti });
+                     pieno, occupati, totale, coperti,
+                     tipo: fissa && fissa.turno ? 'turno' : 'orario', turno: fissa && fissa.turno ? i + 1 : null,
+                     orario: fascia, unita: conTavoli ? 'tavoli' : 'coperti' });
       });
     } else {
       // Orari continui: il momento più pieno del servizio, perché è lì che
@@ -2035,7 +2045,10 @@ function riepilogoDelGiorno(db, cfg, iso) {
       righe.push({ servizio, etichetta: `${NOMI[servizio]} ${orari[0]}${orari.length > 1 ? `–${orari[orari.length - 1]}` : ''}`,
                    testo: !delServizio.length ? 'nessuna prenotazione'
                      : `${cop(coperti)} · al massimo ${misura(picco)} insieme${pieno ? ' · pieno' : ''}`,
-                   pieno, occupati: picco, totale, coperti });
+                   pieno, occupati: picco, totale, coperti,
+                   tipo: 'servizio', turno: null,
+                   orario: `${orari[0]}${orari.length > 1 ? `–${orari[orari.length - 1]}` : ''}`,
+                   unita: conTavoli ? 'tavoli' : 'coperti' });
     }
   }
   return righe;
