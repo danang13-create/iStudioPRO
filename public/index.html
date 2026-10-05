@@ -7266,11 +7266,16 @@ function disegnaFasce() {
         <div class="sv-campi">${campi}</div>
       </div>`;
     }).join('');
+    // Un giorno chiuso del tutto non si copia: sugli altri vorrebbe dire
+    // chiudere la settimana con un tocco.
+    const aperto = SERVIZI_UI.some(([s]) => fasceUI[g][s].modo !== 'chiuso');
     return `<div class="fascia-giorno" data-giorno="${g}">
       <div class="fg-nome">${giorno}</div>
       <div class="fg-fasce">
         ${righe}
         <span class="fg-anteprima" data-anteprima="${g}"></span>
+        ${aperto ? `<span><button type="button" class="btn btn-secondario btn-piccolo" data-copia-giorno
+          aria-label="Copia gli orari di ${giorno.toLowerCase()} sugli altri giorni aperti">Copia sugli altri giorni aperti</button></span>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -7340,7 +7345,29 @@ $('#pren-fasce').addEventListener('change', (e) => {
   fasceToccate = true;
   disegnaFasce();
 });
+// «Copia sugli altri giorni aperti»: un locale che fa gli stessi turni tutta
+// la settimana li scrive una volta, non sette — quattordici tendine e
+// ventotto orari sono il modo in cui una pagina non viene mai finita.
+// ⚠️ Solo sui giorni APERTI: il lunedì chiuso resta chiuso. E niente si
+// salva da solo: se la copia era sbagliata, ricaricando torna tutto com'era.
+function copiaGiorno(g) {
+  const aperto = (x) => SERVIZI_UI.some(([s]) => fasceUI[x][s].modo !== 'chiuso');
+  const dove = ORDINE_GIORNI_UI.filter((x) => x !== g && aperto(x));
+  if (!dove.length) {
+    toast('Non ci sono altri giorni aperti: aprili prima, poi copia.');
+    return;
+  }
+  for (const x of dove) {
+    for (const [s] of SERVIZI_UI) fasceUI[x][s] = JSON.parse(JSON.stringify(fasceUI[g][s]));
+  }
+  fasceToccate = true;
+  disegnaFasce();
+  toast(`Copiato su ${dove.map((x) => NOMI_GIORNI_UI[x].toLowerCase()).join(', ')}. `
+    + 'Non è ancora salvato: premi «Salva gli orari».');
+}
 $('#pren-fasce').addEventListener('click', (e) => {
+  const copia = e.target.closest('[data-copia-giorno]');
+  if (copia) { copiaGiorno(+copia.closest('[data-giorno]').dataset.giorno); return; }
   const togli = e.target.closest('[data-togli-turno]');
   const aggiungi = e.target.closest('[data-aggiungi-turno]');
   if (!togli && !aggiungi) return;
