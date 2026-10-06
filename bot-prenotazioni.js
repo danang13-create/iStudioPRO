@@ -320,6 +320,8 @@ function preparaDatabase(db) {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_tavoli_nome ON bot_tavoli(nome COLLATE NOCASE);
   `);
+  // Quale menu è partito (menu, degustazione, tutti): colonna arrivata dopo.
+  try { db.exec("ALTER TABLE bot_menu_richieste ADD COLUMN quale TEXT NOT NULL DEFAULT 'menu'"); } catch {}
   // Il minimo è arrivato dopo: i tavoli già fatti partono da 1, cioè come prima.
   try { db.exec('ALTER TABLE bot_tavoli ADD COLUMN posti_min INTEGER NOT NULL DEFAULT 1'); } catch {}
 
@@ -374,6 +376,8 @@ function preparaDatabase(db) {
 // dalla storia del progetto — ogni frase che è stata riscritta lascia qui
 // dietro quella di prima.
 const TESTI_SUPERATI = {
+  bot_t_menu_invito: [
+    '📖 Se vuoi dare prima un’occhiata al menu, scrivi MENU.',  ],
   bot_t_menu: [
     'Ecco il nostro menu 🍽️\n👉 {link}\n\nSe vuoi prenotare, dimmi pure per quante persone.',  ],
   bot_t_nota_domanda: [
@@ -732,6 +736,7 @@ const PREDEFINITI = {
   // («mi mandi il menu?»), al posto di {link} in `bot_t_menu`. Vuoto = il
   // bot non ne parla. Sta anche in {menu}, per chi lo vuole nel benvenuto.
   bot_menu_link: '',
+  bot_menu_degustazione_link: '',
   bot_recensione_giorni: '2',
   bot_recensione_ora: '11:00',
   bot_recensione_max: '20',
@@ -777,13 +782,20 @@ const PREDEFINITI = {
   // risposta pronta: a inizio conversazione e alla domanda sulle persone,
   // dove una domanda su altro non è un numero sbagliato.
   bot_t_menu: 'Ecco il nostro menu 🍽️\n👉 {link}',
+  bot_t_menu_degustazione: 'E questo è il menu degustazione ✨\n👉 {link}',
+  // Nessun collegamento impostato, e qualcuno lo chiede lo stesso.
+  bot_t_menu_nessuno: 'Al momento non riesco a inviarti i menu: chiedi pure in sala, saranno felici di raccontarteli. 🙂',
+  // L'ha già ricevuto oggi: non si rimanda da soli, si chiede.
+  bot_t_menu_rimando: 'Te l’ho mandato poco fa 🙂 Vuoi che te lo rimandi? Scrivi SÌ o NO.',
   // Sotto il menu: come si va avanti. A chi non ha ancora cominciato si
   // propone di prenotare; a chi era a metà si ridice la domanda a cui era
   // rimasto ({cosa}: «per che giorno», «a che ora», «se confermi la prenotazione»).
   bot_t_menu_prenota: 'Se vuoi prenotare, dimmi pure per quante persone.',
   bot_t_menu_riprendi: 'Riprendiamo da dove eravamo: {cosa}?',
   // La riga sotto il benvenuto, solo se il collegamento c'è. Vuota = nessuna riga.
-  bot_t_menu_invito: '📖 Se vuoi dare prima un’occhiata al menu, scrivi MENU.',
+  // {scelte} è «MENU per il menu», «DEGUSTAZIONE per il menu degustazione», o
+  // tutti e due: solo i menu che hanno il collegamento.
+  bot_t_menu_invito: '📖 Se vuoi dare prima un’occhiata, scrivi {scelte}.',
   // Pranzo o cena, prima degli orari (deciso dal titolare). Si chiede solo
   // quando quel giorno sono aperti e liberi tutti e due i servizi, e il
   // cliente non l'ha già detto.
@@ -2719,9 +2731,39 @@ function cercaFaq(db, testo) {
 }
 
 // Ogni volta che il menu parte, si segna chi l'ha chiesto e a che punto era.
-function annotaMenu(db, telefono, adesso, passo) {
-  db.prepare('INSERT INTO bot_menu_richieste (telefono, passo, quando) VALUES (?, ?, ?)')
-    .run(telefono, passo || '', quandoLeggibile(adesso));
+function annotaMenu(db, telefono, adesso, passo, quale = 'menu') {
+  db.prepare('INSERT INTO bot_menu_richieste (telefono, passo, quando, quale) VALUES (?, ?, ?, ?)')
+    .run(telefono, passo || '', quandoLeggibile(adesso), quale);
+}
+
+// I menu con un collegamento: solo quelli sono «attivi», e solo quelli il
+// bot annuncia e manda.
+function menuAttivi(cfg) {
+  const m = {};
+  const menu = String(cfg.bot_menu_link || '').trim();
+  const degustazione = String(cfg.bot_menu_degustazione_link || '').trim();
+  if (menu) m.menu = menu;
+  if (degustazione) m.degustazione = degustazione;
+  return m;
+}
+// «MENU per il menu oppure DEGUSTAZIONE per il menu degustazione», per
+// l'invito sotto il benvenuto. Vuoto se non c'è nessun menu.
+function scelteMenu(cfg) {
+  const a = menuAttivi(cfg);
+  return [a.menu ? 'MENU per il menu' : '', a.degustazione ? 'DEGUSTAZIONE per il menu degustazione' : '']
+    .filter(Boolean).join(' oppure ');
+}
+// Quale menu chiede: «degustazione» se lo nomina, «menu» per tutto il resto.
+function qualeMenu(testo) {
+  const t = normalizza(testo);
+  if (/\bdegustazion\w*\b/.test(t)) return 'degustazione';
+  return chiedeIlMenu(t) ? 'menu' : null;
+}
+// Gli è già stato mandato oggi? Allora non si rimanda da soli: si chiede.
+function menuGiaMandatoOggi(db, telefono, adesso, quale) {
+  const oggi = comeData(adesso);
+  const righe = db.prepare('SELECT quale FROM bot_menu_richieste WHERE telefono = ? AND substr(quando, 1, 10) = ?').all(telefono, oggi);
+  return righe.some((r) => r.quale === 'tutti' || r.quale === quale || quale === 'menu');
 }
 
 // Il menu nel report: quante richieste, da quante persone, e quante di
@@ -4442,6 +4484,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     apertura: cfg.bot_avvisi_da || '',
     // Il collegamento al menu, per chi lo vuole in una frase sua (il benvenuto).
     menu: String(cfg.bot_menu_link || '').trim(),
+    degustazione: String(cfg.bot_menu_degustazione_link || '').trim(),
   };
 
   const di = (chiave, extra) => riempi(cfg[chiave], { ...valori, ...(extra || {}) });
@@ -4782,15 +4825,55 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   // numero («menu per 4» è una prenotazione per 4), e una domanda frequente
   // del locale sul menu viene prima.
   {
-    const linkMenu = String(cfg.bot_menu_link || '').trim();
+    const attivi = menuAttivi(cfg);
     const cosa = DOMANDA_DOPO_IL_MENU[stato.passo];
-    if (linkMenu && cosa !== undefined && chiedeIlMenu(testo)
-        && !(stato.passo === 'persone' && interpretaPersone(testo) !== null)) {
+    const dopo = () => (cosa ? di('bot_t_menu_riprendi', { cosa }) : di('bot_t_menu_prenota'));
+    // Cosa mandare: il menu degustazione se l'ha chiesto e c'è; sennò tutti i
+    // menu attivi, in un messaggio solo — niente domande in più.
+    const manda = (quale) => {
+      const pezzi = [];
+      let mandato = 'menu';
+      if (quale === 'degustazione' && attivi.degustazione) {
+        pezzi.push(di('bot_t_menu_degustazione', { link: attivi.degustazione }));
+        mandato = 'degustazione';
+      } else {
+        if (attivi.menu) pezzi.push(di('bot_t_menu', { link: attivi.menu }));
+        if (attivi.degustazione) pezzi.push(di('bot_t_menu_degustazione', { link: attivi.degustazione }));
+        mandato = attivi.menu && attivi.degustazione ? 'tutti' : attivi.menu ? 'menu' : 'degustazione';
+      }
+      risposte.push([...pezzi, dopo()].filter(Boolean).join('\n\n'));
+      annotaMenu(db, telefono, adesso, stato.passo, mandato);
+    };
+    // La risposta a «vuoi che te lo rimandi?». Il segno si toglie comunque:
+    // se ha scritto un'altra cosa, quella cosa si legge normalmente.
+    if (cosa !== undefined && dati.rimandaMenu) {
+      const rimandaMenu = dati.rimandaMenu;
+      // ⚠️ Si toglie dall'oggetto in mano, non solo dall'archivio: i passi qui
+      // sotto risalvano `dati` com'è, e il segno sarebbe tornato — e un «sì»
+      // al riepilogo, tre messaggi dopo, avrebbe rimandato il menu invece di
+      // confermare il tavolo. Visto rompendo una prova.
+      delete dati.rimandaMenu;
+      salvaStato(db, telefono, stato.passo, dati);
+      const si = interpretaSiNo(testo);
+      if (si === true) { manda(rimandaMenu); return esito; }
+      if (si === false) { risposte.push(`Va bene 👍\n\n${dopo()}`); return esito; }
+    }
+    const quale = qualeMenu(testo);
+    if (cosa !== undefined && quale && !(stato.passo === 'persone' && interpretaPersone(testo) !== null)) {
       const faq = stato.passo === 'persone' ? cercaFaq(db, testo) : null;
       if (faq) { risposte.push(riempi(faq, valori)); return esito; }
-      const dopo = cosa ? di('bot_t_menu_riprendi', { cosa }) : di('bot_t_menu_prenota');
-      risposte.push([di('bot_t_menu', { link: linkMenu }), dopo].filter(Boolean).join('\n\n'));
-      annotaMenu(db, telefono, adesso, stato.passo);
+      // Nessun menu attivo: lo si dice, invece di far finta di non capire.
+      if (!attivi.menu && !attivi.degustazione) {
+        risposte.push(`${di('bot_t_menu_nessuno')}\n\n${dopo()}`);
+        return esito;
+      }
+      // Già ricevuto oggi: si chiede prima di rimandarlo, e si ricorda la domanda.
+      if (menuGiaMandatoOggi(db, telefono, adesso, quale)) {
+        salvaStato(db, telefono, stato.passo, { ...dati, rimandaMenu: quale });
+        risposte.push(di('bot_t_menu_rimando'));
+        return esito;
+      }
+      manda(quale);
       return esito;
     }
   }
@@ -4909,8 +4992,9 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       // si dice «che bello rivederti», col nome (vedi `giaVisto`).
       // Sotto il benvenuto, l'invito a vedere il menu: solo se il collegamento
       // c'è e la frase non è stata svuotata. Non a chi ha già un tavolo.
-      const invito = !gia && String(cfg.bot_menu_link || '').trim() && String(cfg.bot_t_menu_invito || '').trim()
-        ? `\n\n${di('bot_t_menu_invito')}` : '';
+      const scelte = scelteMenu(cfg);
+      const invito = !gia && scelte && String(cfg.bot_t_menu_invito || '').trim()
+        ? `\n\n${di('bot_t_menu_invito', { scelte })}` : '';
       risposte.push(di(gia ? 'bot_t_quante' : (giaVisto ? 'bot_t_bentornato' : 'bot_t_benvenuto')) + invito);
       return esito;
     }
@@ -5713,7 +5797,7 @@ module.exports = {
   salutoOra,
   cercaFaq,
   annotaNonCapita,
-  riempi, chiedeIlMenu, DOMANDA_DOPO_IL_MENU, annotaMenu, statisticheMenu,
+  riempi, chiedeIlMenu, qualeMenu, menuAttivi, scelteMenu, DOMANDA_DOPO_IL_MENU, annotaMenu, statisticheMenu,
   prenotazioneFutura,
   elencoPrenotazioni,
   elencoTutte,
