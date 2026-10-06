@@ -65,6 +65,15 @@ function preparaDatabase(db) {
     );
 
     -- Parole chiave → risposta, scritte dal ristoratore.
+    -- Chi ha chiesto il menu, e quando: è l'unica cosa che si può contare
+    -- (i clic sul collegamento no: il computer del locale non è in rete, e
+    -- WhatsApp apre i link da sé per l'anteprima). Serve al report.
+    CREATE TABLE IF NOT EXISTS bot_menu_richieste (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      telefono TEXT NOT NULL,
+      passo TEXT NOT NULL DEFAULT '',
+      quando TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    );
     CREATE TABLE IF NOT EXISTS bot_faq (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       parole TEXT NOT NULL,
@@ -2709,6 +2718,30 @@ function cercaFaq(db, testo) {
   return null;
 }
 
+// Ogni volta che il menu parte, si segna chi l'ha chiesto e a che punto era.
+function annotaMenu(db, telefono, adesso, passo) {
+  db.prepare('INSERT INTO bot_menu_richieste (telefono, passo, quando) VALUES (?, ?, ?)')
+    .run(telefono, passo || '', quandoLeggibile(adesso));
+}
+
+// Il menu nel report: quante richieste, da quante persone, e quante di
+// quelle persone hanno POI prenotato — una prenotazione viva nata dopo la
+// prima richiesta. È il numero che dice se il menu convince.
+function statisticheMenu(db, dal, al) {
+  const righe = db.prepare(
+    'SELECT telefono, MIN(quando) AS prima, COUNT(*) AS volte FROM bot_menu_richieste '
+    + 'WHERE substr(quando, 1, 10) >= ? AND substr(quando, 1, 10) <= ? GROUP BY telefono'
+  ).all(dal, al);
+  const haPrenotato = db.prepare(
+    'SELECT 1 FROM prenotazioni WHERE (telefono = ? OR chat_id = ?) AND creata_at >= ? '
+    + "AND stato != 'annullata' LIMIT 1");
+  return {
+    richieste: righe.reduce((n, r) => n + r.volte, 0),
+    persone: righe.length,
+    poiPrenotato: righe.filter((r) => haPrenotato.get(r.telefono, r.telefono, r.prima)).length,
+  };
+}
+
 // A che domanda si torna dopo aver mandato il menu, passo per passo. I passi
 // che NON ci sono non lo intercettano: «note» è testo libero («menu
 // degustazione per il compleanno» è una nota), i nomi sono nomi, le offerte
@@ -3890,6 +3923,7 @@ function reportPrenotazioni(db, cfg, dal, al) {
     },
     soldOut: pieniConta,
     clienti: { totali: clienti.size, diRitorno, nuovi: clienti.size - diRitorno },
+    menu: statisticheMenu(db, dal, al),
     turnoTop: piuAlto(perTurno),
     giornoTop: piuAlto(perGiornoSettimana.filter((g) => g.coperti > 0)),
   };
@@ -4756,6 +4790,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       if (faq) { risposte.push(riempi(faq, valori)); return esito; }
       const dopo = cosa ? di('bot_t_menu_riprendi', { cosa }) : di('bot_t_menu_prenota');
       risposte.push([di('bot_t_menu', { link: linkMenu }), dopo].filter(Boolean).join('\n\n'));
+      annotaMenu(db, telefono, adesso, stato.passo);
       return esito;
     }
   }
@@ -5678,7 +5713,7 @@ module.exports = {
   salutoOra,
   cercaFaq,
   annotaNonCapita,
-  riempi, chiedeIlMenu, DOMANDA_DOPO_IL_MENU,
+  riempi, chiedeIlMenu, DOMANDA_DOPO_IL_MENU, annotaMenu, statisticheMenu,
   prenotazioneFutura,
   elencoPrenotazioni,
   elencoTutte,

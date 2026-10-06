@@ -6245,6 +6245,13 @@ function disegnaReport(d, prima = null) {
       prima ? deltaTesto(d.clienti.totali, prima.clienti.totali, d.giorni) : ''],
   ];
   if (d.soldOut) kpi.push(['Giorni sold out', d.soldOut, '', '']);
+  // Il menu: chi l'ha CHIESTO (i clic sul collegamento non si possono
+  // contare), e quanti di loro hanno poi prenotato.
+  if (d.menu && d.menu.richieste) {
+    kpi.push(['Menu chiesto', d.menu.persone,
+      `${d.menu.richieste === 1 ? '1 volta' : `${d.menu.richieste} volte`} · ${d.menu.poiPrenotato} ${d.menu.poiPrenotato === 1 ? 'ha' : 'hanno'} poi prenotato`,
+      prima && prima.menu ? deltaTesto(d.menu.persone, prima.menu.persone, d.giorni) : '']);
+  }
 
   let html = '<div class="rep-kpi">' + kpi.map(([nome, n, p, delta]) => `
     <div><div class="n">${n}</div><div class="t">${nome}</div>
