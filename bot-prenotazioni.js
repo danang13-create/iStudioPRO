@@ -4862,6 +4862,8 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
           (esito.allegati = esito.allegati || []).push({
             quale: chiave === 'bot_t_menu' ? 'menu' : 'degustazione', file: a.file,
             didascalia: riempi(senzaLaRigaDelLink(cfg[chiave]), valori),
+            // Il collegamento, se c'è: è il ripiego del server quando il file non parte.
+            link: a.link || '',
           });
         } else {
           pezzi.push(di(chiave, { link: a.link }));

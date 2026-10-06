@@ -214,6 +214,50 @@ client.on('code', (codice) => {
   console.log('Codice di collegamento generato per', state.codiceNumero);
 });
 
+// ---------- L'invio dei FILE, rotto da WhatsApp Web (settembre 2026) ----------
+// ⚠️ Dal 17 settembre 2026 WhatsApp Web ha cambiato il modo in cui costruisce
+// un messaggio, e con whatsapp-web.js (fino alla 1.34.7 compresa) OGNI file
+// — foto, PDF, audio — fallisce con «Data passed to getter must include an id
+// property (it's how we memoize) but got undefined». I testi no. Visto dal
+// titolare appena messo il menu come allegato.
+//
+// Il perché: preparando il file, la libreria restituisce un oggetto-modello
+// che porta con sé il suo numero interno (`__x_id`); quell'oggetto viene
+// «spalmato» dentro il messaggio in uscita e il numero interno copre
+// l'identificativo del messaggio, che WhatsApp poi non trova. La correzione
+// (togliere `__x_id` prima) è pronta nel progetto della libreria ma non è
+// ancora in nessuna versione pubblicata: la si applica da qui, dentro la
+// pagina di WhatsApp Web, a ogni collegamento (dopo un ricollegamento la pagina
+// è nuova). Quando uscirà una versione della libreria che lo fa da sé, questa
+// toppa resta innocua: toglie una proprietà che non c'è più.
+const TOPPA_INVIO_FILE = () => {
+  if (!window.WWebJS || typeof window.WWebJS.processMediaData !== 'function') return 'manca WWebJS';
+  if (window.WWebJS.__toppaIStudioFile) return 'già messa';
+  const originale = window.WWebJS.processMediaData;
+  window.WWebJS.processMediaData = async (...argomenti) => {
+    const m = await originale(...argomenti);
+    if (m && typeof m === 'object') {
+      delete m.__x_id;
+      // E il suo `toJSON`, se emette un `id` vuoto, non deve coprire quello vero.
+      if (typeof m.toJSON === 'function') {
+        const toJSON = m.toJSON.bind(m);
+        m.toJSON = () => { const j = toJSON() || {}; delete j.id; delete j.__x_id; return j; };
+      }
+    }
+    return m;
+  };
+  window.WWebJS.__toppaIStudioFile = true;
+  return 'messa';
+};
+async function mettiLaToppaInvioFile() {
+  try {
+    const esito = await client.pupPage.evaluate(TOPPA_INVIO_FILE);
+    if (esito !== 'messa' && esito !== 'già messa') annota('errore', `invio dei file: toppa non applicata (${esito})`);
+  } catch (e) {
+    annota('errore', `invio dei file: toppa non applicata (${e.message})`);
+  }
+}
+
 client.on('ready', () => {
   state.status = 'connesso';
   state.qr = null;
@@ -221,6 +265,7 @@ client.on('ready', () => {
   state.codiceNumero = null;
   state.me = client.info && client.info.wid ? client.info.wid.user : null;
   console.log('WhatsApp connesso come', state.me);
+  mettiLaToppaInvioFile();
   // se un invio si era fermato per il collegamento caduto, riparte da solo
   setTimeout(() => riprendiInviiAutomatici(), 2000);
 });
@@ -3411,13 +3456,20 @@ async function mandaAllegatoMenu(chatId, a) {
   if (passati < minimo) await sleep(minimo - passati);
   ultimoInvioChat = Date.now();
   if (state.status !== 'connesso') throw new Error('WhatsApp non collegato');
-  return inCoda(async () => {
-    const media = MessageMedia.fromFilePath(percorso);
-    segnaCheStoInviando(chatId, a.didascalia || '');
-    const inviato = await client.sendMessage(chatId, media, { caption: a.didascalia || '' });
-    if (inviato && inviato.id && inviato.id._serialized) mieiMessaggi.add(inviato.id._serialized);
-    return inviato;
-  });
+  try {
+    return await inCoda(async () => {
+      const media = MessageMedia.fromFilePath(percorso);
+      segnaCheStoInviando(chatId, a.didascalia || '');
+      const inviato = await client.sendMessage(chatId, media, { caption: a.didascalia || '' });
+      if (inviato && inviato.id && inviato.id._serialized) mieiMessaggi.add(inviato.id._serialized);
+      return inviato;
+    });
+  } catch (e) {
+    // ⚠️ Il file non è partito: il cliente non deve restare senza niente. Si
+    // manda la didascalia, col collegamento se c'è, e si scrive il motivo.
+    annota('errore', `il file del menu ${a.quale} non è partito (${e.message}): mandato il testo${a.link ? ' col collegamento' : ''}`);
+    return rispondiConRitmo(chatId, `${a.didascalia || ''}${a.link ? `\n👉 ${a.link}` : ''}`.trim());
+  }
 }
 
 async function rispondiConRitmo(chatId, testo) {
