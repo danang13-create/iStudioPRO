@@ -717,6 +717,10 @@ const PREDEFINITI = {
   // Recensioni
   bot_recensione_attiva: 'false',
   bot_recensione_link: '',
+  // Il collegamento al menu (un PDF in rete, una pagina): va a chi lo chiede
+  // («mi mandi il menu?»), al posto di {link} in `bot_t_menu`. Vuoto = il
+  // bot non ne parla. Sta anche in {menu}, per chi lo vuole nel benvenuto.
+  bot_menu_link: '',
   bot_recensione_giorni: '2',
   bot_recensione_ora: '11:00',
   bot_recensione_max: '20',
@@ -758,6 +762,10 @@ const PREDEFINITI = {
   bot_t_troppo_lontano: 'Per {data} siamo troppo in l\u00e0 nel tempo: ti faccio rispondere da una persona del locale.',
   bot_t_chiuso: 'Purtroppo quel giorno {locale} è chiuso. \n\nTi va di scegliere un altro giorno?',
   bot_t_ora: 'Per {data} abbiamo disponibilità nei seguenti orari:\n',
+  // A chi chiede il menu, se il collegamento è impostato. Esce come una
+  // risposta pronta: a inizio conversazione e alla domanda sulle persone,
+  // dove una domanda su altro non è un numero sbagliato.
+  bot_t_menu: 'Ecco il nostro menu 🍽️\n👉 {link}\n\nSe vuoi prenotare, dimmi pure per quante persone.',
   // Pranzo o cena, prima degli orari (deciso dal titolare). Si chiede solo
   // quando quel giorno sono aperti e liberi tutti e due i servizi, e il
   // cliente non l'ha già detto.
@@ -2692,6 +2700,28 @@ function cercaFaq(db, testo) {
   return null;
 }
 
+// «Mi mandate il menu?», «avete la carta dei vini?», «cosa si mangia?».
+// ⚠️ Parole intere: «menu» non deve scattare dentro «menutrasporto», e «carta»
+// da sola è anche la carta di credito — vale solo «la carta», «carta dei…».
+function chiedeIlMenu(testo) {
+  const t = normalizza(testo);
+  // «la carta» solo se la si chiede (mandare, vedere, avere…) o se è «la
+  // carta dei vini»: «accettate la carta?» e «pago con la carta» sono la
+  // carta di credito, e il menu lì sarebbe una risposta da macchina.
+  return /\b(menu|(mand\w*|invi\w*|ved\w*|mostr\w*|av\w+|ricev\w*|pass\w*|gir\w*) (mi |ci )?la carta\b|carta (dei|delle|del) \w+|cosa si mangia|cosa (avete|c e|ce) da mangiare|(che|quali) piatti|listino)\b/.test(t);
+}
+
+// Una risposta pronta: le domande frequenti del locale, e poi il menu se il
+// collegamento c'è. Le domande frequenti vengono prima: se il locale ha
+// scritto la sua risposta a «menu», vale quella.
+function rispostaPronta(db, cfg, testo, valori) {
+  const faq = cercaFaq(db, testo);
+  if (faq) return riempi(faq, valori);
+  const link = String(cfg.bot_menu_link || '').trim();
+  if (link && chiedeIlMenu(testo)) return riempi(cfg.bot_t_menu, { ...valori, link });
+  return null;
+}
+
 function annotaNonCapita(db, testo) {
   const n = normalizza(testo).slice(0, 200);
   if (!n) return;
@@ -4364,6 +4394,8 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     nome: giaVisto ? giaVisto.nome : '',
     assistente: cfg.bot_assistente || '',
     apertura: cfg.bot_avvisi_da || '',
+    // Il collegamento al menu, per chi lo vuole in una frase sua (il benvenuto).
+    menu: String(cfg.bot_menu_link || '').trim(),
   };
 
   const di = (chiave, extra) => riempi(cfg[chiave], { ...valori, ...(extra || {}) });
@@ -4690,9 +4722,9 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   // A metà prenotazione NON si guarda la FAQ: «due» dopo la domanda sulle
   // persone è un numero, non una richiesta di informazioni.
   if (stato.passo === 'inizio') {
-    const faq = cercaFaq(db, testo);
-    if (faq) {
-      risposte.push(riempi(faq, valori));
+    const pronta = rispostaPronta(db, cfg, testo, valori);
+    if (pronta) {
+      risposte.push(pronta);
       return esito;
     }
   }
@@ -4821,8 +4853,8 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       // Dopo il benvenuto il cliente può fare tutt'altro: «avete il
       // parcheggio?». Rispondergli «non ho capito il numero di persone»
       // sarebbe da sordi, e ripeterlo all'infinito lo farebbe andare via.
-      const faq = cercaFaq(db, testo);
-      if (faq) { risposte.push(riempi(faq, valori)); return esito; }
+      const pronta = rispostaPronta(db, cfg, testo, valori);
+      if (pronta) { risposte.push(pronta); return esito; }
       if (eSaluto(testo)) { risposte.push(di('bot_t_persone_no')); return esito; }
       const tentativi = (dati.tentativi || 0) + 1;
       if (tentativi >= 2) {
@@ -5611,7 +5643,7 @@ module.exports = {
   salutoOra,
   cercaFaq,
   annotaNonCapita,
-  riempi,
+  riempi, chiedeIlMenu, rispostaPronta,
   prenotazioneFutura,
   elencoPrenotazioni,
   elencoTutte,

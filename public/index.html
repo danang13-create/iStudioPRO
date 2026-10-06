@@ -1743,6 +1743,9 @@
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
           <label>Nome del locale<input id="cfg-bot_locale" autocomplete="off" placeholder="Da Luigi"></label>
           <label>Nome dell'assistente<input id="cfg-bot_assistente" autocomplete="off" placeholder="Aurora — lascia vuoto per non darle un nome"></label>
+          <label>Collegamento al menu<input id="cfg-bot_menu_link" autocomplete="off" inputmode="url" placeholder="https://…/menu.pdf">
+            <span class="conteggio" style="margin:0">Il tuo menu in rete: un PDF, una pagina del sito, il link del QR. Chi scrive «mi mandi il menu?» lo riceve, al posto di <b>{link}</b> nella frase «Manda il menu» (scheda Frasi e domande). Vuoto: il bot non ne parla. Se lo vuoi anche nel primo messaggio, scrivi <b>{menu}</b> dentro quella frase.</span>
+          </label>
           <label>Durata del tavolo (minuti)<input id="cfg-bot_durata_tavolo" autocomplete="off" type="number" min="30">
             <span class="conteggio" style="margin:0">Quanto resta occupato un tavolo preso <b>fuori dai turni</b> (un orario scritto a mano). Con i turni decide la fine del turno.</span>
           </label>
@@ -4981,7 +4984,7 @@ setInterval(caricaRichiesteCancellazione, 2 * 60 * 1000);
 // impostazioni, personale e domande frequenti. Il ristoratore non deve
 // cercare le cose in cinque posti diversi.
 
-const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_coperti_turno',
+const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_menu_link', 'bot_coperti_turno',
   'bot_durata_tavolo', 'bot_max_persone', 'bot_coperti_liberi', 'bot_preavviso_ore',
   'bot_recensione_link', 'bot_recensione_giorni', 'bot_recensione_ora',
   'bot_recensione_max', 'bot_promemoria_ora', 'bot_promemoria_giorni', 'bot_sala_password', 'bot_sala_tema',
@@ -5033,6 +5036,8 @@ const TESTI_BOT = [
   ['bot_t_bentornato', 'Chi torna: «che bello rivederti»', 'Sostituisce il primo messaggio per chi ha già prenotato da te (spunta «Riconoscere chi ha già prenotato»): non ci si ripresenta a chi ci conosce. <b>{nome}</b> è solo il nome, senza cognome.'],
   ['bot_t_quante', 'Chiede le persone a chi conosce già', 'Sostituisce il primo messaggio quando la conversazione è già aperta: chi scrive NUOVA, o chi ha già un tavolo da te. Non ci si ripresenta a chi ha appena letto un nostro messaggio.'],
   ['bot_t_persone_no', 'Non ha capito quante persone', ''],
+  [null, 'Il menu'],
+  ['bot_t_menu', 'Manda il menu a chi lo chiede', 'Esce quando il cliente scrive «menu», «la carta», «cosa si mangia»… e solo se nella scheda Orari e tavoli → Il locale hai messo il collegamento al menu, che arriva al posto di <b>{link}</b>. A inizio conversazione e alla domanda sulle persone; se hai scritto una tua domanda frequente con la parola «menu», vale quella.'],
   [null, 'Il giorno'],
   ['bot_t_giorno', 'Chiede il giorno', ''],
   ['bot_t_giorno_no', 'Non ha capito il giorno', ''],
