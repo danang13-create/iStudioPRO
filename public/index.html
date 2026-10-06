@@ -2323,8 +2323,8 @@
           <b>file caricato</b> — PDF o immagine — che il bot <b>allega</b> in chat, senza nessun link scritto. Se ci sono tutti e
           due, parte il file. Un menu con almeno uno dei due è <b>attivo</b>: il bot lo annuncia sotto il primo messaggio
           («scrivi MENU…») e lo manda a chi lo chiede, <b>in qualunque momento</b> della prenotazione, che poi riprende da dove
-          era. Senza menu attivi, a chi lo chiede risponde che al momento non può inviarlo. Se uno lo ha già ricevuto oggi,
-          prima di rimandarlo chiede. Le frasi sono in «Frasi e domande», gruppo «Il menu».
+          era. Con tutti e due attivi, a chi scrive «menu» chiede quale. Senza menu attivi, a chi lo chiede risponde che al
+          momento non può inviarlo. Se uno lo ha già ricevuto oggi, prima di rimandarlo chiede. Le frasi sono in «Frasi e domande», gruppo «Il menu».
         </p>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
           <div class="menu-voce" data-quale="menu">
@@ -5084,7 +5084,8 @@ const TESTI_BOT = [
   ['bot_t_menu_degustazione', 'Manda il menu degustazione', 'A chi scrive «degustazione»; e, insieme al menu, a chi scrive solo «menu» quando sono attivi tutti e due. Il collegamento arriva al posto di <b>{link}</b>.'],
   ['bot_t_menu_nessuno', 'Nessun menu impostato', 'A chi chiede il menu quando nella scheda Menu non c\'è nessun collegamento.'],
   ['bot_t_menu_rimando', 'L\'ha già ricevuto oggi', 'Il bot non rimanda il menu da solo a chi l\'ha già avuto oggi: chiede. Con SÌ lo rimanda, con NO va avanti.'],
-  ['bot_t_menu_invito', 'L\'invito sotto il benvenuto', 'Una riga in più sotto il primo messaggio, solo se almeno un menu è attivo. <b>{scelte}</b> diventa «MENU per il menu», «DEGUSTAZIONE per il menu degustazione», o tutti e due. Svuotala per non mostrarla. Non esce a chi ha già un tavolo.'],
+  ['bot_t_menu_invito', 'L\'invito sotto il benvenuto', 'Una riga in più sotto il primo messaggio, solo se almeno un menu è attivo: dice al cliente che può vederlo scrivendo MENU. Svuotala per non mostrarla. Non esce a chi ha già un tavolo.'],
+  ['bot_t_menu_quale', 'Due menu attivi: quale?', 'A chi scrive «menu» quando sono attivi tutti e due: chiede quale vuole. Con un menu solo attivo non si chiede niente, parte quello. «Degustazione» va dritto senza domanda.'],
   [null, 'Il giorno'],
   ['bot_t_giorno', 'Chiede il giorno', ''],
   ['bot_t_giorno_no', 'Non ha capito il giorno', ''],
