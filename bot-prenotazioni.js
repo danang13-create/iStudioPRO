@@ -365,6 +365,8 @@ function preparaDatabase(db) {
 // dalla storia del progetto — ogni frase che è stata riscritta lascia qui
 // dietro quella di prima.
 const TESTI_SUPERATI = {
+  bot_t_menu: [
+    'Ecco il nostro menu 🍽️\n👉 {link}\n\nSe vuoi prenotare, dimmi pure per quante persone.',  ],
   bot_t_nota_domanda: [
     // ⚠️ Partiva dal presupposto di aver riconosciuto una DOMANDA, e prometteva
     // una risposta. Su «allergia alle noci» sarebbe stata una risposta attesa e
@@ -765,7 +767,14 @@ const PREDEFINITI = {
   // A chi chiede il menu, se il collegamento è impostato. Esce come una
   // risposta pronta: a inizio conversazione e alla domanda sulle persone,
   // dove una domanda su altro non è un numero sbagliato.
-  bot_t_menu: 'Ecco il nostro menu 🍽️\n👉 {link}\n\nSe vuoi prenotare, dimmi pure per quante persone.',
+  bot_t_menu: 'Ecco il nostro menu 🍽️\n👉 {link}',
+  // Sotto il menu: come si va avanti. A chi non ha ancora cominciato si
+  // propone di prenotare; a chi era a metà si ridice la domanda a cui era
+  // rimasto ({cosa}: «per che giorno», «a che ora», «se confermi la prenotazione»).
+  bot_t_menu_prenota: 'Se vuoi prenotare, dimmi pure per quante persone.',
+  bot_t_menu_riprendi: 'Riprendiamo da dove eravamo: {cosa}?',
+  // La riga sotto il benvenuto, solo se il collegamento c'è. Vuota = nessuna riga.
+  bot_t_menu_invito: '📖 Se vuoi dare prima un’occhiata al menu, scrivi MENU.',
   // Pranzo o cena, prima degli orari (deciso dal titolare). Si chiede solo
   // quando quel giorno sono aperti e liberi tutti e due i servizi, e il
   // cliente non l'ha già detto.
@@ -2700,6 +2709,20 @@ function cercaFaq(db, testo) {
   return null;
 }
 
+// A che domanda si torna dopo aver mandato il menu, passo per passo. I passi
+// che NON ci sono non lo intercettano: «note» è testo libero («menu
+// degustazione per il compleanno» è una nota), i nomi sono nomi, le offerte
+// della lista d'attesa scadono per conto loro, e i comandi della sala sono
+// un'altra cosa.
+const DOMANDA_DOPO_IL_MENU = {
+  inizio: '', persone: '',          // niente da riprendere: si propone di prenotare
+  giorno: 'per che giorno', servizio: 'pranzo o cena', ora: 'a che ora',
+  telefono: 'il numero di telefono', telefono_altro: 'il numero di telefono',
+  email: "l'indirizzo email", conferma: 'se confermi la prenotazione',
+  sposta_giorno: 'per che giorno la sposto', sposta_servizio: 'pranzo o cena', sposta_ora: 'a che ora la sposto',
+  sposta_conferma: 'se confermi lo spostamento',
+};
+
 // «Mi mandate il menu?», «avete la carta dei vini?», «cosa si mangia?».
 // ⚠️ Parole intere: «menu» non deve scattare dentro «menutrasporto», e «carta»
 // da sola è anche la carta di credito — vale solo «la carta», «carta dei…».
@@ -2709,17 +2732,6 @@ function chiedeIlMenu(testo) {
   // carta dei vini»: «accettate la carta?» e «pago con la carta» sono la
   // carta di credito, e il menu lì sarebbe una risposta da macchina.
   return /\b(menu|(mand\w*|invi\w*|ved\w*|mostr\w*|av\w+|ricev\w*|pass\w*|gir\w*) (mi |ci )?la carta\b|carta (dei|delle|del) \w+|cosa si mangia|cosa (avete|c e|ce) da mangiare|(che|quali) piatti|listino)\b/.test(t);
-}
-
-// Una risposta pronta: le domande frequenti del locale, e poi il menu se il
-// collegamento c'è. Le domande frequenti vengono prima: se il locale ha
-// scritto la sua risposta a «menu», vale quella.
-function rispostaPronta(db, cfg, testo, valori) {
-  const faq = cercaFaq(db, testo);
-  if (faq) return riempi(faq, valori);
-  const link = String(cfg.bot_menu_link || '').trim();
-  if (link && chiedeIlMenu(testo)) return riempi(cfg.bot_t_menu, { ...valori, link });
-  return null;
 }
 
 function annotaNonCapita(db, testo) {
@@ -4722,9 +4734,28 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   // A metà prenotazione NON si guarda la FAQ: «due» dopo la domanda sulle
   // persone è un numero, non una richiesta di informazioni.
   if (stato.passo === 'inizio') {
-    const pronta = rispostaPronta(db, cfg, testo, valori);
-    if (pronta) {
-      risposte.push(pronta);
+    const faq = cercaFaq(db, testo);
+    if (faq) {
+      risposte.push(riempi(faq, valori));
+      return esito;
+    }
+  }
+
+  // --- Il menu, in qualunque momento della prenotazione ---
+  // Deciso dal titolare: chi lo chiede a metà strada lo riceve, e la
+  // prenotazione riprende da dove era — lo stato non si tocca, si ridice solo
+  // la domanda. Alla domanda sulle persone vale solo se non ha scritto un
+  // numero («menu per 4» è una prenotazione per 4), e una domanda frequente
+  // del locale sul menu viene prima.
+  {
+    const linkMenu = String(cfg.bot_menu_link || '').trim();
+    const cosa = DOMANDA_DOPO_IL_MENU[stato.passo];
+    if (linkMenu && cosa !== undefined && chiedeIlMenu(testo)
+        && !(stato.passo === 'persone' && interpretaPersone(testo) !== null)) {
+      const faq = stato.passo === 'persone' ? cercaFaq(db, testo) : null;
+      if (faq) { risposte.push(riempi(faq, valori)); return esito; }
+      const dopo = cosa ? di('bot_t_menu_riprendi', { cosa }) : di('bot_t_menu_prenota');
+      risposte.push([di('bot_t_menu', { link: linkMenu }), dopo].filter(Boolean).join('\n\n'));
       return esito;
     }
   }
@@ -4841,7 +4872,11 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       // la domanda e basta. Chi ci scrisse mesi fa e oggi non ha più niente di
       // attivo non si sente ripresentare l'assistente — lo conosce già: gli
       // si dice «che bello rivederti», col nome (vedi `giaVisto`).
-      risposte.push(di(gia ? 'bot_t_quante' : (giaVisto ? 'bot_t_bentornato' : 'bot_t_benvenuto')));
+      // Sotto il benvenuto, l'invito a vedere il menu: solo se il collegamento
+      // c'è e la frase non è stata svuotata. Non a chi ha già un tavolo.
+      const invito = !gia && String(cfg.bot_menu_link || '').trim() && String(cfg.bot_t_menu_invito || '').trim()
+        ? `\n\n${di('bot_t_menu_invito')}` : '';
+      risposte.push(di(gia ? 'bot_t_quante' : (giaVisto ? 'bot_t_bentornato' : 'bot_t_benvenuto')) + invito);
       return esito;
     }
     return passoPersone(persone);
@@ -4853,8 +4888,8 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       // Dopo il benvenuto il cliente può fare tutt'altro: «avete il
       // parcheggio?». Rispondergli «non ho capito il numero di persone»
       // sarebbe da sordi, e ripeterlo all'infinito lo farebbe andare via.
-      const pronta = rispostaPronta(db, cfg, testo, valori);
-      if (pronta) { risposte.push(pronta); return esito; }
+      const faq = cercaFaq(db, testo);
+      if (faq) { risposte.push(riempi(faq, valori)); return esito; }
       if (eSaluto(testo)) { risposte.push(di('bot_t_persone_no')); return esito; }
       const tentativi = (dati.tentativi || 0) + 1;
       if (tentativi >= 2) {
@@ -5643,7 +5678,7 @@ module.exports = {
   salutoOra,
   cercaFaq,
   annotaNonCapita,
-  riempi, chiedeIlMenu, rispostaPronta,
+  riempi, chiedeIlMenu, DOMANDA_DOPO_IL_MENU,
   prenotazioneFutura,
   elencoPrenotazioni,
   elencoTutte,

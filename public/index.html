@@ -1744,7 +1744,7 @@
           <label>Nome del locale<input id="cfg-bot_locale" autocomplete="off" placeholder="Da Luigi"></label>
           <label>Nome dell'assistente<input id="cfg-bot_assistente" autocomplete="off" placeholder="Aurora — lascia vuoto per non darle un nome"></label>
           <label>Collegamento al menu<input id="cfg-bot_menu_link" autocomplete="off" inputmode="url" placeholder="https://…/menu.pdf">
-            <span class="conteggio" style="margin:0">Il tuo menu in rete: un PDF, una pagina del sito, il link del QR. Chi scrive «mi mandi il menu?» lo riceve, al posto di <b>{link}</b> nella frase «Manda il menu» (scheda Frasi e domande). Vuoto: il bot non ne parla. Se lo vuoi anche nel primo messaggio, scrivi <b>{menu}</b> dentro quella frase.</span>
+            <span class="conteggio" style="margin:0">Il tuo menu in rete: un PDF, una pagina del sito, il link del QR. Chi scrive «mi mandi il menu?» lo riceve, <b>in qualunque momento</b>, al posto di <b>{link}</b> nella frase «Manda il menu» (scheda Frasi e domande), e la prenotazione riprende da dove era. Sotto il benvenuto compare da sola la riga «scrivi MENU». Vuoto: il bot non ne parla.</span>
           </label>
           <label>Durata del tavolo (minuti)<input id="cfg-bot_durata_tavolo" autocomplete="off" type="number" min="30">
             <span class="conteggio" style="margin:0">Quanto resta occupato un tavolo preso <b>fuori dai turni</b> (un orario scritto a mano). Con i turni decide la fine del turno.</span>
@@ -5037,7 +5037,10 @@ const TESTI_BOT = [
   ['bot_t_quante', 'Chiede le persone a chi conosce già', 'Sostituisce il primo messaggio quando la conversazione è già aperta: chi scrive NUOVA, o chi ha già un tavolo da te. Non ci si ripresenta a chi ha appena letto un nostro messaggio.'],
   ['bot_t_persone_no', 'Non ha capito quante persone', ''],
   [null, 'Il menu'],
-  ['bot_t_menu', 'Manda il menu a chi lo chiede', 'Esce quando il cliente scrive «menu», «la carta», «cosa si mangia»… e solo se nella scheda Orari e tavoli → Il locale hai messo il collegamento al menu, che arriva al posto di <b>{link}</b>. A inizio conversazione e alla domanda sulle persone; se hai scritto una tua domanda frequente con la parola «menu», vale quella.'],
+  ['bot_t_menu', 'Manda il menu a chi lo chiede', 'Esce quando il cliente scrive «menu», «la carta dei vini», «cosa si mangia»… <b>in qualunque momento</b> della prenotazione, e solo se nella scheda Orari e tavoli → Il locale hai messo il collegamento al menu, che arriva al posto di <b>{link}</b>. Sotto, una delle due righe qui sotto. Se hai scritto una tua domanda frequente con la parola «menu», vale quella.'],
+  ['bot_t_menu_prenota', 'Dopo il menu, a chi non ha ancora cominciato', 'La riga sotto il menu per chi lo chiede prima di prenotare.'],
+  ['bot_t_menu_riprendi', 'Dopo il menu, a chi era a metà', 'La riga sotto il menu per chi lo chiede mentre sta prenotando: la prenotazione riprende da dove era. <b>{cosa}</b> è la domanda a cui era rimasto: «per che giorno», «a che ora», «se confermi la prenotazione»…'],
+  ['bot_t_menu_invito', 'L\'invito sotto il benvenuto', 'Una riga in più sotto il primo messaggio, solo se il collegamento al menu c\'è: dice al cliente che può vederlo scrivendo MENU. Svuotala per non mostrarla. Non esce a chi ha già un tavolo.'],
   [null, 'Il giorno'],
   ['bot_t_giorno', 'Chiede il giorno', ''],
   ['bot_t_giorno_no', 'Non ha capito il giorno', ''],
