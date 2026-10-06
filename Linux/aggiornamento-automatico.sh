@@ -9,7 +9,7 @@
 #
 #  ⚠️ Quello che NON tocca, e non deve toccare mai:
 #     data.db (prenotazioni e rubrica), .wwebjs_auth (il collegamento
-#     WhatsApp), allegati-invii, copia-cliente.txt, e i file di assistenza.
+#     WhatsApp), allegati-invii, allegati-menu, copia-cliente.txt, e i file di assistenza.
 #     Sono i dati del cliente: il programma si sostituisce, loro no.
 # ============================================================
 set -u
@@ -107,7 +107,7 @@ nota "aggiorno: $VECCHIA → $NUOVA"
 # furono divisi in «Mac» e «Windows»; qui era rimasto il modo vecchio.
 # Adesso la regola è la stessa nei due posti: si sostituisce tutto, tranne
 # quello che appartiene a QUESTA installazione.
-DA_NON_TOCCARE="data\.db|data\.db-.*|\.wwebjs_auth|\.wwebjs_cache|allegati-invii|node_modules|\.versione-precedente|aggiornamenti\.log|VERSIONE\.txt|copia-cliente\.txt|aggiornamenti-di-questo-mac\.txt|chrome-di-questo-mac\.txt|\.env|\.git"
+DA_NON_TOCCARE="data\.db|data\.db-.*|\.wwebjs_auth|\.wwebjs_cache|allegati-invii|allegati-menu|node_modules|\.versione-precedente|aggiornamenti\.log|VERSIONE\.txt|copia-cliente\.txt|aggiornamenti-di-questo-mac\.txt|chrome-di-questo-mac\.txt|\.env|\.git"
 
 da_toccare() {   # $1 = nome
   ! printf '%s' "$1" | grep -qE "^($DA_NON_TOCCARE)$"

@@ -632,6 +632,11 @@ function ritmoInvii() {
 // deve essere ancora disponibile (in memoria sarebbe persa).
 const ALLEGATI_DIR = path.join(DATA_DIR, 'allegati-invii');
 fs.mkdirSync(ALLEGATI_DIR, { recursive: true });
+// I menu caricati come file (PDF o immagine), che il bot allega a chi li
+// chiede. Dati del cliente: fuori da git, dagli aggiornamenti e dai pacchetti,
+// come allegati-invii.
+const MENU_DIR = path.join(DATA_DIR, 'allegati-menu');
+fs.mkdirSync(MENU_DIR, { recursive: true });
 
 function salvaImmagineCampagna(campaignId, immagine) {
   if (!immagine) return null;
@@ -3392,6 +3397,29 @@ async function hoFinitoDiScrivere(chatId) {
 }
 
 let ultimoInvioChat = 0;
+// Un menu come file: documento (PDF) o immagine, con la frase come didascalia.
+// Se il file non c'è più (cancellato a mano), si manda la didascalia da sola e
+// si scrive nel registro: il cliente non deve restare senza risposta.
+async function mandaAllegatoMenu(chatId, a) {
+  const percorso = path.join(MENU_DIR, path.basename(String(a.file || '')));
+  if (!a.file || !fs.existsSync(percorso)) {
+    annota('errore', `il file del menu ${a.quale} (${a.file || '?'}) non c'è più: mandato solo il testo`);
+    return rispondiConRitmo(chatId, a.didascalia || '');
+  }
+  const minimo = pauseDisattivate() ? 0 : 1500;
+  const passati = Date.now() - ultimoInvioChat;
+  if (passati < minimo) await sleep(minimo - passati);
+  ultimoInvioChat = Date.now();
+  if (state.status !== 'connesso') throw new Error('WhatsApp non collegato');
+  return inCoda(async () => {
+    const media = MessageMedia.fromFilePath(percorso);
+    segnaCheStoInviando(chatId, a.didascalia || '');
+    const inviato = await client.sendMessage(chatId, media, { caption: a.didascalia || '' });
+    if (inviato && inviato.id && inviato.id._serialized) mieiMessaggi.add(inviato.id._serialized);
+    return inviato;
+  });
+}
+
 async function rispondiConRitmo(chatId, testo) {
   const minimo = pauseDisattivate() ? 0 : 1500;
   const passati = Date.now() - ultimoInvioChat;
@@ -4354,6 +4382,9 @@ if (botDisponibile()) {
       // quindicina di secondi. È quella l'attesa che va mostrata.
       await staScrivendo(chatId);
       const esito = bot.elaboraMessaggio(db, chatId, testo, new Date(), { numero: telefono });
+      // I menu come file vanno PRIMA dei testi: sotto il PDF arriva «riprendiamo
+      // da dove eravamo», non il contrario.
+      for (const a of esito.allegati || []) await mandaAllegatoMenu(chatId, a);
       for (const r of esito.risposte) await rispondiConRitmo(chatId, r);
       // Una prenotazione che aspetta il pagamento: il messaggio è già scritto,
       // manca solo l'indirizzo dove pagare — e quello lo sa solo Stripe.
@@ -6785,6 +6816,52 @@ app.post('/api/bot/testi/ripristina', (req, res) => {
   res.json({ ok: true, impostazioni: bot.config(db) });
 });
 
+// ---------- I file dei menu: PDF o immagine ----------
+// Chiesto dal titolare: il menu non solo come collegamento ma come FILE, che
+// arriva in chat come documento (PDF) o immagine, senza nessun link scritto.
+// Il file sta in `allegati-menu/` col nome fisso del menu («menu.pdf»,
+// «degustazione.jpg»): uno per menu, il nuovo sostituisce il vecchio.
+const MENU_FILE_MAX = 8 * 1024 * 1024;   // viaggia ogni volta dal WhatsApp del locale
+const MENU_TIPI = { 'application/pdf': 'pdf', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+const MENU_CHIAVI = { menu: 'bot_menu_file', degustazione: 'bot_menu_degustazione_file' };
+function togliFileMenu(quale) {
+  for (const f of fs.readdirSync(MENU_DIR)) {
+    if (f.startsWith(quale + '.')) fs.unlinkSync(path.join(MENU_DIR, f));
+  }
+}
+app.post('/api/bot/menu/file', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const b = req.body || {};
+  const chiave = MENU_CHIAVI[b.quale];
+  if (!chiave) return res.status(400).json({ error: 'Quale menu? «menu» o «degustazione».' });
+  const m = /^data:([a-z]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(b.dataUrl || ''));
+  const ext = m && MENU_TIPI[m[1]];
+  if (!ext) return res.status(400).json({ error: 'Il menu può essere un PDF o un\'immagine (PNG, JPG, WEBP).' });
+  const dati = Buffer.from(m[2], 'base64');
+  if (!dati.length) return res.status(400).json({ error: 'Il file è vuoto.' });
+  if (dati.length > MENU_FILE_MAX) {
+    return res.status(413).json({ error: `Il file è troppo grande (${Math.round(dati.length / 1048576)} MB): al massimo 8 MB, parte ogni volta dal WhatsApp del locale.` });
+  }
+  const nome = `${b.quale}.${ext}`;
+  togliFileMenu(b.quale);
+  fs.writeFileSync(path.join(MENU_DIR, nome), dati);
+  bot.scrivi(db, chiave, nome);
+  // Il nome com'era sul computer di chi l'ha caricato, per riconoscerlo in pagina.
+  bot.scrivi(db, chiave + '_nome', String(b.nome || '').slice(0, 80));
+  annota('menu', `caricato il file del menu ${b.quale}: ${nome} (${Math.round(dati.length / 1024)} KB)`);
+  res.json({ ok: true, file: nome });
+});
+app.delete('/api/bot/menu/file/:quale', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const chiave = MENU_CHIAVI[req.params.quale];
+  if (!chiave) return res.status(400).json({ error: 'Quale menu? «menu» o «degustazione».' });
+  togliFileMenu(req.params.quale);
+  bot.scrivi(db, chiave, '');
+  bot.scrivi(db, chiave + '_nome', '');
+  annota('menu', `tolto il file del menu ${req.params.quale}`);
+  res.json({ ok: true });
+});
+
 // ---------- Portare le frasi da una copia all'altra ----------
 // Le frasi vivono nel database, che NON va su GitHub: dentro ci sono la rubrica
 // dei clienti, le prenotazioni e le credenziali. Ma le frasi in se' non sono
@@ -7886,6 +7963,10 @@ app.post('/api/bot/simula', async (req, res) => {
   // dall'altra parte. E l'esito si dice: un'email che non parte, nel
   // simulatore, non lascia nessuna traccia visibile — sembrerebbe tutto a
   // posto.
+  // Gli allegati nel simulatore: non si mandano, si dicono.
+  for (const a of [...(esito.allegati || [])].reverse()) {
+    esito.risposte.unshift(`📎 (solo nel simulatore) allegato ${a.file}\n${a.didascalia}`);
+  }
   if (esito.simulaEmail) {
     esito.risposte.push(esito.simulaEmail.ok
       ? `📧 (solo nel simulatore) email di riepilogo mandata a ${esito.simulaEmail.a}`

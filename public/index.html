@@ -2319,19 +2319,34 @@
       <div class="card" id="pren-card-menu">
         <h2 style="font-size:1rem;margin:0 0 6px">I menu</h2>
         <p class="conteggio" style="margin:0 0 14px">
-          Il collegamento a ogni menu in rete: un PDF, una pagina del sito, il link del QR. Un menu con il collegamento è
-          <b>attivo</b>: il bot lo annuncia sotto il primo messaggio («scrivi MENU…») e lo manda a chi lo chiede,
-          <b>in qualunque momento</b> della prenotazione, che poi riprende da dove era. Senza collegamenti, a chi lo chiede
-          risponde che al momento non può inviarlo. Se uno lo ha già ricevuto oggi, prima di rimandarlo chiede.
-          Le frasi sono in «Frasi e domande», gruppo «Il menu».
+          Ogni menu si può dare in due modi: un <b>collegamento</b> in rete (una pagina del sito, il link del QR) oppure un
+          <b>file caricato</b> — PDF o immagine — che il bot <b>allega</b> in chat, senza nessun link scritto. Se ci sono tutti e
+          due, parte il file. Un menu con almeno uno dei due è <b>attivo</b>: il bot lo annuncia sotto il primo messaggio
+          («scrivi MENU…») e lo manda a chi lo chiede, <b>in qualunque momento</b> della prenotazione, che poi riprende da dove
+          era. Senza menu attivi, a chi lo chiede risponde che al momento non può inviarlo. Se uno lo ha già ricevuto oggi,
+          prima di rimandarlo chiede. Le frasi sono in «Frasi e domande», gruppo «Il menu».
         </p>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
-          <label>Menu<input id="cfg-bot_menu_link" autocomplete="off" inputmode="url" placeholder="https://…/menu.pdf">
-            <span class="conteggio menu-stato" data-per="bot_menu_link" style="margin:0"></span>
-          </label>
-          <label>Menu degustazione<input id="cfg-bot_menu_degustazione_link" autocomplete="off" inputmode="url" placeholder="https://…/degustazione.pdf">
-            <span class="conteggio menu-stato" data-per="bot_menu_degustazione_link" style="margin:0"></span>
-          </label>
+          <div class="menu-voce" data-quale="menu">
+            <label>Menu — collegamento<input id="cfg-bot_menu_link" autocomplete="off" inputmode="url" placeholder="https://…/menu.pdf"></label>
+            <div class="menu-file" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span>oppure file:</span>
+              <button type="button" class="btn btn-secondario btn-piccolo" data-carica="menu">Carica PDF o immagine</button>
+              <button type="button" class="btn btn-secondario btn-piccolo" data-togli-file="menu" hidden>Togli il file</button>
+              <input type="file" data-file="menu" accept="application/pdf,image/png,image/jpeg,image/webp" hidden>
+            </div>
+            <span class="conteggio menu-stato" data-per="bot_menu_link" data-quale="menu" style="margin:6px 0 0;display:block"></span>
+          </div>
+          <div class="menu-voce" data-quale="degustazione">
+            <label>Menu degustazione — collegamento<input id="cfg-bot_menu_degustazione_link" autocomplete="off" inputmode="url" placeholder="https://…/degustazione.pdf"></label>
+            <div class="menu-file" style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span>oppure file:</span>
+              <button type="button" class="btn btn-secondario btn-piccolo" data-carica="degustazione">Carica PDF o immagine</button>
+              <button type="button" class="btn btn-secondario btn-piccolo" data-togli-file="degustazione" hidden>Togli il file</button>
+              <input type="file" data-file="degustazione" accept="application/pdf,image/png,image/jpeg,image/webp" hidden>
+            </div>
+            <span class="conteggio menu-stato" data-per="bot_menu_degustazione_link" data-quale="degustazione" style="margin:6px 0 0;display:block"></span>
+          </div>
         </div>
         <div style="display:flex;gap:10px;align-items:center;margin-top:14px">
           <button class="btn" id="menu-salva" type="button">Salva</button>
@@ -5063,7 +5078,7 @@ const TESTI_BOT = [
   ['bot_t_quante', 'Chiede le persone a chi conosce già', 'Sostituisce il primo messaggio quando la conversazione è già aperta: chi scrive NUOVA, o chi ha già un tavolo da te. Non ci si ripresenta a chi ha appena letto un nostro messaggio.'],
   ['bot_t_persone_no', 'Non ha capito quante persone', ''],
   [null, 'Il menu'],
-  ['bot_t_menu', 'Manda il menu a chi lo chiede', 'Esce quando il cliente scrive «menu», «la carta dei vini», «cosa si mangia»… <b>in qualunque momento</b> della prenotazione, e solo se nella scheda Orari e tavoli → Il locale hai messo il collegamento al menu, che arriva al posto di <b>{link}</b>. Sotto, una delle due righe qui sotto. Se hai scritto una tua domanda frequente con la parola «menu», vale quella.'],
+  ['bot_t_menu', 'Manda il menu a chi lo chiede', 'Esce quando il cliente scrive «menu», «la carta dei vini», «cosa si mangia»… <b>in qualunque momento</b> della prenotazione, se nella scheda Menu il menu è attivo. Col collegamento, arriva al posto di <b>{link}</b>; col file caricato, il file parte con questa frase come didascalia e <b>la riga con {link} non esce</b>. Sotto, una delle due righe qui sotto. Se hai scritto una tua domanda frequente con la parola «menu», vale quella.'],
   ['bot_t_menu_prenota', 'Dopo il menu, a chi non ha ancora cominciato', 'La riga sotto il menu per chi lo chiede prima di prenotare.'],
   ['bot_t_menu_riprendi', 'Dopo il menu, a chi era a metà', 'La riga sotto il menu per chi lo chiede mentre sta prenotando: la prenotazione riprende da dove era. <b>{cosa}</b> è la domanda a cui era rimasto: «per che giorno», «a che ora», «se confermi la prenotazione»…'],
   ['bot_t_menu_degustazione', 'Manda il menu degustazione', 'A chi scrive «degustazione»; e, insieme al menu, a chi scrive solo «menu» quando sono attivi tutti e due. Il collegamento arriva al posto di <b>{link}</b>.'],
@@ -5233,7 +5248,7 @@ async function caricaSottoScheda(nome) {
   // per chi guarda sono la stessa cosa, ed e' per questo che stanno insieme.
   if (nome === 'frasi') { await caricaConfigBot(); await caricaFaq(); return; }
   if (nome === 'recensioni') { await caricaConfigBot(); return; }
-  if (nome === 'menu') { await caricaConfigBot(); mostraStatoMenu(); return; }
+  if (nome === 'menu') { await caricaConfigBot(); await caricaFileMenu(); return; }
   if (nome === 'pagamenti') { await caricaConfigBot(); return; }
   if (nome === 'sala') { await caricaConfigBot(); return; }
   if (nome === 'personale') { await caricaConfigBot(); return; }
@@ -7635,14 +7650,69 @@ $('#pren-tavoli').addEventListener('click', async (e) => {
 $('#pagamenti-salva').addEventListener('click', () => salvaConfigBot('pagamenti-salvato'));
 // I menu: lo stato «attivo / non impostato» accanto a ogni collegamento, che
 // si aggiorna mentre si scrive — così si vede subito cosa il bot annuncerà.
+// I file caricati (nome sul disco e nome originale), letti dalle impostazioni:
+// non sono campi di testo, li scrive il server quando si carica.
+let fileMenu = { menu: {}, degustazione: {} };
+async function caricaFileMenu() {
+  try {
+    const d = await (await fetch('/api/bot/impostazioni')).json();
+    const i = d.impostazioni || {};
+    fileMenu = {
+      menu: { file: i.bot_menu_file || '', nome: i.bot_menu_file_nome || '' },
+      degustazione: { file: i.bot_menu_degustazione_file || '', nome: i.bot_menu_degustazione_file_nome || '' },
+    };
+  } catch { /* lo stato resta quello di prima */ }
+  mostraStatoMenu();
+}
 function mostraStatoMenu() {
   document.querySelectorAll('.menu-stato').forEach((el) => {
-    const v = ($('#cfg-' + el.dataset.per) || {}).value || '';
-    el.textContent = v.trim() ? '✅ Attivo: il bot lo annuncia e lo manda a chi lo chiede.' : '— Non impostato: il bot non ne parla.';
+    const link = (($('#cfg-' + el.dataset.per) || {}).value || '').trim();
+    const f = fileMenu[el.dataset.quale] || {};
+    const voce = el.closest('.menu-voce');
+    if (voce) voce.querySelector('[data-togli-file]').hidden = !f.file;
+    el.textContent = f.file
+      ? `✅ Attivo: il bot allega il file «${f.nome || f.file}»${link ? ' (il collegamento non si usa finché c\'è il file)' : ''}.`
+      : link ? '✅ Attivo: il bot manda il collegamento a chi lo chiede.'
+      : '— Non impostato: il bot non ne parla.';
   });
 }
 ['bot_menu_link', 'bot_menu_degustazione_link'].forEach((c) => $('#cfg-' + c).addEventListener('input', mostraStatoMenu));
 $('#menu-salva').addEventListener('click', async () => { await salvaConfigBot('menu-salvato'); mostraStatoMenu(); });
+// Caricare un file: si legge nel browser e si manda al server com'è (base64).
+// Al massimo 8 MB: parte ogni volta dal WhatsApp del locale.
+document.querySelectorAll('[data-carica]').forEach((b) => {
+  b.addEventListener('click', () => $(`[data-file="${b.dataset.carica}"]`).click());
+});
+document.querySelectorAll('[data-file]').forEach((i) => {
+  i.addEventListener('change', async () => {
+    const file = i.files && i.files[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { alert('Il file è troppo grande: al massimo 8 MB.'); i.value = ''; return; }
+    const dataUrl = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(file); });
+    const quale = i.dataset.file;
+    const esito = $('#menu-salvato');
+    esito.textContent = 'Carico…';
+    try {
+      const r = await fetch('/api/bot/menu/file', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quale, nome: file.name, dataUrl }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) { alert(d.error || 'Non sono riuscito a caricare il file.'); esito.textContent = ''; }
+      else { esito.textContent = 'File caricato.'; toast('File caricato'); }
+    } catch { alert('Il computer del ristorante non risponde: il file NON è stato caricato.'); esito.textContent = ''; }
+    i.value = '';
+    await caricaFileMenu();
+  });
+});
+document.querySelectorAll('[data-togli-file]').forEach((b) => {
+  b.addEventListener('click', async () => {
+    if (!confirm('Togliere il file di questo menu? Se c\'è un collegamento, il bot manderà quello.')) return;
+    const r = await fetch('/api/bot/menu/file/' + b.dataset.togliFile, { method: 'DELETE' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.error) alert(d.error || 'Non sono riuscito a togliere il file.');
+    else toast('File tolto');
+    await caricaFileMenu();
+  });
+});
 $('#email-salva').addEventListener('click', () => salvaConfigBot('email-salvato'));
 
 // ---- Il logo dell'email ----

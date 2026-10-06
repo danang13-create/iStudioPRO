@@ -123,7 +123,7 @@ installa() {
 # perché lo scrive l'aggiornatore alla fine.
 # «assistenza-whatsapp.txt» e la chiave pubblica invece SÌ: sono roba
 # dell'amministratore, e se cambia numero o chiave i clienti devono riceverla.
-DA_NON_TOCCARE="data.db|data.db-.*|\.wwebjs_auth|\.wwebjs_cache|allegati-invii|node_modules|\.versione-precedente|VERSIONE\.txt|aggiornamenti-di-questo-mac\.txt|chrome-di-questo-mac\.txt|\.git"
+DA_NON_TOCCARE="data.db|data.db-.*|\.wwebjs_auth|\.wwebjs_cache|allegati-invii|allegati-menu|node_modules|\.versione-precedente|VERSIONE\.txt|aggiornamenti-di-questo-mac\.txt|chrome-di-questo-mac\.txt|\.git"
 
 da_toccare() {   # $1 = nome
   ! printf '%s' "$1" | grep -qE "^($DA_NON_TOCCARE)$"

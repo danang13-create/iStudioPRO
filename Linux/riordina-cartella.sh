@@ -61,6 +61,7 @@ data.db
 data.db-shm
 data.db-wal
 allegati-invii
+allegati-menu
 aggiornamenti.log
 ELENCO
 

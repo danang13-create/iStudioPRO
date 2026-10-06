@@ -318,6 +318,7 @@ Tutto sta in questa cartella (`Documenti/iStudio`):
 |---|---|
 | `data.db` | Contatti, cronologia invii, impostazioni |
 | `allegati-invii/` | Le immagini degli invii, tenute da parte per poterli riprendere |
+| `allegati-menu/` | I menu caricati come file (PDF o immagine), che il bot allega a chi li chiede |
 | `.wwebjs_auth/` | Il collegamento a WhatsApp (il QR già scansionato) |
 | `server.js`, `public/` | Il programma vero e proprio |
 

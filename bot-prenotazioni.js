@@ -737,6 +737,13 @@ const PREDEFINITI = {
   // bot non ne parla. Sta anche in {menu}, per chi lo vuole nel benvenuto.
   bot_menu_link: '',
   bot_menu_degustazione_link: '',
+  // Oppure un FILE caricato (PDF o immagine), che il bot allega: il nome del
+  // file dentro `allegati-menu/`, scritto dal server. Se c'è, vince sul link.
+  bot_menu_file: '',
+  bot_menu_degustazione_file: '',
+  // Il nome com'era sul computer di chi l'ha caricato, per riconoscerlo in pagina.
+  bot_menu_file_nome: '',
+  bot_menu_degustazione_file_nome: '',
   bot_recensione_giorni: '2',
   bot_recensione_ora: '11:00',
   bot_recensione_max: '20',
@@ -2738,13 +2745,25 @@ function annotaMenu(db, telefono, adesso, passo, quale = 'menu') {
 
 // I menu con un collegamento: solo quelli sono «attivi», e solo quelli il
 // bot annuncia e manda.
+// Ogni menu attivo è { link, file }: col file il bot ALLEGA (PDF o immagine),
+// col solo link lo scrive. Il file, se c'è, vince.
 function menuAttivi(cfg) {
   const m = {};
-  const menu = String(cfg.bot_menu_link || '').trim();
-  const degustazione = String(cfg.bot_menu_degustazione_link || '').trim();
+  const uno = (link, file) => {
+    const l = String(link || '').trim();
+    const f = String(file || '').trim();
+    return l || f ? { link: l, file: f } : null;
+  };
+  const menu = uno(cfg.bot_menu_link, cfg.bot_menu_file);
+  const degustazione = uno(cfg.bot_menu_degustazione_link, cfg.bot_menu_degustazione_file);
   if (menu) m.menu = menu;
   if (degustazione) m.degustazione = degustazione;
   return m;
+}
+// La frase del menu quando parte come allegato: la riga col {link} non ha
+// senso sotto un file, e si toglie. Quello che resta è la didascalia.
+function senzaLaRigaDelLink(testo) {
+  return String(testo || '').split('\n').filter((r) => !r.includes('{link}')).join('\n').trim();
 }
 // «MENU per il menu oppure DEGUSTAZIONE per il menu degustazione», per
 // l'invito sotto il benvenuto. Vuoto se non c'è nessun menu.
@@ -4842,13 +4861,25 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     // menu attivi, in un messaggio solo — niente domande in più.
     const manda = (quale) => {
       const pezzi = [];
+      // Un menu: col file va in `esito.allegati` (il server lo manda PRIMA
+      // dei testi, con la frase come didascalia), col link va nel testo.
+      const metti = (chiave, a) => {
+        if (a.file) {
+          (esito.allegati = esito.allegati || []).push({
+            quale: chiave === 'bot_t_menu' ? 'menu' : 'degustazione', file: a.file,
+            didascalia: riempi(senzaLaRigaDelLink(cfg[chiave]), valori),
+          });
+        } else {
+          pezzi.push(di(chiave, { link: a.link }));
+        }
+      };
       let mandato = 'menu';
       if (quale === 'degustazione' && attivi.degustazione) {
-        pezzi.push(di('bot_t_menu_degustazione', { link: attivi.degustazione }));
+        metti('bot_t_menu_degustazione', attivi.degustazione);
         mandato = 'degustazione';
       } else {
-        if (attivi.menu) pezzi.push(di('bot_t_menu', { link: attivi.menu }));
-        if (attivi.degustazione) pezzi.push(di('bot_t_menu_degustazione', { link: attivi.degustazione }));
+        if (attivi.menu) metti('bot_t_menu', attivi.menu);
+        if (attivi.degustazione) metti('bot_t_menu_degustazione', attivi.degustazione);
         mandato = attivi.menu && attivi.degustazione ? 'tutti' : attivi.menu ? 'menu' : 'degustazione';
       }
       risposte.push([...pezzi, dopo()].filter(Boolean).join('\n\n'));
@@ -5807,7 +5838,7 @@ module.exports = {
   salutoOra,
   cercaFaq,
   annotaNonCapita,
-  riempi, chiedeIlMenu, qualeMenu, menuAttivi, scelteMenu, DOMANDA_DOPO_IL_MENU, annotaMenu, statisticheMenu,
+  riempi, chiedeIlMenu, qualeMenu, menuAttivi, scelteMenu, senzaLaRigaDelLink, DOMANDA_DOPO_IL_MENU, annotaMenu, statisticheMenu,
   prenotazioneFutura,
   elencoPrenotazioni,
   elencoTutte,

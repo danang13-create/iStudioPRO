@@ -42,7 +42,7 @@ for elemento in server.js package.json package-lock.json public public-sala node
                 GUIDA.md INSTALLA-CLIENTE.md README.md VERSIONE.txt .gitattributes \
                 chiave-seriali-pubblica.pem copia-cliente.txt \
                 aggiornamenti-di-questo-mac.txt assistenza-whatsapp.txt \
-                data.db data.db-shm data.db-wal allegati-invii .versione-precedente; do
+                data.db data.db-shm data.db-wal allegati-invii allegati-menu .versione-precedente; do
   # -h è indispensabile: senza, su un collegamento chflags agisce su CIÒ A CUI PUNTA,
   # non sul collegamento. In prova ha nascosto la cartella node_modules vera di un'altra
   # installazione. Con -h tocca solo quello che c'è in questa cartella.
