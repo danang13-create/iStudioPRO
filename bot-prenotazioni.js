@@ -2270,7 +2270,10 @@ function riempi(testo, valori) {
   // evitarli: «Sono  l'assistente virtuale di» si nota subito.
   return pieno
     .split('\n')
-    .map((riga) => riga.replace(/[ \t]{2,}/g, ' ').replace(/\s+([,.;:!?])/g, '$1').trimEnd())
+    .map((riga) => riga.replace(/[ \t]{2,}/g, ' ').replace(/\s+([,.;:!?])/g, '$1')
+      // «Grazie, .» con il nome vuoto diventava «Grazie,.»: la virgola prima
+      // di un punto non sta mai bene.
+      .replace(/,([.!?])/g, '$1').trimEnd())
     .join('\n');
 }
 
@@ -4499,7 +4502,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     }
     salvaStato(db, telefono, 'sposta_giorno', { id: p.id, persone: p.persone, giorni });
     risposte.push(`${di('bot_t_sposta_quale', {
-      data: dataItaliana(p.data), ora: p.ora, persone: p.persone,
+      data: dataItaliana(p.data), ora: oraColTurno(cfg, p.data, p.ora), persone: p.persone,
     })}\n${elencoGiorni(giorni)}`);
     return esito;
   };
@@ -4734,7 +4737,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       }
       risposte.push(di('bot_t_gia_prenotato', {
         nome,
-        data: dataItaliana(gia.data), ora: gia.ora, persone: gia.persone,
+        data: dataItaliana(gia.data), ora: oraColTurno(cfg, gia.data, gia.ora), persone: gia.persone,
       }));
       return esito;
     };
@@ -4834,7 +4837,16 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       risposte.push(di('bot_t_persone_no'));
       return esito;
     }
-    return passoPersone(persone);
+    return passoPersone(persone, giornoDettoInsieme(testo));
+  }
+
+  // «Siamo in 3 sabato sera»: il giorno detto insieme alle persone, o null.
+  // ⚠️ Solo se nel messaggio c'è un giorno a PAROLE o una data: «siamo in 2»
+  // da solo non è «il 2 del mese», e interpretaData lo leggerebbe così.
+  function giornoDettoInsieme(t) {
+    const n = normalizza(t);
+    if (!/\b(oggi|domani|dopodomani|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica|\d{1,2}\/\d{1,2})\b/.test(n)) return null;
+    return interpretaData(t, adesso);
   }
 
   // Il servizio detto adesso, o quello detto prima nella stessa conversazione.
@@ -4914,6 +4926,14 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     return esito;
   }
 
+  // Non vuole nessuno dei turni di quel giorno: si torna ai giorni.
+  function unAltroGiorno(d) {
+    const giorni = giorniDisponibili(db, cfg, d.persone, adesso);
+    salvaStato(db, telefono, 'giorno', { persone: d.persone, giorni, ...(d.servizio ? { servizio: d.servizio } : {}) });
+    risposte.push(`${di('bot_t_giorno')}\n${elencoGiorni(giorni)}`);
+    return esito;
+  }
+
   // I turni da rimettere sotto un «non ho capito»: quelli del servizio scelto,
   // se ne ha scelto uno — chi ha detto «cena» non deve rileggersi il pranzo.
   function turniDaMostrare(d) {
@@ -4925,12 +4945,16 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   // L'orario scelto: un turno per numero («il primo») o un orario («19:30»).
   // ⚠️ Chi sceglie un turno per numero non ricade sull'orario: «1» a cui non
   // corrisponde un turno non diventa le 13:00.
+  // ⚠️ Solo coi turni NUMERATI: con gli orari di prima («12:30, 14:00») un
+  // «2» è sempre stato le 14:00, e leggerlo come «secondo turno» che non
+  // esiste rispondeva «non ho capito» a chi aveva scritto un orario.
   function oraScelta(d) {
-    if (ordinaleDi(testo)) return interpretaTurno(testo, cfg, d.data, d.turni || [], d.servizio);
+    const numerati = (d.turni || []).some((o) => numeroDelTurno(cfg, d.data, o));
+    if (numerati && ordinaleDi(testo)) return interpretaTurno(testo, cfg, d.data, d.turni || [], d.servizio);
     return interpretaOra(testo, d.turni || []);
   }
 
-  function passoPersone(persone) {
+  function passoPersone(persone, giornoDetto = null) {
     const max = personeMassimeBot(db, cfg);
     const min = num(cfg.bot_min_persone, 1);
     if (persone > max) {
@@ -4952,9 +4976,29 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       azzeraStato(db, telefono);
       return esito;
     }
+    // Il giorno l'ha già detto, ed è fra quelli con posto: non si richiede.
+    if (giornoDetto && giorni.includes(giornoDetto)) {
+      return scegliGiorno({ persone, giorni, ...conServizio() }, giornoDetto);
+    }
     salvaStato(db, telefono, 'giorno', { persone, giorni, ...conServizio() });
     risposte.push(`${di('bot_t_giorno')}\n${elencoGiorni(giorni)}`);
     return esito;
+  }
+
+  // Il giorno scelto: i suoi turni, o «pieno»/«chiuso» con le alternative.
+  // Lo usano il passo del giorno e chi il giorno l'ha detto insieme alle persone.
+  function scegliGiorno(d, iso) {
+    const turni = turniDisponibili(db, cfg, iso, d.persone, adesso);
+    if (!turni.length) {
+      const alternativi = giorniDisponibili(db, cfg, d.persone, adesso);
+      // Chiuso e pieno sono due cose diverse: in lista d'attesa si entra solo
+      // per un giorno in cui il locale c'è e i posti no.
+      const pieno = !(eChiuso(db, iso) || !turniDelGiorno(cfg, iso).length);
+      risposte.push(`${di(pieno ? 'bot_t_completo' : 'bot_t_chiuso', { data: dataItaliana(iso) })}\n${elencoGiorni(alternativi)}${pieno ? propostaAttesa(iso, '') : ''}`);
+      salvaStato(db, telefono, 'giorno', { ...d, giorni: alternativi, ...(pieno && listaAttiva ? { attesaData: iso } : {}) });
+      return esito;
+    }
+    return chiediServizio(PASSI_NUOVA, d, iso, turni, conServizio(d).servizio);
   }
 
   if (stato.passo === 'giorno') {
@@ -4988,17 +5032,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       azzeraStato(db, telefono);
       return esito;
     }
-    const turni = turniDisponibili(db, cfg, iso, dati.persone, adesso);
-    if (!turni.length) {
-      const alternativi = giorniDisponibili(db, cfg, dati.persone, adesso);
-      // Chiuso e pieno sono due cose diverse: in lista d'attesa si entra solo
-      // per un giorno in cui il locale c'è e i posti no.
-      const pieno = !(eChiuso(db, iso) || !turniDelGiorno(cfg, iso).length);
-      risposte.push(`${di(pieno ? 'bot_t_completo' : 'bot_t_chiuso', { data: dataItaliana(iso) })}\n${elencoGiorni(alternativi)}${pieno ? propostaAttesa(iso, '') : ''}`);
-      salvaStato(db, telefono, 'giorno', { ...dati, giorni: alternativi, ...(pieno && listaAttiva ? { attesaData: iso } : {}) });
-      return esito;
-    }
-    return chiediServizio(PASSI_NUOVA, dati, iso, turni, conServizio().servizio);
+    return scegliGiorno(dati, iso);
   }
 
   // La risposta a «pranzo o cena?». Chi risponde già con un orario o un turno
@@ -5026,13 +5060,17 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       if (si === false) {
         const suo = servizioDellOra(cfg, dati.data, dati.unico);
         const altro = (dati.turni || []).find((o) => servizioDellOra(cfg, dati.data, o) !== suo);
-        if (altro) return proponiOrari('ora', dati, dati.data, dati.turni, servizioDellOra(cfg, dati.data, altro));
-        const giorni = giorniDisponibili(db, cfg, dati.persone, adesso);
-        salvaStato(db, telefono, 'giorno', { persone: dati.persone, giorni });
-        risposte.push(`${di('bot_t_giorno')}\n${elencoGiorni(giorni)}`);
-        return esito;
+        // L'altro servizio, se c'è e non è già stato rifiutato: sennò «no» al
+        // pranzo e «no» alla cena si rimandavano l'un l'altro all'infinito.
+        if (altro && dati.rifiutato !== servizioDellOra(cfg, dati.data, altro)) {
+          return proponiOrari('ora', { ...dati, rifiutato: suo }, dati.data, dati.turni, servizioDellOra(cfg, dati.data, altro));
+        }
+        return unAltroGiorno(dati);
       }
     }
+    // «No» davanti ai turni dell'altro servizio, dopo aver rifiutato il primo:
+    // non vuole quel giorno.
+    if (!ora && dati.rifiutato && interpretaSiNo(testo) === false) return unAltroGiorno(dati);
     if (!ora) ora = oraScelta(dati);
     if (!ora) {
       // Prima di dire «non ho capito»: forse ha capito benissimo, e quell'ora
@@ -5242,9 +5280,11 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     // `attesaOra` ricorda quale orario era pieno: se al prossimo messaggio
     // dice «sì», è a quello che vuole essere messo in lista.
     salvaStato(db, telefono, passo, { ...avanzato(d), turni, ...(conAttesa && listaAttiva ? { attesaOra: no.ora } : {}) });
+    // Gli orari che restano, del servizio scelto: chi ha detto «cena» e ha
+    // trovato pieno non deve rileggersi tutto il pranzo.
     risposte.push(`${di(no.pieno ? 'bot_t_ora_piena' : 'bot_t_ora_tardi', {
       ora: no.ora, data: dataItaliana(d.data),
-    })}\n${elencoTurni(turni, cfg, d.data)}${conAttesa ? propostaAttesa(d.data, no.ora) : ''}`);
+    })}\n${elencoTurni(turniDaMostrare({ ...d, turni }), cfg, d.data)}${conAttesa ? propostaAttesa(d.data, no.ora) : ''}`);
     return esito;
   }
 
