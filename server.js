@@ -4911,6 +4911,13 @@ if (botDisponibile()) {
 // in mano a una persona, mai a chi ha scritto STOP, una volta sola per
 // conversazione. Qui si manda e basta, perché questo è l'unico posto che sa se
 // WhatsApp è collegato.
+// ⚠️ Un richiamo che non parte NON si ritenta per sempre. Prima si ritentava
+// ogni minuto finché la conversazione scadeva (dodici ore), scrivendo ogni
+// volta «1 richiamo non partiti» senza il motivo: il registro diventava
+// illeggibile e gli errori veri sparivano in mezzo. Tre tentativi, col motivo
+// scritto; al terzo si segna come richiamato e si lascia perdere.
+const richiamiFalliti = new Map();
+const TENTATIVI_RICHIAMO = 3;
 async function richiamaLasciateAMeta(adesso = new Date()) {
   const perche = motivoPerCuiNonSiManda();
   if (perche) { lavoriFermi(perche); return 0; }
@@ -4927,8 +4934,19 @@ async function richiamaLasciateAMeta(adesso = new Date()) {
       // Si segna solo DOPO: segnarlo prima vorrebbe dire non richiamare mai
       // più qualcuno a cui il messaggio non è nemmeno arrivato.
       bot.segnaRichiamata(db, r.telefono, adesso);
+      richiamiFalliti.delete(r.telefono);
       mandati++;
-    } catch (e) { falliti++; console.error('Bot:', e.message); }
+    } catch (e) {
+      falliti++;
+      const volte = (richiamiFalliti.get(r.telefono) || 0) + 1;
+      richiamiFalliti.set(r.telefono, volte);
+      annota('errore', `richiamo a ${r.telefono} non partito (${volte}/${TENTATIVI_RICHIAMO}): ${e.message}`);
+      if (volte >= TENTATIVI_RICHIAMO) {
+        bot.segnaRichiamata(db, r.telefono, adesso);
+        richiamiFalliti.delete(r.telefono);
+        annota('richiamo', `lascio perdere il richiamo a ${r.telefono}: non parte da ${volte} giri`);
+      }
+    }
   }
   // Richiamato e ancora zitto: si lascia andare. Non è un'amnesia a sorpresa —
   // a quella persona il bot ha già chiesto «sei ancora lì?».
@@ -4938,7 +4956,6 @@ async function richiamaLasciateAMeta(adesso = new Date()) {
     lasciate++;
   }
   if (mandati) annota('richiamo', `chiesto «sei ancora lì?» a ${mandati} ${mandati === 1 ? 'persona' : 'persone'}`);
-  if (falliti) annota('errore', `${falliti} richiam${falliti === 1 ? 'o' : 'i'} non partiti`);
   if (lasciate) annota('richiamo', `${lasciate} conversazion${lasciate === 1 ? 'e lasciata' : 'i lasciate'} andare: nessuna risposta dopo il richiamo`);
   return mandati;
 }

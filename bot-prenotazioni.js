@@ -2908,6 +2908,12 @@ const COSA_MANCA = {
 };
 const PASSI_DA_RICHIAMARE = Object.keys(COSA_MANCA);
 
+// Il simulatore della piattaforma usa numeri finti che cominciano per 000:
+// non sono su WhatsApp, e niente di automatico deve provare a scrivergli.
+function eSimulatore(telefono) {
+  return /^000/.test(String(telefono || ''));
+}
+
 // Chi va richiamato adesso. NON manda niente: chi manda è il server, che è
 // l'unico posto che sa se WhatsApp è collegato.
 function daRichiamare(db, cfg, adesso = new Date()) {
@@ -2923,6 +2929,10 @@ function daRichiamare(db, cfg, adesso = new Date()) {
   const adessoTesto = quandoLeggibile(adesso);
   return righe.filter((r) => {
     if (!PASSI_DA_RICHIAMARE.includes(r.passo)) return false;
+    // ⚠️ Mai al simulatore: il suo numero finto (000…) non è su WhatsApp, e
+    // il richiamo falliva ogni minuto per dodici ore — «1 richiamo non
+    // partiti» a raffica nel registro, visto dal titolare.
+    if (eSimulatore(r.telefono)) return false;
     // ⚠️ Mai su chi è in mano a una persona. Il silenzio dell'operatore è la
     // colonna «muto_fino» su QUESTA STESSA riga: un richiamo lì vorrebbe dire
     // il bot che parla sopra chi sta rispondendo a mano.
@@ -5808,7 +5818,7 @@ module.exports = {
   eSoloDaccordo,
   conversazioneScaduta, giorniAncoraBuoni,
   riapreConUnSaluto, daRichiamare, segnaRichiamata, daLasciareAndare, lasciaAndare,
-  minutiFermi, PASSI_CHE_RIAPRONO, COSA_MANCA,
+  minutiFermi, PASSI_CHE_RIAPRONO, COSA_MANCA, eSimulatore,
   prenotazioniDellaPersona, schedaPersona, elencoPersone,
   reportPrenotazioni, giorniFra, NOMI_SETTIMANA,
   interpretaGiorni,
