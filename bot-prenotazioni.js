@@ -821,6 +821,13 @@ const PREDEFINITI = {
   // o è pieno. Non è un «non ho capito»: si dice com'è, e si propone l'altro.
   bot_t_servizio_chiuso: 'Per {data} a {servizio} siamo chiusi, ma abbiamo disponibilità in questi orari:\n',
   bot_t_servizio_pieno: 'Per {data} a {servizio} non abbiamo più disponibilità, ma ci sono ancora questi orari:\n',
+  // L'orario scritto a metà («21», «alle 8»). Deciso dal titolare: se il bot
+  // ne sceglie uno vicino lo DICE, sulla stessa risposta, invece di
+  // aggiustare in silenzio; se non c'è, lo dice invece di «non ho capito».
+  bot_t_ora_vicina: 'ℹ️ Alle {scritto} non abbiamo un turno: ho segnato le {ora}. Se preferisci un altro orario, scrivimelo.',
+  bot_t_ora_niente: 'Alle {scritto} non abbiamo un turno. Questi sono quelli disponibili:\n',
+  bot_t_ora_quale: 'Alle {scritto} abbiamo più di un turno: scrivimi l’orario preciso.\n',
+  bot_t_ora_cambiata: '👍 Ho segnato le {ora}.',
   bot_t_ora_no: 'Non sono riuscita a capire quale orario preferisci!\n\nPuoi indicarmi direttamente l’orario (esempio: 21:30)\n',
   // Un orario che il locale fa davvero, ma pieno (o troppo vicino), non è una
   // risposta incomprensibile: è un no, e va detto per quello che è.
@@ -1162,6 +1169,19 @@ function interpretaGiorni(testo, adesso) {
 }
 
 // Un orario: 21:30 · 21.30 · 2130 · 21
+// L'orario come l'ha SCRITTO il cliente: «21» → { scritto: '21', ore: 21 },
+// «21.15» → { scritto: '21:15', ore: 21, minuti: 15 }. null se non c'è un orario.
+function oraScritta(testo) {
+  const t = normalizza(testo);
+  const m = t.match(/\b(\d{1,2})\s*(?::|\.|,)?\s*(\d{2})?\b/);
+  if (!m) return null;
+  const ore = +m[1];
+  const min = m[2] ? +m[2] : 0;
+  if (ore > 23 || min > 59) return null;
+  return { ore, minuti: min, conMinuti: !!m[2],
+           scritto: m[2] ? `${String(ore).padStart(2, '0')}:${String(min).padStart(2, '0')}` : String(ore) };
+}
+
 function interpretaOra(testo, turni) {
   const t = normalizza(testo);
   if (!t) return null;
@@ -4669,6 +4689,29 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     return avviaSposta(tutte[0]);
   }
 
+  // La risposta alla nota «ho segnato le 21:30. Se preferisci un altro
+  // orario, scrivimelo»: un orario, un turno col suo numero o un «no» secco
+  // tornano alla scelta dell'orario, invece di finire nel nome; un «ok» alla
+  // domanda del nome la fa solo ripetere. Il segno si toglie comunque, al
+  // primo messaggio: tre passi dopo, «20:30» è quello che è lì.
+  let cambiaOra = false;
+  if (dati.notaOra) {
+    const passoOra = dati.notaOra;
+    delete dati.notaOra;
+    salvaStato(db, telefono, stato.passo, dati);
+    const t = normalizza(testo);
+    const unTurno = ordinaleDi(testo) && (/\bturno\b|[°º]/.test(t) || /^(il |la )?(prim|second|terz|quart)[oa]$/.test(t));
+    if (oraScritta(testo) || unTurno) {
+      stato.passo = passoOra;
+      cambiaOra = true;
+    } else if (interpretaSiNo(testo) === false) {
+      return proponiOrari(passoOra, dati, dati.data, dati.turni || [], dati.servizio);
+    } else if (stato.passo === 'nome' && eSoloDaccordo(testo)) {
+      risposte.push(di('bot_t_nome'));
+      return esito;
+    }
+  }
+
   if (stato.passo === 'sposta_scegli') {
     const scelta = sceltaFraCandidati(dati.candidati, t, db);
     if (scelta.errore) { risposte.push(scelta.errore); return esito; }
@@ -4710,9 +4753,11 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       if (no) return rispondiOraNo(no, 'sposta_ora', dati, { escludiId: dati.id, senzaPreavviso: true });
       const chiesto = servizioDetto(testo);
       if (chiesto) return proponiOrari('sposta_ora', dati, dati.data, dati.turni || [], chiesto);
+      const nonTrovata = oraSenzaTurno('sposta_ora', dati);
+      if (nonTrovata) return nonTrovata;
       return nonCapito('sposta_ora', dati, `${di('bot_t_ora_no')}\n${elencoTurni(turniDaMostrare(dati), cfg, dati.data)}`);
     }
-    return chiediConfermaSposta(avanzato(dati), ora);
+    return conLaNotaDellOra(ora, 'sposta_ora', () => chiediConfermaSposta(avanzato(dati), ora));
   }
 
   if (stato.passo === 'sposta_conferma') {
@@ -5181,6 +5226,48 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     return suoi.length ? suoi : tutti;
   }
 
+  // ⚠️ L'orario scritto a metà, deciso dal titolare: «21» con il solo turno
+  // delle 21:30 diventa le 21:30 — ma lo si DICE, in testa alla risposta
+  // successiva, invece di aggiustare in silenzio e lasciare che se ne accorga
+  // (forse) nel riepilogo. Se l'orario scritto coincide, nessuna riga in più.
+  // Un turno scelto per numero («il primo») non è un'approssimazione.
+  // La nota dice «se preferisci un altro orario, scrivimelo»: il segno
+  // `notaOra` (il passo dell'orario da cui si è passati) resta nei dati per
+  // UN messaggio, così un orario scritto lì non finisce nel nome.
+  function conLaNotaDellOra(ora, passo, poi) {
+    const letta = oraScritta(testo);
+    const approssimata = letta && !ordinaleDi(testo)
+      && `${String(letta.ore).padStart(2, '0')}:${String(letta.minuti).padStart(2, '0')}` !== ora;
+    const prima = risposte.length;
+    const r = poi();
+    if (approssimata && risposte.length > prima) {
+      risposte[prima] = `${di('bot_t_ora_vicina', { scritto: letta.scritto, ora: oraColTurno(cfg, dati.data, ora) })}\n\n${risposte[prima]}`;
+      const dopo = statoDi(db, telefono, adesso);
+      if (dopo.passo && dopo.passo !== 'inizio') salvaStato(db, telefono, dopo.passo, { ...(dopo.dati || {}), notaOra: passo });
+    } else if (cambiaOra && risposte.length > prima) {
+      // Ha risposto alla nota con un altro orario, preso com'è: lo si conferma
+      // in una riga, sennò la domanda del nome ripetuta sembra un «non ho capito».
+      risposte[prima] = `${di('bot_t_ora_cambiata', { ora: oraColTurno(cfg, dati.data, ora) })}\n\n${risposte[prima]}`;
+    }
+    return r;
+  }
+  // Ha scritto un orario, ma nessun turno gli somiglia: non è un «non ho
+  // capito», e non conta come equivoco. Si dice com'è e si rimette l'elenco.
+  // Se invece di turni a quell'ora ce ne sono DUE, si chiede l'orario preciso.
+  function oraSenzaTurno(passo, d) {
+    const letta = oraScritta(testo);
+    if (!letta || ordinaleDi(testo)) return null;
+    const turni = turniDaMostrare(d);
+    const allOra = (h) => turni.filter((o) => o.startsWith(String(h).padStart(2, '0') + ':'));
+    let stessaOra = allOra(letta.ore);
+    // «alle 8» sono le 20: se alle 8 non c'è niente si guarda alle 20, come
+    // fa `interpretaOra`.
+    if (!stessaOra.length && letta.ore >= 1 && letta.ore <= 11 && !letta.conMinuti) stessaOra = allOra(letta.ore + 12);
+    salvaStato(db, telefono, passo, { ...avanzato(d) });
+    risposte.push(`${di(stessaOra.length > 1 ? 'bot_t_ora_quale' : 'bot_t_ora_niente', { scritto: letta.scritto })}\n${elencoTurni(stessaOra.length > 1 ? stessaOra : turni, cfg, d.data)}`);
+    return esito;
+  }
+
   // L'orario scelto: un turno per numero («il primo») o un orario («19:30»).
   // ⚠️ Chi sceglie un turno per numero non ricade sull'orario: «1» a cui non
   // corrisponde un turno non diventa le 13:00.
@@ -5320,6 +5407,8 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       // rispondono gli orari del pranzo.
       const chiesto = servizioDetto(testo);
       if (chiesto) return proponiOrari('ora', dati, dati.data, dati.turni || [], chiesto);
+      const nonTrovata = oraSenzaTurno('ora', dati);
+      if (nonTrovata) return nonTrovata;
       return nonCapito('ora', dati, `${di('bot_t_ora_no')}\n${elencoTurni(turniDaMostrare(dati), cfg, dati.data)}`);
     }
     // Ricontrollo: fra la proposta e la risposta può essersi riempito
@@ -5330,7 +5419,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       risposte.push(`Quell'orario si è appena riempito. Restano:\n${elencoTurni(turni, cfg, dati.data)}${propostaAttesa(dati.data, ora)}`);
       return esito;
     }
-    return dopoLOra({ ...avanzato(dati), ora });
+    return conLaNotaDellOra(ora, 'ora', () => dopoLOra({ ...avanzato(dati), ora }));
   }
 
   // Da qui in poi la strada è la stessa per chi ha scelto un orario libero e
@@ -5850,7 +5939,7 @@ module.exports = {
   salutoOra,
   cercaFaq,
   annotaNonCapita,
-  riempi, chiedeIlMenu, qualeMenu, menuAttivi, senzaLaRigaDelLink, DOMANDA_DOPO_IL_MENU, annotaMenu, statisticheMenu,
+  riempi, chiedeIlMenu, qualeMenu, menuAttivi, senzaLaRigaDelLink, oraScritta, DOMANDA_DOPO_IL_MENU, annotaMenu, statisticheMenu,
   prenotazioneFutura,
   elencoPrenotazioni,
   elencoTutte,
