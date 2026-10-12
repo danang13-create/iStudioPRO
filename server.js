@@ -4550,7 +4550,8 @@ async function avvisaPrenotazione(p, tipo, opzioni = {}) {
   // un foglio del servizio non si cerca per data — quella la sai già, è
   // stasera: si cerca «il tavolo Angellotti». Col nome in fondo bisognava
   // leggere tutta la riga per sapere se riguardava te, venti volte a sera.
-  const chi = `${nome !== 'senza nome' ? nome : (p.telefono || 'senza nome')} (${p.persone})`;
+  // L'esperienza, se c'è: alla cucina serve sapere che è un degustazione.
+  const chi = `${nome !== 'senza nome' ? nome : (p.telefono || 'senza nome')} (${p.persone})${p.esperienza ? ` · ${p.esperienza}` : ''}`;
   // ⚠️ Niente «OGGI» davanti alla data: «da OGGI mercoledì 26 agosto» in
   // italiano si legge «a partire da oggi», che è un'altra cosa — la data c'è
   // scritta per esteso e chi legge sa benissimo che giorno è.
@@ -5574,6 +5575,7 @@ function composizioneEmail(cfg, p, link) {
     persone: p.persone,
     telefono: p.telefono_contatto || '',
     note: p.note ? `📝 ${p.note}\n` : '',
+    esperienza: p.esperienza ? `🍽️ ${p.esperienza}\n` : '',
     pagamento: bot.bloccoPagamento(p, link),
     locale: cfg.bot_locale || '',
   };
@@ -6233,9 +6235,9 @@ app.get('/api/bot/report/csv', (req, res) => {
   const righe = db.prepare(
     'SELECT * FROM prenotazioni WHERE data >= ? AND data <= ? ORDER BY data, ora, id'
   ).all(p.dal, p.al);
-  const colonne = ['Data', 'Ora', 'Persone', 'Nome', 'Cognome', 'Telefono', 'Email', 'Note', 'Stato', 'Origine'];
+  const colonne = ['Data', 'Ora', 'Persone', 'Esperienza', 'Nome', 'Cognome', 'Telefono', 'Email', 'Note', 'Stato', 'Origine'];
   const corpo = righe.map((r) => [
-    r.data, r.ora, r.persone, r.nome, r.cognome,
+    r.data, r.ora, r.persone, r.esperienza || '', r.nome, r.cognome,
     // L'indirizzo interno di WhatsApp non è un numero e non deve finire in un
     // foglio come se lo fosse: chi lo legge proverebbe a chiamarlo.
     String(r.telefono_contatto || r.telefono || '').includes('@') ? '' : (r.telefono_contatto || r.telefono),
@@ -6479,7 +6481,8 @@ app.get('/api/bot/impostazioni', (req, res) => {
   // ricavate dai turni di prima, cioè gli orari che il bot propone davvero
   // adesso. Un modulo vuoto direbbe «chiuso tutti i giorni», che è falso.
   res.json({ impostazioni: cfg, personale: db.prepare('SELECT * FROM bot_personale').all(),
-             fasce: bot.fasceDi(cfg), fasceSalvate: !!bot.fasceValide(cfg.bot_fasce) });
+             fasce: bot.fasceDi(cfg), fasceSalvate: !!bot.fasceValide(cfg.bot_fasce),
+             esperienze: bot.esperienzeDi(cfg) });
 });
 
 // Gli indirizzi a cui questo computer risponde davvero. Serve perché la riga
@@ -6645,6 +6648,25 @@ app.post('/api/bot/impostazioni', (req, res) => {
     valori.bot_fasce = JSON.stringify(fasce);
   }
 
+  // ⚠️ Le esperienze arrivano come lista o come testo: si salvano SEMPRE
+  // ripulite, come testo. Una che non si legge non si accetta in silenzio, e
+  // una senza nessun giorno nemmeno: il bot la proporrebbe e poi direbbe
+  // «chiuso» a chiunque la scegliesse.
+  if (valori.bot_esperienze !== undefined) {
+    const esperienze = bot.esperienzeValide(valori.bot_esperienze);
+    if (!esperienze) {
+      return res.status(400).json({ error: 'Le esperienze non si leggono: ricarica la pagina e riprova.' });
+    }
+    const senzaGiorni = esperienze.find((e) => !e.pranzo.length && !e.cena.length);
+    if (senzaGiorni) {
+      return res.status(400).json({
+        error: `L'esperienza «${senzaGiorni.nome}» non ha nessun giorno: spunta almeno un giorno a pranzo o a cena, `
+          + 'sennò il bot la proporrebbe e poi direbbe «chiuso» a chi la sceglie.',
+      });
+    }
+    valori.bot_esperienze = esperienze.length ? JSON.stringify(esperienze) : '';
+  }
+
   // Gli orari dei turni si ripuliscono qui: chi li scrive vede subito quello
   // che è rimasto, invece di scoprire un «25:99» fra le proposte al cliente.
   const ripuliti = {};
@@ -6662,7 +6684,8 @@ app.post('/api/bot/impostazioni', (req, res) => {
   const salvata = bot.config(db);
   if (fasceRipulite) ripuliti.bot_fasce = valori.bot_fasce;
   res.json({ ok: true, impostazioni: salvata, ripuliti,
-             fasce: bot.fasceDi(salvata), fasceSalvate: !!bot.fasceValide(salvata.bot_fasce) });
+             fasce: bot.fasceDi(salvata), fasceSalvate: !!bot.fasceValide(salvata.bot_fasce),
+             esperienze: bot.esperienzeDi(salvata) });
 });
 
 // ---------------------------------------------------------------------------
@@ -7184,6 +7207,9 @@ const rottaServizio = (req, res) => {
   // arrivano più prenotazioni.
   res.json({
     data, righe, turni, capienza: bot.capienzaDi(db, cfg),
+    // I nomi delle esperienze (business lunch, degustazione…), per la tendina
+    // del pannello. Vuoto se il locale non ne ha.
+    esperienze: bot.esperienzeDi(cfg).map((e) => e.nome),
     // Com'è messa la giornata, per turno o per servizio: è quello che si
     // MOSTRA. `turni` resta per le tendine, che hanno bisogno di ogni orario.
     riepilogo: bot.riepilogoDelGiorno(db, cfg, data),
@@ -7413,6 +7439,13 @@ const PERSONE_MASSIMO = 200;
 // una nota intera per sbaglio. Gli spazi doppi si stringono: «12» e «12 » sono
 // lo stesso tavolo, e non devono sembrare due.
 const TAVOLO_MASSIMO = 20;
+// L'esperienza scritta a mano: una riga, al massimo quaranta lettere, come
+// nella scheda. Vuota è «nessuna». (Il 40 sta qui dentro e non in una
+// costante: le prove eseguono questa funzione da sola, e una costante
+// dichiarata fuori non la vedrebbero.)
+function esperienzaPulita(e) {
+  return String(e === null || e === undefined ? '' : e).replace(/\s+/g, ' ').trim().slice(0, 40);
+}
 function tavoloPulito(t) {
   return String(t === null || t === undefined ? '' : t).replace(/\s+/g, ' ').trim().slice(0, TAVOLO_MASSIMO);
 }
@@ -7472,6 +7505,7 @@ const rottaModificaPrenotazione = async (req, res) => {
     // riguarda il cliente — non gli si scrive — e non riguarda gli avvisi:
     // «cambiata», qui sotto, guarda solo giorno, ora e persone.
     tavolo: b.tavolo !== undefined ? tavoloPulito(b.tavolo) : p.tavolo,
+    esperienza: typeof b.esperienza === 'string' ? esperienzaPulita(b.esperienza) : (p.esperienza || ''),
     // Tre stati soli: prenotata, conclusa, cancellata. «non_presentato» non si
     // può più assegnare — vedi la migrazione in preparaDatabase.
     // Lo stato che c'è già passa comunque: è un «non cambiare niente».
@@ -7570,9 +7604,9 @@ const rottaModificaPrenotazione = async (req, res) => {
   }
 
   db.prepare('UPDATE prenotazioni SET data = ?, ora = ?, persone = ?, nome = ?, cognome = ?, '
-    + 'note = ?, telefono_contatto = ?, email = ?, tavolo = ?, stato = ? WHERE id = ?')
+    + 'note = ?, telefono_contatto = ?, email = ?, tavolo = ?, esperienza = ?, stato = ? WHERE id = ?')
     .run(nuovi.data, nuovi.ora, nuovi.persone, nuovi.nome, nuovi.cognome,
-         nuovi.note, nuovi.telefono_contatto, nuovi.email, nuovi.tavolo, nuovi.stato, p.id);
+         nuovi.note, nuovi.telefono_contatto, nuovi.email, nuovi.tavolo, nuovi.esperienza, nuovi.stato, p.id);
 
   // Spostata su un altro giorno: può essere finita proprio sul giorno per cui
   // quel cliente era in lista d'attesa. Allora la lista non serve più.
@@ -7830,11 +7864,15 @@ const rottaNuovaPrenotazione = async (req, res) => {
   }
   // Anche il tavolo, se chi la scrive lo sa già: chi entra senza prenotare
   // e viene segnato a mano si siede in quel momento.
+  // L'esperienza (business lunch, degustazione…), se chi la segna la sa:
+  // è un testo libero, perché una prenotazione presa al telefono può essere
+  // di un'esperienza che nella scheda non c'è più.
+  const esperienza = esperienzaPulita(b.esperienza);
   const info = db.prepare('INSERT INTO prenotazioni (telefono, nome, cognome, data, ora, persone, note, '
-    + 'telefono_contatto, email, tavolo, origine) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    + 'telefono_contatto, email, tavolo, esperienza, origine) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(telefono, String(b.nome || '').slice(0, 60), String(b.cognome || '').slice(0, 60),
          data, ora, persone, String(b.note || '').slice(0, 200), telefono, email,
-         tavolo, 'manuale');
+         tavolo, esperienza, 'manuale');
   const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(info.lastInsertRowid);
   // ⚠️ Se quel cliente stava in lista d'attesa per quel giorno, adesso ha un
   // tavolo: esce dalla lista. Senza, più tardi il bot gli scriveva «si è

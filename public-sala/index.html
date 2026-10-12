@@ -797,6 +797,8 @@
     </div>
     <label style="margin-top:12px">Email<input id="p-email" type="email" inputmode="email"
       autocomplete="off" placeholder="nome@esempio.it"></label>
+    <!-- L'esperienza (business lunch, degustazione…): solo se il locale ne ha. -->
+    <label id="p-esperienza-riga" style="margin-top:12px" hidden>Esperienza<select id="p-esperienza"></select></label>
     <div style="display:grid;grid-template-columns:1fr 110px;gap:10px;margin-top:12px">
       <label>Note<input id="p-note" placeholder="allergie, compleanno, seggiolone…"></label>
       <!-- I tavoli del locale in una tendina (Turni.sceltaTavolo). Si può
@@ -922,6 +924,15 @@ let quantePrima = null;   // quante prenotazioni ha il giorno che si sta guardan
 // sembrerebbero appena arrivate.
 let idVisti = null;
 let tavoliDelLocale = [];
+// Le esperienze del locale (business lunch, degustazione…), per la tendina.
+let esperienzeDelLocale = [];
+function riempiEsperienze(select, valore) {
+  const nomi = [...esperienzeDelLocale];
+  if (valore && !nomi.includes(valore)) nomi.push(valore);
+  select.innerHTML = ['<option value="">—</option>',
+    ...nomi.map((n) => `<option value="${sicuro(n)}"${n === valore ? ' selected' : ''}>${sicuro(n)}</option>`)].join('');
+  select.closest('label').hidden = !nomi.length;
+}
 let righeDelGiorno = [];
 let appenaArrivate = [];
 
@@ -939,6 +950,7 @@ async function caricaGiorno() {
   if (d.error) return;
   // I tavoli del locale (dal più piccolo) e le righe, per la tendina dei tavoli.
   tavoliDelLocale = d.tavoli || [];
+  esperienzeDelLocale = d.esperienze || [];
   righeDelGiorno = d.righe || [];
   // Una riga per turno, o per servizio — non una per ogni mezz'ora.
   // Una scheda per turno, con la barra dei tavoli — e il cartello del sold out
@@ -991,6 +1003,7 @@ async function caricaGiorno() {
             ><b>${sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || '—')}</b></button>
           <span class="quanti">${r.persone} <span class="conteggio">pers.</span></span>
           ${r.origine === 'manuale' ? '<span class="conteggio"> · admin</span>' : ''}
+          ${r.esperienza ? `<br><span class="conteggio">🍽️ ${sicuro(r.esperienza)}</span>` : ''}
           ${ETICHETTA[r.stato] ? `<span class="conteggio stato-eti"> · ${ETICHETTA[r.stato]}</span>` : ''}
           ${soldiDi(r) ? `<br><span class="conteggio">${soldiDi(r)}</span>` : ''}
           ${numeroPulito(r.telefono_contatto || r.telefono)
@@ -1116,6 +1129,7 @@ function apri(p) {
   $('#p-cognome').value = p ? (p.cognome || '') : '';
   $('#p-email').value = p ? (p.email || '') : '';
   $('#p-note').value = p ? (p.note || '') : '';
+  riempiEsperienze($('#p-esperienza'), p ? (p.esperienza || '') : '');
   $('#p-tavolo').value = p ? (p.tavolo || '') : '';
   // Chi tiene quali tavoli lo si sa per il giorno e l'ora della prenotazione
   // com'era: cambiati nel pannello, la tendina non dice «libero» a vuoto.
@@ -1488,6 +1502,7 @@ async function salvaDavvero() {
     data: $('#p-data').value, ora: $('#p-ora').value.trim(),
     persone: $('#p-persone').value, nome: $('#p-nome').value.trim(),
     cognome: $('#p-cognome').value.trim(), note: $('#p-note').value.trim(),
+    esperienza: $('#p-esperienza').value,
     tavolo: $('#p-tavolo').value.trim(),
     telefono: $('#p-telefono').value.trim(), email: $('#p-email').value.trim(),
     avvisa: $('#p-avvisa').checked,

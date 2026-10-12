@@ -812,6 +812,20 @@
      o l'occhio la legge come una prenotazione senza nome. */
   .riga-turno td { background: var(--sfondo); border-top: 1px solid var(--bordo); }
   .sotto-scheda { display: none; }
+  /* La scheda «Esperienze»: una card per esperienza, i giorni come spunte. */
+  .esp { border: 1px solid var(--bordo); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+  .esp-testa { display: flex; gap: 8px; align-items: center; }
+  .esp-testa input { flex: 1; min-width: 0; }
+  .esp label { display: block; margin-top: 10px; }
+  .esp-giorni { display: grid; gap: 6px; margin-top: 10px; }
+  .esp-giorni > div { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .esp-giorni > div > span { width: 72px; font-weight: 600; font-size: .9rem; }
+  .esp-giorni label { display: inline-flex; align-items: center; gap: 3px; margin: 0; font-weight: 400; font-size: .9rem; cursor: pointer; }
+  .esp-giorni input { width: auto; margin: 0; }
+  .esp select, .esp textarea { max-width: 100%; }
+  .esp-anteprima { font-size: .88rem; color: var(--grigio); margin: 8px 0 0; }
+  /* Su telefono i sette giorni stanno su una riga sola, sotto la parola. */
+  @media (max-width: 480px) { .esp-giorni > div > span { width: 100%; } }
   .sotto-scheda.attiva { display: block; }
 
   /* ── Telefono ─────────────────────────────────────────────────────────── */
@@ -1650,6 +1664,7 @@
       <span class="sotto-sep" aria-hidden="true"></span>
       <button data-sotto="impostazioni">Orari e tavoli</button>
       <button data-sotto="menu">Menu</button>
+      <button data-sotto="esperienze">Esperienze</button>
       <button data-sotto="frasi">Frasi e domande<span class="pallino" id="pallino-frasi" style="display:none"></span></button>
       <button data-sotto="pagamenti">Pagamenti</button>
       <button data-sotto="recensioni">Dopo la prenotazione</button>
@@ -2355,6 +2370,26 @@
       </div>
     </div>
 
+    <div id="sotto-esperienze" class="sotto-scheda">
+      <div class="card" id="pren-card-esperienze">
+        <h2 style="font-size:1rem;margin:0 0 6px">Le esperienze</h2>
+        <p class="conteggio" style="margin:0 0 14px">
+          «Business lunch», «alla carta», «menu degustazione»: se il locale ne ha <b>almeno due</b>, il bot le elenca
+          sotto il primo messaggio e chiede <b>quale</b> prima di tutto il resto. Da lì propone solo i giorni e gli orari
+          in cui quella vale: con un business lunch che c'è solo a pranzo nei giorni feriali, niente «pranzo o cena?»
+          e niente sabato. Il nome finisce sulla prenotazione, in sala e nell'email. Con un'esperienza sola non chiede
+          niente: valgono i suoi giorni. Senza esperienze il bot lavora come sempre. Le frasi sono in «Frasi e domande»,
+          gruppo «Le esperienze»; i menu da offrire si caricano nella scheda «Menu».
+        </p>
+        <div id="esperienze-elenco"></div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
+          <button class="btn btn-secondario" id="esperienze-aggiungi" type="button">+ Aggiungi un'esperienza</button>
+          <button class="btn" id="esperienze-salva" type="button">Salva</button>
+          <span id="esperienze-salvato" class="conteggio" style="margin:0"></span>
+        </div>
+      </div>
+    </div>
+
     <div id="sotto-sala" class="sotto-scheda">
       <div class="card">
         <h2 style="font-size:1rem;margin:0 0 12px">Pagina per la sala</h2>
@@ -2607,6 +2642,8 @@
           <label>Telefono<input id="pann-telefono" autocomplete="off" placeholder="333 1234567">
             <span class="conteggio" id="pann-telefono-avviso" style="display:none;margin-top:4px"></span></label>
           <label>Email<input id="pann-email" type="email" inputmode="email" autocomplete="off" placeholder="nome@esempio.it"></label>
+          <!-- L'esperienza (business lunch, degustazione…): solo se il locale ne ha. -->
+          <label id="pann-esperienza-riga" hidden>Esperienza<select id="pann-esperienza" autocomplete="off"></select></label>
         </div>
         <div style="display:grid;grid-template-columns:1fr 120px;gap:10px;margin-top:12px">
           <label>Note<input id="pann-note" autocomplete="off" placeholder="allergie, compleanno, seggiolone…"></label>
@@ -5077,6 +5114,14 @@ const TESTI_BOT = [
   ['bot_t_bentornato', 'Chi torna: «che bello rivederti»', 'Sostituisce il primo messaggio per chi ha già prenotato da te (spunta «Riconoscere chi ha già prenotato»): non ci si ripresenta a chi ci conosce. <b>{nome}</b> è solo il nome, senza cognome.'],
   ['bot_t_quante', 'Chiede le persone a chi conosce già', 'Sostituisce il primo messaggio quando la conversazione è già aperta: chi scrive NUOVA, o chi ha già un tavolo da te. Non ci si ripresenta a chi ha appena letto un nostro messaggio.'],
   ['bot_t_persone_no', 'Non ha capito quante persone', ''],
+  [null, 'Le esperienze'],
+  ['bot_t_benvenuto_esperienze', 'Il primo messaggio, con le esperienze', 'Sostituisce «Il primo messaggio» quando nella scheda Esperienze ce ne sono almeno due: si ferma prima di chiedere le persone, perché sotto arriva l\'elenco delle esperienze e la domanda «quale?».'],
+  ['bot_t_bentornato_esperienze', 'Chi torna, con le esperienze', 'Sostituisce «che bello rivederti» quando ci sono le esperienze: anche qui senza la domanda delle persone.'],
+  ['bot_t_esperienze', 'L\'elenco delle esperienze e la domanda', 'Sotto il primo messaggio. <b>{esperienze}</b> è l\'elenco, scritto dal bot dalla scheda Esperienze: numero, nome, quando vale, la riga di presentazione.'],
+  ['bot_t_esperienza_no', 'Non ha capito quale esperienza', 'Con <b>{esperienze}</b> l\'elenco di nuovo.'],
+  ['bot_t_esperienza_presa', 'Ha scelto: «perfetto»', 'La riga in cima alla domanda dopo. <b>{esperienza}</b> è il nome scelto. Svuotala per non dirlo.'],
+  ['bot_t_esperienza_menu', 'Vuoi vedere il menu?', 'Dopo la scelta di un\'esperienza che offre un menu (scheda Esperienze → «offre un menu»): prima la frase di cappello scritta lì, poi questa domanda. Con SÌ parte il menu della scheda Menu, con NO si va avanti.'],
+  ['bot_t_esperienza_chiusa', 'Quel giorno l\'esperienza non c\'è', 'Il locale quel giorno è aperto, ma l\'esperienza scelta no (il business lunch di sabato): non si dice «chiuso». <b>{esperienza}</b>, <b>{data}</b>, <b>{quando}</b> (quando vale, a parole).'],
   [null, 'Il menu'],
   ['bot_t_menu', 'Manda il menu a chi lo chiede', 'Esce quando il cliente scrive «menu», «la carta dei vini», «cosa si mangia»… <b>in qualunque momento</b> della prenotazione, se nella scheda Menu il menu è attivo. Col collegamento, arriva al posto di <b>{link}</b>; col file caricato, il file parte con questa frase come didascalia e <b>la riga con {link} non esce</b>. Sotto, una delle due righe qui sotto. Se hai scritto una tua domanda frequente con la parola «menu», vale quella.'],
   ['bot_t_menu_prenota', 'Dopo il menu, a chi non ha ancora cominciato', 'La riga sotto il menu per chi lo chiede prima di prenotare.'],
@@ -5254,6 +5299,7 @@ async function caricaSottoScheda(nome) {
   if (nome === 'frasi') { await caricaConfigBot(); await caricaFaq(); return; }
   if (nome === 'recensioni') { await caricaConfigBot(); return; }
   if (nome === 'menu') { await caricaConfigBot(); await caricaFileMenu(); return; }
+  if (nome === 'esperienze') { await caricaConfigBot(); return; }
   if (nome === 'pagamenti') { await caricaConfigBot(); return; }
   if (nome === 'sala') { await caricaConfigBot(); return; }
   if (nome === 'personale') { await caricaConfigBot(); return; }
@@ -5564,6 +5610,7 @@ async function caricaServizio() {
   const d = await (await fetch('/api/bot/prenotazioni?data=' + encodeURIComponent(data))).json();
   // I tavoli del locale (dal più piccolo), per la tendina dei tavoli.
   tavoliDelLocale = d.tavoli || [];
+  esperienzeDelLocale = d.esperienze || [];
   // Una scheda per turno, con la barra dei tavoli — e il cartello del sold out
   // o della chiusura prima di tutto (vedi Turni.disegnaRiepilogo).
   Turni.disegnaRiepilogo($('#pren-turni'), d);
@@ -5617,6 +5664,7 @@ async function caricaServizio() {
           class="nome-cliente">${
           testoSicuro([r.nome, r.cognome].filter(Boolean).join(' ') || '—')}</button>
         ${r.origine === 'manuale' ? '<span class="conteggio" style="margin:0"> · admin</span>' : ''}
+        ${r.esperienza ? '<br><span class="conteggio" style="margin:0">🍽️ ' + testoSicuro(r.esperienza) + '</span>' : ''}
         <br><span class="conteggio" style="margin:0">${
         r.telefono_contatto ? '📞 ' + numeroPulito(r.telefono_contatto) : numeroPulito(r.telefono)
       }</span></td>
@@ -5717,6 +5765,16 @@ async function caricaServizio() {
 
 let righeServizio = [];
 let tavoliDelLocale = [];
+// Le esperienze del locale, per la tendina del pannello: i nomi.
+let esperienzeDelLocale = [];
+function riempiEsperienze(select, valore) {
+  const nomi = [...esperienzeDelLocale];
+  // Un'esperienza che nella scheda non c'è più resta sulla riga, e si vede.
+  if (valore && !nomi.includes(valore)) nomi.push(valore);
+  select.innerHTML = ['<option value="">—</option>',
+    ...nomi.map((n) => `<option value="${testoSicuro(n)}"${n === valore ? ' selected' : ''}>${testoSicuro(n)}</option>`)].join('');
+  select.closest('label').hidden = !nomi.length;
+}
 let pannelloId = null;   // null = nuova prenotazione
 let ricaricaDopoIlTavolo = false;
 
@@ -5759,6 +5817,7 @@ function apriPannello(p) {
   $('#pann-nome').value = p ? p.nome : '';
   $('#pann-cognome').value = p ? p.cognome : '';
   $('#pann-note').value = p ? (p.note || '') : '';
+  riempiEsperienze($('#pann-esperienza'), p ? (p.esperienza || '') : '');
   $('#pann-tavolo').value = p ? (p.tavolo || '') : '';
   // Chi tiene quali tavoli lo si sa per il giorno e l'ora della prenotazione
   // com'era: cambiati nel pannello, la tendina non dice «libero» a vuoto.
@@ -5822,6 +5881,7 @@ async function salvaPannelloDavvero(forza) {
     nome: $('#pann-nome').value.trim(),
     cognome: $('#pann-cognome').value.trim(),
     note: $('#pann-note').value.trim(),
+    esperienza: $('#pann-esperienza').value,
     tavolo: $('#pann-tavolo').value.trim(),
     telefono: $('#pann-telefono').value.trim(),
     telefono_contatto: $('#pann-telefono').value.trim(),
@@ -6875,6 +6935,7 @@ async function caricaConfigBot() {
   }
   caricaGiorniPieni();
   mostraFasce(d);
+  mostraEsperienze(d);
   caricaTavoli();
   // ⚠️ SESSANTADUE CASELLE IN FILA SONO TREDICIMILA PIXEL. Misurato in un
   // browser vero: questa card da sola faceva il 93% della pagina, e per
@@ -7172,6 +7233,8 @@ async function salvaConfigBot(doveDirlo) {
   // che un «Salva» qualunque — quello dei promemoria — salva anche gli orari
   // com'erano disegnati in pagina, magari mezzi scritti in un'altra scheda.
   if (fasceToccate && fasceUI) corpo.bot_fasce = JSON.stringify(fasceDaSalvare());
+  // Le esperienze, stessa regola: partono solo se toccate.
+  if (esperienzeToccate) corpo.bot_esperienze = JSON.stringify(esperienzeDaSalvare());
   const r = await fetch('/api/bot/impostazioni', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
   });
@@ -7202,6 +7265,7 @@ async function salvaConfigBot(doveDirlo) {
   }
   // Gli orari tornano come li ha salvati il server — ripuliti e in ordine.
   if (r.ok && d.fasce) { fasceToccate = false; mostraFasce(d); }
+  if (r.ok && d.esperienze) { esperienzeToccate = false; mostraEsperienze(d); }
   // L'indirizzo da scrivere sul tablet cambia insieme all'interruttore.
   if (d.impostazioni) mostraIndirizzoSala(d.impostazioni);
   caricaServizio();
@@ -7658,6 +7722,125 @@ $('#pagamenti-salva').addEventListener('click', () => salvaConfigBot('pagamenti-
 // I file caricati (nome sul disco e nome originale), letti dalle impostazioni:
 // non sono campi di testo, li scrive il server quando si carica.
 let fileMenu = { menu: {}, degustazione: {} };
+// ---- Le esperienze: «business lunch», «alla carta», «degustazione» ----
+// Una card per esperienza. I giorni sono spunte per servizio; sotto, in
+// anteprima, la riga che il bot scriverà («dal lunedì al venerdì a pranzo»),
+// con le stesse parole del bot (vedi `quandoDetto` nel motore).
+let esperienzeUI = [];
+let esperienzeToccate = false;
+const GIORNI_ESP = [[1, 'L'], [2, 'M'], [3, 'M'], [4, 'G'], [5, 'V'], [6, 'S'], [0, 'D']];
+const NOMI_GIORNI_ESP = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
+const NUMERI_ESP = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣'];
+function giorniDettiUI(giorni) {
+  const ordine = [1, 2, 3, 4, 5, 6, 0];
+  const presenti = ordine.filter((g) => giorni.includes(g));
+  if (presenti.length === 7) return 'tutti i giorni';
+  const serie = [];
+  for (const g of presenti) {
+    const ultima = serie[serie.length - 1];
+    if (ultima && ordine.indexOf(g) === ordine.indexOf(ultima[ultima.length - 1]) + 1) ultima.push(g);
+    else serie.push([g]);
+  }
+  const conArticolo = (g) => (g === 0 ? 'la domenica' : `il ${NOMI_GIORNI_ESP[g]}`);
+  const pezzi = serie.flatMap((s) => (s.length >= 3
+    ? [`dal ${NOMI_GIORNI_ESP[s[0]]} ${s[s.length - 1] === 0 ? 'alla' : 'al'} ${NOMI_GIORNI_ESP[s[s.length - 1]]}`]
+    : s.map(conArticolo)));
+  return pezzi.length <= 1 ? pezzi.join('') : `${pezzi.slice(0, -1).join(', ')} e ${pezzi[pezzi.length - 1]}`;
+}
+function quandoDettoUI(e) {
+  const p = e.pranzo || [], c = e.cena || [];
+  if (!p.length && !c.length) return '';
+  if (p.length && c.length && p.join() === c.join()) return `${giorniDettiUI(p)}, a pranzo e a cena`;
+  const pezzi = [];
+  if (p.length) pezzi.push([p.length, `${giorniDettiUI(p)} a pranzo`]);
+  if (c.length) pezzi.push([c.length, `${giorniDettiUI(c)} a cena`]);
+  return pezzi.sort((x, y) => y[0] - x[0]).map((x) => x[1]).join(' e ');
+}
+function anteprimaEsperienza(e, i) {
+  if (!e.nome.trim()) return 'Scrivi il nome: senza, questa esperienza non si salva.';
+  const quando = quandoDettoUI(e);
+  if (!quando) return '⚠️ Nessun giorno spuntato: il bot la proporrebbe e poi direbbe «chiuso» a chi la sceglie.';
+  return `Il bot scriverà: ${NUMERI_ESP[i] || (i + 1) + '.'} ${e.nome.trim()} · ${quando}${e.riga.trim() ? ' — ' + e.riga.trim() : ''}`;
+}
+function mostraEsperienze(d) {
+  esperienzeUI = (d.esperienze || []).map((e) => ({
+    nome: e.nome || '', parole: e.parole || '', riga: e.riga || '',
+    pranzo: [...(e.pranzo || [])].map(Number), cena: [...(e.cena || [])].map(Number),
+    menu: e.menu || '', cappello: e.cappello || '',
+  }));
+  disegnaEsperienze();
+}
+function disegnaEsperienze() {
+  const el = $('#esperienze-elenco');
+  if (!el) return;
+  if (!esperienzeUI.length) {
+    el.innerHTML = '<p class="conteggio" style="margin:0">Nessuna esperienza: il bot chiede subito per quante persone, come sempre.</p>';
+    return;
+  }
+  const spunte = (e, servizio) => GIORNI_ESP.map(([g, l]) =>
+    `<label><input type="checkbox" data-servizio="${servizio}" data-giorno="${g}"${e[servizio].includes(g) ? ' checked' : ''}>${l}</label>`).join('');
+  el.innerHTML = esperienzeUI.map((e, i) => `
+    <div class="esp" data-i="${i}">
+      <div class="esp-testa">
+        <b>${NUMERI_ESP[i] || (i + 1) + '.'}</b>
+        <input data-campo="nome" maxlength="40" autocomplete="off" placeholder="Nome, per esempio «Business lunch»" value="${testoSicuro(e.nome)}" aria-label="Nome dell'esperienza ${i + 1}">
+        <button type="button" class="btn btn-secondario btn-piccolo" data-togli="${i}">Togli</button>
+      </div>
+      <label>Parole con cui il cliente la nomina
+        <input data-campo="parole" autocomplete="off" placeholder="business, lunch" value="${testoSicuro(e.parole)}">
+        <span class="conteggio" style="margin:0">Separate da virgola. Il nome intero vale sempre, e anche il numero (1, 2, 3).</span></label>
+      <label>Riga di presentazione, sotto il nome
+        <input data-campo="riga" maxlength="160" autocomplete="off" placeholder="Menu a 35 € · acqua e caffè inclusi" value="${testoSicuro(e.riga)}"></label>
+      <div class="esp-giorni">
+        <div><span>A pranzo</span>${spunte(e, 'pranzo')}</div>
+        <div><span>A cena</span>${spunte(e, 'cena')}</div>
+      </div>
+      <label>Dopo la scelta, offre un menu
+        <select data-campo="menu" autocomplete="off" style="width:auto">
+          <option value=""${e.menu === '' ? ' selected' : ''}>Nessuno: si passa alle persone</option>
+          <option value="menu"${e.menu === 'menu' ? ' selected' : ''}>Il menu (scheda Menu)</option>
+          <option value="degustazione"${e.menu === 'degustazione' ? ' selected' : ''}>Il menu degustazione (scheda Menu)</option>
+        </select></label>
+      <label>Frase di cappello, prima di «vuoi vedere il menu?»
+        <textarea data-campo="cappello" rows="2" maxlength="400" placeholder="Una o due righe, per esempio cosa distingue i menu (portate, cosa è incluso)…">${testoSicuro(e.cappello)}</textarea></label>
+      <p class="esp-anteprima" data-anteprima="${i}">${testoSicuro(anteprimaEsperienza(e, i))}</p>
+    </div>`).join('');
+}
+function esperienzeDaSalvare() { return esperienzeUI; }
+$('#esperienze-elenco').addEventListener('input', (e) => {
+  const card = e.target.closest('.esp');
+  if (!card) return;
+  const i = +card.dataset.i;
+  const esp = esperienzeUI[i];
+  if (!esp) return;
+  if (e.target.dataset.campo) esp[e.target.dataset.campo] = e.target.value;
+  if (e.target.dataset.servizio) {
+    const g = +e.target.dataset.giorno;
+    const lista = esp[e.target.dataset.servizio];
+    if (e.target.checked && !lista.includes(g)) lista.push(g);
+    if (!e.target.checked) esp[e.target.dataset.servizio] = lista.filter((x) => x !== g);
+  }
+  esperienzeToccate = true;
+  const ant = card.querySelector('[data-anteprima]');
+  if (ant) ant.textContent = anteprimaEsperienza(esperienzeUI[i], i);
+});
+$('#esperienze-elenco').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-togli]');
+  if (!b) return;
+  esperienzeUI.splice(+b.dataset.togli, 1);
+  esperienzeToccate = true;
+  disegnaEsperienze();
+});
+$('#esperienze-aggiungi').addEventListener('click', () => {
+  if (esperienzeUI.length >= 6) { toast('Al massimo sei esperienze'); return; }
+  esperienzeUI.push({ nome: '', parole: '', riga: '', pranzo: [], cena: [], menu: '', cappello: '' });
+  esperienzeToccate = true;
+  disegnaEsperienze();
+  const ultimo = $('#esperienze-elenco .esp:last-child input[data-campo="nome"]');
+  if (ultimo) ultimo.focus();
+});
+$('#esperienze-salva').addEventListener('click', () => salvaConfigBot('esperienze-salvato'));
+
 async function caricaFileMenu() {
   try {
     const d = await (await fetch('/api/bot/impostazioni')).json();
