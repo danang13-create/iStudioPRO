@@ -4751,6 +4751,14 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   };
 
   const di = (chiave, extra) => riempi(cfg[chiave], { ...valori, ...(extra || {}) });
+  // ⚠️ Le frasi con l'elenco delle esperienze le scrive il titolare, l'elenco
+  // no. Riscrivendo «Ecco cosa puoi prenotare da noi:» senza {esperienze}, il
+  // bot chiedeva «a quale sei interessato?» senza dire le scelte: visto dal
+  // titolare, che credeva sparite le esperienze. Se il segnaposto manca
+  // l'elenco va in fondo; se la frase è vuota resta l'elenco da solo.
+  const diConElenco = (chiave, elenco, extra) => (String(cfg[chiave] || '').includes('{esperienze}')
+    ? di(chiave, { ...(extra || {}), esperienze: elenco })
+    : [di(chiave, extra).trim(), elenco].filter(Boolean).join('\n\n'));
   // Le esperienze del locale. Con almeno due si chiede; con una vale da sé.
   const esperienze = esperienzeDi(cfg);
   const conEsperienze = esperienze.length >= 2;
@@ -5155,7 +5163,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       if (cosa) return di('bot_t_menu_riprendi', { cosa });
       if (conEsperienze && stato.passo === 'inizio') {
         salvaStato(db, telefono, 'esperienza', {});
-        return di('bot_t_esperienze', { esperienze: elencoEsperienze(esperienze) });
+        return diConElenco('bot_t_esperienze', elencoEsperienze(esperienze));
       }
       return di('bot_t_menu_prenota');
     };
@@ -5380,14 +5388,14 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   // I numeri dell'elenco ristretto si ricordano in `scelte`.
   function elencoDaProporre(d) {
     const tutte = { valide: esperienze, ristrette: false,
-      testo: di('bot_t_esperienze', { esperienze: elencoEsperienze(esperienze) }) };
+      testo: diConElenco('bot_t_esperienze', elencoEsperienze(esperienze)) };
     if (!d.giornoDetto) return tutte;
     const valide = esperienze.filter((e) => valeIlGiorno(e, d.giornoDetto, d.servizio));
     if (!valide.length) return tutte;
     const data = dataItaliana(d.giornoDetto);
     return { valide, ristrette: true,
-      testo: di('bot_t_esperienze_giorno', { data: data.charAt(0).toUpperCase() + data.slice(1),
-        servizio: d.servizio ? ` a ${d.servizio}` : '', esperienze: elencoEsperienze(valide, { senzaQuando: true }) }) };
+      testo: diConElenco('bot_t_esperienze_giorno', elencoEsperienze(valide, { senzaQuando: true }),
+        { data: data.charAt(0).toUpperCase() + data.slice(1), servizio: d.servizio ? ` a ${d.servizio}` : '' }) };
   }
   // Il benvenuto (senza righe coi segnaposto vuoti: la riga degli orari di un
   // locale senza orari non deve uscire mezza) e la domanda. Se il giorno già
@@ -5456,7 +5464,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
         return chiediEsperienza({ ...resto, ...conServizio(),
           ...(persone !== null ? { persone } : {}), ...(giorno ? { giornoDetto: giorno } : {}) }, '');
       }
-      return nonCapito('esperienza', dati, di('bot_t_esperienza_no', { esperienze: elencoEsperienze(proposte, { senzaQuando: !!dati.scelte }) }));
+      return nonCapito('esperienza', dati, diConElenco('bot_t_esperienza_no', elencoEsperienze(proposte, { senzaQuando: !!dati.scelte })));
     }
     return presaLEsperienza(fra[scelta], { ...avanzato(dati), ...conServizio() });
   }

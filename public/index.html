@@ -5108,6 +5108,11 @@ function numeroPulito(valore) {
 // non sono un elenco, sono un muro.
 // Una voce con la chiave `null` è un TITOLO DI GRUPPO, non una frase: non ha
 // una casella, non prende un numero, e chi salva la salta.
+// Le frasi che portano l'elenco delle esperienze. Senza {esperienze} il bot
+// lo mette in fondo da sé (vedi `diConElenco` nel motore), e sotto la casella
+// si dice: chi lo toglie per spostarlo deve capire perché ricompare.
+const FRASI_CON_ELENCO = ['bot_t_esperienze', 'bot_t_esperienze_giorno', 'bot_t_esperienza_no'];
+const AVVISO_ELENCO = '⚠️ Qui manca {esperienze}: il bot metterà l\'elenco delle esperienze in fondo alla frase. Scrivilo nel punto dove lo vuoi.';
 const TESTI_BOT = [
   [null, 'Chi scrive per la prima volta'],
   ['bot_t_benvenuto', 'Il primo messaggio', 'Quello che vede chi ti scrive per la prima volta. È il più importante di tutti.'],
@@ -5118,9 +5123,9 @@ const TESTI_BOT = [
   ['bot_t_benvenuto_esperienze', 'Il primo messaggio, con le esperienze', 'Sostituisce «Il primo messaggio» quando nella scheda Esperienze ce ne sono almeno due: si ferma prima di chiedere le persone, perché sotto arriva l\'elenco delle esperienze e la domanda «quale?». <b>{orari}</b> sono gli orari d\'apertura a parole, presi da «Orari e tavoli»: togli la riga se non la vuoi.'],
   ['bot_t_bentornato_esperienze', 'Chi torna, con le esperienze', 'Sostituisce «che bello rivederti» quando ci sono le esperienze: anche qui senza la domanda delle persone. Anche qui vale <b>{orari}</b>.'],
   ['bot_t_orari', 'Gli orari d\'apertura', 'A chi scrive ORARI, «che orari fate?», «quando siete aperti?», in qualunque momento: poi si riprende da dove si era. <b>{orari}</b> è la riga composta dal bot dalle fasce di «Orari e tavoli» («a pranzo 12:30–14:00 dal lunedì al venerdì, a cena 19:30–23:00 dal lunedì al sabato; chiusi la domenica»), e vale in ogni frase.'],
-  ['bot_t_esperienze', 'L\'elenco delle esperienze e la domanda', 'Sotto il primo messaggio. <b>{esperienze}</b> è l\'elenco, scritto dal bot dalla scheda Esperienze: numero, nome, quando vale, la riga di presentazione.'],
-  ['bot_t_esperienze_giorno', 'L\'elenco, quando il giorno l\'ha già detto', 'Chi scrive subito «per 4 sabato sera» vede solo le esperienze che valgono quel giorno, senza «quando valgono». <b>{data}</b> è il giorno, <b>{servizio}</b> « a cena» se l\'ha detto, <b>{esperienze}</b> l\'elenco. Se ne resta una sola il bot la prende senza chiedere.'],
-  ['bot_t_esperienza_no', 'Non ha capito quale esperienza', 'Con <b>{esperienze}</b> l\'elenco di nuovo.'],
+  ['bot_t_esperienze', 'L\'elenco delle esperienze e la domanda', 'Sotto il primo messaggio. <b>{esperienze}</b> è l\'elenco, scritto dal bot dalla scheda Esperienze: numero, nome, quando vale, la riga di presentazione. Se lo togli, il bot lo mette lo stesso in fondo: senza, il cliente non saprebbe cosa scegliere.'],
+  ['bot_t_esperienze_giorno', 'L\'elenco, quando il giorno l\'ha già detto', 'Chi scrive subito «per 4 sabato sera» vede solo le esperienze che valgono quel giorno, senza «quando valgono». <b>{data}</b> è il giorno, <b>{servizio}</b> « a cena» se l\'ha detto, <b>{esperienze}</b> l\'elenco: se lo togli, il bot lo mette in fondo. Se ne resta una sola il bot la prende senza chiedere.'],
+  ['bot_t_esperienza_no', 'Non ha capito quale esperienza', 'Con <b>{esperienze}</b> l\'elenco di nuovo: se lo togli, il bot lo mette in fondo.'],
   ['bot_t_esperienza_presa', 'Ha scelto: «perfetto»', 'La riga in cima alla domanda dopo. <b>{esperienza}</b> è il nome scelto. Svuotala per non dirlo.'],
   ['bot_t_esperienza_menu', 'Dopo la scelta: «se vuoi vederlo scrivi MENU»', 'Dopo la scelta di un\'esperienza che offre un menu (scheda Esperienze → «offre un menu», e quel menu attivo nella scheda Menu): prima la frase di cappello scritta lì, poi questa riga, poi la domanda delle persone. Chi scrive MENU riceve il menu di quell\'esperienza, senza sentirsi chiedere quale.'],
   ['bot_t_esperienza_chiusa', 'Quel giorno l\'esperienza non c\'è', 'Il locale quel giorno è aperto, ma l\'esperienza scelta no (il business lunch di sabato): non si dice «chiuso». <b>{esperienza}</b>, <b>{data}</b>, <b>{quando}</b> (quando vale, a parole).'],
@@ -6965,6 +6970,7 @@ async function caricaConfigBot() {
         ${aiuto ? `<br><span class="conteggio" style="margin:0">${aiuto}</span>` : ''}
         <textarea id="txt-${chiave}" autocomplete="off" rows="${chiave === 'bot_t_ora_turno' ? 6 : chiave === 'bot_t_benvenuto' ? 4 : 3}"
           class="frase-testo" style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;resize:vertical">${testoSicuro(d.impostazioni[chiave] || '')}</textarea>
+        ${FRASI_CON_ELENCO.includes(chiave) ? `<span class="conteggio" data-avviso-elenco="${chiave}" style="display:none;margin:2px 0 0;color:var(--avviso-testo)"></span>` : ''}
         <button class="btn btn-secondario" data-ripristina="${chiave}" style="padding:3px 9px;font-size:.78rem;margin-top:4px">Riporta com'era</button>
       </label>`);
   }
@@ -7006,6 +7012,20 @@ async function caricaConfigBot() {
     gruppiTutti.forEach((g) => { g.open = apri; });
     $('#apri-tutte').textContent = apri ? 'Chiudi tutte' : 'Apri tutte';
   });
+  // L'avviso sotto le frasi dell'elenco, mentre si scrive. Le caselle sono
+  // nuove a ogni disegno: un ascoltatore ciascuna, niente che si accumula.
+  for (const chiave of FRASI_CON_ELENCO) {
+    const area = $('#txt-' + chiave);
+    const avviso = $(`[data-avviso-elenco="${chiave}"]`);
+    if (!area || !avviso) continue;
+    const aggiorna = () => {
+      const manca = !area.value.includes('{esperienze}');
+      avviso.textContent = manca ? AVVISO_ELENCO : '';
+      avviso.style.display = manca ? 'block' : 'none';
+    };
+    area.addEventListener('input', aggiorna);
+    aggiorna();
+  }
   $('#pren-testi').querySelectorAll('[data-ripristina]').forEach((b) => {
     b.addEventListener('click', async (ev) => {
       ev.preventDefault();
