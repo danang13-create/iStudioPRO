@@ -726,6 +726,11 @@ const PREDEFINITI = {
   // che come risposta alla domanda in sospeso. È il cliente a decidere, con la
   // sua parola: nessun timer butta via niente.
   bot_riapre_minuti: '10',
+  // Quante risposte non capite DI FILA, sulla stessa domanda, prima di passare
+  // la conversazione a una persona. Erano due fisse; il titolare ha chiesto
+  // più pazienza (13 ottobre 2026): dalla seconda il bot chiede di riscrivere
+  // con un esempio (`bot_t_riscrivi`), alla terza passa. Fra 2 e 5.
+  bot_tentativi: '3',
   // Il richiamo: dopo quanti minuti il bot chiede «sei ancora lì?». Una volta
   // sola per conversazione, e solo dentro gli orari degli avvisi.
   bot_richiamo_attivo: 'true',
@@ -910,6 +915,9 @@ const PREDEFINITI = {
   bot_t_rinuncia: 'OK! Non ho prenotato niente.\n\nSperiamo di poterti accogliere presto da {locale}. ✨',
   bot_t_lasciato: 'Va bene, non ho toccato niente: la tua prenotazione resta com\'era. ✨',
   bot_t_ricominciamo: 'Se preferisci, scrivi RICOMINCIA per ripartire da capo con la prenotazione, oppure OPERATORE per parlare con una persona.',
+  // Dal secondo «non ho capito» di fila: non la stessa domanda una terza
+  // volta, ma «riscrivilo», con un esempio adatto alla domanda ({esempio}).
+  bot_t_riscrivi: 'Scusami, non ho capito bene 🙏 Me lo riscrivi in un altro modo?\n{esempio}',
   bot_t_richiamo: 'Sei ancora lì? 🙂\n\nEravamo rimasti a {cosa}: rispondi pure qui e finiamo in un attimo.\n\nSe preferisci ripartire da capo scrivi RICOMINCIA.',
   bot_t_ricominciato: 'Va bene, ricominciamo da capo!\n\nPer quante persone devo prenotare?\n',
   bot_t_annulla_quale: 'Sei sicuro di voler cancellare la prenotazione?\n\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nScrivi SÌ per confermare',
@@ -1072,10 +1080,51 @@ function dataItaliana(iso) {
   return `${NOMI_GIORNI[d.getDay()]} ${g} ${NOMI_MESI[m - 1]}`;
 }
 
+// ⚠️ LE DATE SCRITTE STORTE: «15 ottore», «3 nomembre», «sabto», «domai».
+// Chiesto dal titolare (13 ottobre 2026): prima erano due «non ho capito» e la
+// conversazione passava a una persona per una lettera. Si raddrizza una parola
+// a UN errore (una lettera sbagliata, mancante, in più, o due invertite: vedi
+// `distanzaParole`), di almeno cinque lettere, e solo se la parola giusta è
+// una sola. Leggere male costa poco: la risposta dopo dice la data intera, e
+// il riepilogo chiede conferma.
+//
+// Due regole diverse, e il perché:
+// - il MESE si raddrizza solo dopo un numero («15 ottore»), e allora ovunque:
+//   un numero seguito da una parola a un errore da un mese è quel mese. MA
+//   non «marzo»: «per 2 mario rossi» e «per 2 marco» sarebbero il 2 marzo, a
+//   una lettera di distanza. Fuori anche i cognomi a un errore dai mesi lunghi
+//   («Maggi», «Giugni», «Agosti»);
+// - il GIORNO della settimana e «domani» solo quando il bot ha chiesto il
+//   giorno (`storti`). Nel testo libero «Domenico» è un nome e «Romani» un
+//   cognome: a un errore da «domenica» e da «domani».
+const PAROLE_DEI_GIORNI = ['lunedi', 'martedi', 'mercoledi', 'giovedi', 'venerdi', 'sabato', 'domenica',
+  'domani', 'dopodomani', 'stasera'];
+const NON_SONO_GIORNI = new Set(['domenico', 'romani']);
+const MESI_DA_RADDRIZZARE = NOMI_MESI.filter((m) => m !== 'marzo');
+const NON_SONO_MESI = new Set(['maggi', 'giugni', 'agosti', 'aprire']);
+function parolaVicina(parola, elenco) {
+  if (elenco.includes(parola)) return parola;
+  if (parola.length < 5) return null;
+  const vicine = elenco.filter((p) => distanzaParole(parola, p, 1) <= 1);
+  return vicine.length === 1 ? vicine[0] : null;
+}
+function dateRaddrizzate(t, storti = false) {
+  let s = String(t || '').replace(/\b(\d{1,2})\s+([a-z]+)\b/g, (intero, g, parola) => {
+    const mese = NON_SONO_MESI.has(parola) ? null : parolaVicina(parola, MESI_DA_RADDRIZZARE);
+    return mese ? `${g} ${mese}` : intero;
+  });
+  if (storti) {
+    s = s.replace(/[a-z]+/g, (parola) => (NON_SONO_GIORNI.has(parola) ? parola
+      : parolaVicina(parola, PAROLE_DEI_GIORNI) || parola));
+  }
+  return s;
+}
+
 // Interpreta un giorno. Accetta: oggi/stasera, domani, dopodomani, il nome del
 // giorno della settimana (prossima occorrenza), 22, 22/8, 22/08/2026, 22 agosto.
-function interpretaData(testo, adesso) {
-  const t = normalizza(testo);
+// Con `storti` anche il giorno della settimana scritto male (vedi sopra).
+function interpretaData(testo, adesso, { storti = false } = {}) {
+  const t = dateRaddrizzate(normalizza(testo), storti);
   if (!t) return null;
 
   if (/\b(oggi|stasera|stanotte|stamattina)\b/.test(t)) return comeData(adesso);
@@ -2404,6 +2453,40 @@ function senzaRigheVuote(testo, valori) {
     if (!chiavi.length) return true;
     return chiavi.some((k) => String(valori[k] == null ? '' : valori[k]).trim() !== '');
   }).join('\n');
+}
+
+// L'esempio sotto «me lo riscrivi in un altro modo?» (`bot_t_riscrivi`),
+// adatto alla domanda rimasta in sospeso. Dove si può, preso da quello che il
+// bot ha appena proposto: un giorno dell'elenco, un orario dei turni. '' dove
+// un esempio non aiuta, e la riga allora non esce (vedi `senzaRigheVuote`).
+const ESEMPI_FISSI = {
+  servizio: 'Per esempio «pranzo» oppure «cena».',
+  sposta_servizio: 'Per esempio «pranzo» oppure «cena».',
+  esperienza: 'Per esempio il numero: «1».',
+  persone: 'Per esempio «4».',
+  nome: 'Per esempio «Mario Rossi».',
+  nome_altro: 'Per esempio «Mario Rossi».',
+  nome_nuovo: 'Per esempio «Mario Rossi».',
+  telefono: 'Per esempio «333 123 4567».',
+  telefono_altro: 'Per esempio «333 123 4567».',
+  email: 'Per esempio «nome@esempio.it».',
+  conferma: 'Rispondi SÌ oppure NO.',
+  sposta_conferma: 'Rispondi SÌ oppure NO.',
+  annulla_conferma: 'Rispondi SÌ oppure NO.',
+};
+function esempioPer(passo, d = {}, adesso = new Date()) {
+  if (['giorno', 'sposta_giorno', 'attesa_offerta'].includes(passo)) {
+    const giorni = (Array.isArray(d.giorni) ? d.giorni : []).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(String(x)));
+    const comeGiorno = (iso) => { const [a, m, g] = iso.split('-').map(Number); return new Date(a, m - 1, g); };
+    const primo = giorni.length ? comeGiorno(giorni[0]) : piuGiorni(adesso, 3);
+    const altro = giorni.length > 1 ? comeGiorno(giorni[giorni.length - 1]) : piuGiorni(adesso, 10);
+    return `Per esempio «${NOMI_GIORNI[primo.getDay()]}» oppure «${altro.getDate()} ${NOMI_MESI[altro.getMonth()]}».`;
+  }
+  if (passo === 'ora' || passo === 'sposta_ora') {
+    const turno = (Array.isArray(d.turni) ? d.turni : []).find((x) => /^\d{1,2}:\d{2}$/.test(String(x)));
+    return `Per esempio «${turno || '20:30'}».`;
+  }
+  return ESEMPI_FISSI[passo] || '';
 }
 
 // La riga dell'esperienza nel riepilogo, per chi ha riscritto la frase prima
@@ -4766,7 +4849,15 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   const perEsperienza = (d = dati) => { const e = esperienzaScelta(d); return e ? { esperienza: e } : {}; };
   const nomeEsperienza = (d = dati) => { const e = esperienzaScelta(d); return e ? { esperienza: e.nome } : {}; };
 
-  // Due volte che non ci si capisce bastano, su QUALSIASI domanda — non solo
+  // Quante risposte non capite di fila prima di passare (`bot_tentativi`).
+  const tentativiMassimi = Math.min(Math.max(num(cfg.bot_tentativi, 3), 2), 5);
+  // «Me lo riscrivi?» con l'esempio adatto alla domanda. '' se la frase è vuota.
+  const riscrivi = (passo, d = {}) => {
+    const esempio = esempioPer(passo, d, adesso);
+    return riempi(senzaRigheVuote(cfg.bot_t_riscrivi, { esempio }), { ...valori, esempio }).trim();
+  };
+  // Erano due, fisse: ora sono `tentativiMassimi` (tre di partenza), su
+  // QUALSIASI domanda — non solo
   // sulla prima. Chi risponde a un'altra cosa («ma avete il parcheggio?»)
   // si sentiva ripetere la stessa domanda all'infinito: da lì in poi
   // insistere non serve, e il cliente se ne va senza che nessuno lo sappia.
@@ -4778,7 +4869,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     const risposta = cercaFaq(db, testo);
     if (risposta) { risposte.push(riempi(risposta, valori)); return esito; }
     const tentativi = (d.tentativi || 0) + 1;
-    if (tentativi >= 2) {
+    if (tentativi >= tentativiMassimi) {
       annotaNonCapita(db, testo);
       azzeraStato(db, telefono);
       esito.passaAUmano = true;
@@ -4792,8 +4883,11 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     // La guida va IN FONDO, non davanti: prima si legge cosa fare, poi la via
     // d'uscita. Messa in cima diceva «non mi sono spiegato» subito prima di
     // «non ho capito», cioe' due volte la stessa cosa.
+    // Dal secondo sbaglio di fila non si ripete la stessa domanda: si chiede
+    // di riscriverla, con un esempio. Svuotata la frase, torna la domanda.
+    const corpo = (tentativi >= 2 && riscrivi(passo, d)) || testoDaRipetere;
     const guida = di('bot_t_ricominciamo');
-    risposte.push(guida ? `${testoDaRipetere}\n\n${guida}` : testoDaRipetere);
+    risposte.push(guida ? `${corpo}\n\n${guida}` : corpo);
     return esito;
   };
 
@@ -4954,7 +5048,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   }
 
   if (stato.passo === 'sposta_giorno') {
-    const iso = interpretaData(testo, adesso);
+    const iso = interpretaData(testo, adesso, { storti: true });
     if (!iso) {
       const buoni = giorniAncoraBuoni(dati.giorni, adesso);
       return nonCapito('sposta_giorno', dati, `${di('bot_t_giorno_no')}\n${elencoGiorni(
@@ -5267,7 +5361,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     // riparte da zero: salutare non è un errore.
     const ricordaIlTavolo = (nonHoCapito = false) => {
       const tentativi = nonHoCapito ? (dati.tentativi || 0) + 1 : 0;
-      if (tentativi >= 2) {
+      if (tentativi >= tentativiMassimi) {
         azzeraStato(db, telefono);
         esito.passaAUmano = true;
         return esito;
@@ -5479,16 +5573,16 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
       if (faq) { risposte.push(riempi(faq, valori)); return esito; }
       if (eSaluto(testo)) { risposte.push(di('bot_t_persone_no')); return esito; }
       const tentativi = (dati.tentativi || 0) + 1;
-      if (tentativi >= 2) {
-        // Due volte che non ci si capisce bastano: da qui in poi insistere
-        // peggiora soltanto. Passa a una persona.
+      if (tentativi >= tentativiMassimi) {
+        // Basta così (tre di partenza): da qui in poi insistere peggiora
+        // soltanto. Passa a una persona.
         annotaNonCapita(db, testo);
         azzeraStato(db, telefono);
         esito.passaAUmano = true;
         return esito;
       }
       salvaStato(db, telefono, 'persone', { ...dati, tentativi });
-      risposte.push(di('bot_t_persone_no'));
+      risposte.push((tentativi >= 2 && riscrivi('persone', dati)) || di('bot_t_persone_no'));
       return esito;
     }
     // Il giorno detto adesso («4 sabato»), o quello detto prima all'esperienza
@@ -5499,9 +5593,11 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   // «Siamo in 3 sabato sera»: il giorno detto insieme alle persone, o null.
   // ⚠️ Solo se nel messaggio c'è un giorno a PAROLE o una data: «siamo in 2»
   // da solo non è «il 2 del mese», e interpretaData lo leggerebbe così.
+  // ⚠️ Anche «il 15 ottobre»: prima qui mancava il mese a parole, e «per 4 il
+  // 15 ottobre» al primo messaggio perdeva la data — il bot la richiedeva.
   function giornoDettoInsieme(t) {
-    const n = normalizza(t);
-    if (!/\b(oggi|domani|dopodomani|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica|\d{1,2}\/\d{1,2})\b/.test(n)) return null;
+    const n = dateRaddrizzate(normalizza(t));
+    if (!new RegExp(`\\b(oggi|domani|dopodomani|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica|\\d{1,2}\\/\\d{1,2}|\\d{1,2} (${NOMI_MESI.join('|')}))\\b`).test(n)) return null;
     return interpretaData(t, adesso);
   }
 
@@ -5725,7 +5821,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     // Niente piu' scorciatoia «rispondi col numero della riga»: da quando le
     // date non sono piu' numerate, un «1» davanti a un elenco che contiene
     // «1 settembre» vuol dire quel giorno, non la prima riga.
-    const iso = interpretaData(testo, adesso);
+    const iso = interpretaData(testo, adesso, { storti: true });
     if (!iso) {
       return nonCapito('giorno', dati, `${di('bot_t_giorno_no')}\n${elencoGiorni(proposti)}`);
     }
@@ -5833,7 +5929,7 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
     if (vuoleLaAttesa()) return mettiInLista(dati);
     // Una data è una risposta legittima a «vuoi scegliere un altro giorno?»:
     // si riparte dal passo del giorno con quella stessa frase.
-    if (interpretaData(testo, adesso)) {
+    if (interpretaData(testo, adesso, { storti: true })) {
       salvaStato(db, telefono, 'giorno', { persone: dati.persone, giorni: [] });
       return elaboraMessaggio(db, telefono, testo, adesso, contesto);
     }
@@ -6326,6 +6422,7 @@ module.exports = {
   annotaNonCapita,
   riempi, chiedeIlMenu, qualeMenu, menuAttivi, senzaLaRigaDelLink, oraScritta, DOMANDA_DOPO_IL_MENU, annotaMenu, statisticheMenu,
   esperienzeValide, esperienzeDi, esperienzaDi, quandoDetto, giorniDetti, elencoEsperienze, interpretaEsperienza, ammessoPer, turniAmmessi, conEsperienza, ESPERIENZE_MASSIME,
+  dateRaddrizzate, esempioPer, parolaVicina,
   orariDetti, chiedeGliOrari, valeIlGiorno,
   prenotazioneFutura,
   elencoPrenotazioni,

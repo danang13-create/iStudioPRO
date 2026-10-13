@@ -2236,6 +2236,15 @@
           <label>Un saluto ricomincia dopo<input id="cfg-bot_riapre_minuti" autocomplete="off" type="number" min="0" max="240">
             <span class="conteggio" style="margin:0">Minuti. Passati questi, un «ciao» di chi torna vale come <b>ricominciamo</b> invece che come risposta alla domanda rimasta in sospeso. <b>0</b> per spegnerlo. Non vale alla domanda sul nome: «Salvi» e «Salvo» sono cognomi veri.</span>
           </label>
+          <label>Passa a una persona dopo
+            <select id="cfg-bot_tentativi" autocomplete="off">
+              <option value="2">2 risposte non capite</option>
+              <option value="3">3 risposte non capite</option>
+              <option value="4">4 risposte non capite</option>
+              <option value="5">5 risposte non capite</option>
+            </select>
+            <span class="conteggio" style="margin:0">Di fila, sulla stessa domanda. Alla prima il bot ripete la domanda; dalla seconda chiede di <b>riscriverla</b> con un esempio («Per esempio «sabato» oppure «15 ottobre»»). Le date scritte con un errore («15 ottore», «sabto») le capisce da solo.</span>
+          </label>
           <label>Chiedi «sei ancora lì?» dopo<input id="cfg-bot_richiamo_minuti" autocomplete="off" type="number" min="0" max="240">
             <span class="conteggio" style="margin:0">Minuti di silenzio prima del richiamo. <b>0</b> per spegnerlo. Se non risponde nemmeno a quello, dopo quattro volte tanto la conversazione viene lasciata andare.</span>
           </label>
@@ -5069,7 +5078,7 @@ const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_menu_link', 'bot_menu_de
   'bot_pagamento_prezzo', 'bot_pagamento_modo', 'bot_pagamento_percentuale',
   'bot_pagamento_minuti', 'bot_pagamento_obbligatorio', 'bot_pagamento_chiave', 'bot_pagamento_ritorno',
   'bot_lista_attesa', 'bot_attesa_minuti',
-  'bot_riapre_minuti', 'bot_richiamo_minuti',
+  'bot_riapre_minuti', 'bot_tentativi', 'bot_richiamo_minuti',
   'bot_parole_richiesta', 'bot_parole_nessuna', 'bot_parole_altro_nome',
   'bot_avvisi_da', 'bot_avvisi_a', 'bot_sollecito_minuti',
   'bot_email_oggetto', 'bot_email_testo', 'bot_email_logo', 'bot_email_html'];
@@ -5195,6 +5204,7 @@ const TESTI_BOT = [
   ['bot_t_rinuncia', 'Il cliente ha rinunciato mentre prenotava', 'Quando dice NO al riepilogo: non è stata segnata nessuna prenotazione.'],
   ['bot_t_lasciato', 'Ci ha ripensato: non si tocca niente', '⚠️ Quando dice NO a «la sposto?» o a «la annullo?». La sua prenotazione È ANCORA VIVA: qui non si deve scrivere che è stata cancellata, o il cliente non si presenta e il tavolo resta vuoto.'],
   ['bot_t_ricominciamo', 'Quando ridomanda la stessa cosa', 'Va in fondo alla domanda ripetuta: dice al cliente come uscirne invece di lasciarlo davanti a un muro. Lascia vuoto per ripetere solo la domanda.'],
+  ['bot_t_riscrivi', 'Quando non capisce per la seconda volta', 'Dalla seconda risposta non capita di fila, al posto della stessa domanda; sotto va la frase qui sopra. <b>{esempio}</b> è un esempio adatto alla domanda: per il giorno «Per esempio «sabato» oppure «15 ottobre».», per l\'orario uno dei turni proposti. Togli la riga se non lo vuoi; svuota la frase per ripetere la domanda. Quante volte prima di passare a una persona: «Quando la conversazione si ferma a metà», nella scheda «Dopo la prenotazione».'],
   ['bot_t_ricominciato', 'Il cliente ha scritto RICOMINCIA', ''],
   ['bot_t_richiamo', '«Sei ancora lì?» — la conversazione si è fermata', 'Chi si ferma a metà quasi mai ha cambiato idea: si è distratto. Una domanda sola lo riporta indietro, e un tavolo vale molto più del messaggio. Parte <b>una volta sola</b> per conversazione, mai di notte, mai a chi è in mano a una persona. <b>{cosa}</b> è quello che manca, scritto a parole («per che giorno», «l\'orario»).'],
   [null, 'Chi ha già prenotato e riscrive'],
