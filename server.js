@@ -6664,6 +6664,12 @@ app.post('/api/bot/impostazioni', (req, res) => {
           + 'sennò il bot la proporrebbe e poi direbbe «chiuso» a chi la sceglie.',
       });
     }
+    // Il file del menu di un'esperienza deve esserci davvero: uno sparito
+    // (cartella copiata a metà, file tolto a mano) si toglie qui, e la scheda
+    // lo mostra senza — invece di promettere un menu che non partirà.
+    for (const e of esperienze) {
+      if (e.menuFile && !fs.existsSync(path.join(MENU_DIR, e.menuFile))) { e.menuFile = ''; e.menuNome = ''; }
+    }
     valori.bot_esperienze = esperienze.length ? JSON.stringify(esperienze) : '';
   }
 
@@ -6682,6 +6688,7 @@ app.post('/api/bot/impostazioni', (req, res) => {
     bot.scrivi(db, k, v);
   }
   const salvata = bot.config(db);
+  if (valori.bot_esperienze !== undefined) pulisciFileMenuEsperienze(salvata);
   if (fasceRipulite) ripuliti.bot_fasce = valori.bot_fasce;
   res.json({ ok: true, impostazioni: salvata, ripuliti,
              fasce: bot.fasceDi(salvata), fasceSalvate: !!bot.fasceValide(salvata.bot_fasce),
@@ -6904,10 +6911,25 @@ function togliFileMenu(quale) {
     if (f.startsWith(quale + '.')) fs.unlinkSync(path.join(MENU_DIR, f));
   }
 }
+// I menu delle esperienze (16 ottobre 2026): ognuna può avere il SUO file,
+// caricato nella sua scheda. Il nome lo decide il server — «esp-» e dodici
+// cifre a caso — perché finisce in un percorso su disco, e il motore accetta
+// soltanto quella forma (`FILE_MENU_ESPERIENZA`). Il file si carica subito, ma
+// vale solo quando la scheda si salva: i file che nessuna esperienza salvata
+// usa più (caricati e non salvati, sostituiti, esperienza tolta) si buttano
+// al salvataggio successivo.
+function pulisciFileMenuEsperienze(cfg) {
+  const usati = new Set(bot.esperienzeDi(cfg).map((e) => e.menuFile).filter(Boolean));
+  for (const f of fs.readdirSync(MENU_DIR)) {
+    if (bot.FILE_MENU_ESPERIENZA.test(f) && !usati.has(f)) {
+      try { fs.unlinkSync(path.join(MENU_DIR, f)); } catch { /* già sparito */ }
+    }
+  }
+}
 app.post('/api/bot/menu/file', (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const b = req.body || {};
-  const chiave = MENU_CHIAVI[b.quale];
+  const chiave = b.quale === 'esperienza' ? 'esperienza' : MENU_CHIAVI[b.quale];
   if (!chiave) return res.status(400).json({ error: 'Quale menu? «menu» o «degustazione».' });
   const m = /^data:([a-z]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(b.dataUrl || ''));
   const ext = m && MENU_TIPI[m[1]];
@@ -6916,6 +6938,12 @@ app.post('/api/bot/menu/file', (req, res) => {
   if (!dati.length) return res.status(400).json({ error: 'Il file è vuoto.' });
   if (dati.length > MENU_FILE_MAX) {
     return res.status(413).json({ error: `Il file è troppo grande (${Math.round(dati.length / 1048576)} MB): al massimo 8 MB, parte ogni volta dal WhatsApp del locale.` });
+  }
+  if (b.quale === 'esperienza') {
+    const nomeEsp = `esp-${crypto.randomBytes(6).toString('hex')}.${ext}`;
+    fs.writeFileSync(path.join(MENU_DIR, nomeEsp), dati);
+    annota('menu', `caricato il file del menu di un'esperienza: ${nomeEsp} (${Math.round(dati.length / 1024)} KB)`);
+    return res.json({ ok: true, file: nomeEsp, nome: String(b.nome || '').slice(0, 80) });
   }
   const nome = `${b.quale}.${ext}`;
   togliFileMenu(b.quale);

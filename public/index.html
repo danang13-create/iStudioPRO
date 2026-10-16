@@ -835,6 +835,12 @@
   .esp-giorni input { width: auto; margin: 0; }
   .esp select, .esp textarea { max-width: 100%; }
   .esp-anteprima { font-size: .88rem; color: var(--grigio); margin: 8px 0 0; }
+  /* Il menu SUO dell'esperienza: il file caricato qui, oppure un collegamento. */
+  .esp-suo { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px;
+    padding: 10px; border: 1px dashed var(--bordo); border-radius: 8px; }
+  .esp-suo > label { flex: 1 1 100%; margin-top: 4px; }
+  .esp-menu-stato { font-size: .85rem; color: var(--grigio); margin: 4px 0 0; }
+  .esp-menu-stato.manca { color: var(--avviso-testo); }
   /* Su telefono i sette giorni stanno su una riga sola, sotto la parola. */
   @media (max-width: 480px) { .esp-giorni > div > span { width: 100%; } }
   .sotto-scheda.attiva { display: block; }
@@ -2402,7 +2408,8 @@
           in cui quella vale: con un business lunch che c'è solo a pranzo nei giorni feriali, niente «pranzo o cena?»
           e niente sabato. Il nome finisce sulla prenotazione, in sala e nell'email. Con un'esperienza sola non chiede
           niente: valgono i suoi giorni. Senza esperienze il bot lavora come sempre. Le frasi sono in «Frasi e domande»,
-          gruppo «Le esperienze»; i menu da offrire si caricano nella scheda «Menu».
+          gruppo «Le esperienze». Ognuna ha <b>il suo menu</b>, quello che il bot manda a chi la sceglie e scrive MENU:
+          uno dei due della scheda «Menu», oppure uno suo, caricato qui. Senza, il bot dice che non ce l'ha.
         </p>
         <div id="esperienze-elenco"></div>
         <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
@@ -5150,7 +5157,10 @@ const TESTI_BOT = [
   ['bot_t_esperienze_giorno', 'L\'elenco, quando il giorno l\'ha già detto', 'Chi scrive subito «per 4 sabato sera» vede solo le esperienze che valgono quel giorno, senza «quando valgono». <b>{data}</b> è il giorno, <b>{servizio}</b> « a cena» se l\'ha detto, <b>{esperienze}</b> l\'elenco: se lo togli, il bot lo mette in fondo. Se ne resta una sola il bot la prende senza chiedere.'],
   ['bot_t_esperienza_no', 'Non ha capito quale esperienza', 'Con <b>{esperienze}</b> l\'elenco di nuovo: se lo togli, il bot lo mette in fondo.'],
   ['bot_t_esperienza_presa', 'Ha scelto: «perfetto»', 'La riga in cima alla domanda dopo. <b>{esperienza}</b> è il nome scelto. Svuotala per non dirlo.'],
-  ['bot_t_esperienza_menu', 'Dopo la scelta: «se vuoi vederlo scrivi MENU»', 'Dopo la scelta di un\'esperienza che offre un menu (scheda Esperienze → «offre un menu», e quel menu attivo nella scheda Menu): prima la frase di cappello scritta lì, poi questa riga, poi la domanda delle persone. Chi scrive MENU riceve il menu di quell\'esperienza, senza sentirsi chiedere quale.'],
+  ['bot_t_esperienza_menu', 'Dopo la scelta: «se vuoi vederlo scrivi MENU»', 'Dopo la scelta di un\'esperienza che ha un menu (scheda Esperienze → «Il suo menu»: uno della scheda Menu impostato, oppure uno suo): prima la frase di cappello scritta lì, poi questa riga, poi la domanda delle persone. Chi scrive MENU riceve il menu di quell\'esperienza, senza sentirsi chiedere quale.'],
+  ['bot_t_menu_esperienza', 'Il menu suo di un\'esperienza', 'Quando il cliente scrive MENU e l\'esperienza ha un menu suo (scheda Esperienze → «Uno suo»). <b>{esperienza}</b> è il nome, <b>{link}</b> il collegamento: col file, la riga del collegamento sparisce e il resto diventa la didascalia.'],
+  ['bot_t_esperienza_senza_menu', 'MENU, ma l\'esperienza scelta non ha un menu', 'Al posto di mandare il menu di un\'altra esperienza (era il guasto: il business lunch riceveva la carta). <b>{esperienza}</b> è il nome. Sotto, il bot riprende da dove era.'],
+  ['bot_t_menu_quale_esperienze', 'MENU prima di scegliere: quale?', 'Con più esperienze che hanno un menu, a chi scrive MENU prima di scegliere. <b>{menu}</b> è l\'elenco di quelle col menu, numerate: il cliente risponde col numero o col nome.'],
   ['bot_t_esperienza_chiusa', 'Quel giorno l\'esperienza non c\'è', 'Il locale quel giorno è aperto, ma l\'esperienza scelta no (il business lunch di sabato): non si dice «chiuso». <b>{esperienza}</b>, <b>{data}</b>, <b>{quando}</b> (quando vale, a parole).'],
   [null, 'Il menu'],
   ['bot_t_menu', 'Manda il menu a chi lo chiede', 'Esce quando il cliente scrive «menu», «la carta dei vini», «cosa si mangia»… <b>in qualunque momento</b> della prenotazione, se nella scheda Menu il menu è attivo. Col collegamento, arriva al posto di <b>{link}</b>; col file caricato, il file parte con questa frase come didascalia e <b>la riga con {link} non esce</b>. Sotto, una delle due righe qui sotto. Se hai scritto una tua domanda frequente con la parola «menu», vale quella.'],
@@ -7812,13 +7822,39 @@ function anteprimaEsperienza(e, i) {
   if (!quando) return '⚠️ Nessun giorno spuntato: il bot la proporrebbe e poi direbbe «chiuso» a chi la sceglie.';
   return `Il bot scriverà: ${NUMERI_ESP[i] || (i + 1) + '.'} ${e.nome.trim()} · ${quando}${e.riga.trim() ? ' — ' + e.riga.trim() : ''}`;
 }
+// I due menu della scheda Menu, se sono impostati: servono a dire, sotto la
+// tendina, se quello scelto partirà davvero.
+let menuSchedaAttivi = { menu: false, degustazione: false };
 function mostraEsperienze(d) {
   esperienzeUI = (d.esperienze || []).map((e) => ({
     nome: e.nome || '', parole: e.parole || '', riga: e.riga || '',
     pranzo: [...(e.pranzo || [])].map(Number), cena: [...(e.cena || [])].map(Number),
     menu: e.menu || '', cappello: e.cappello || '',
+    menuFile: e.menuFile || '', menuNome: e.menuNome || '', menuLink: e.menuLink || '',
   }));
+  const imp = d.impostazioni || {};
+  menuSchedaAttivi = {
+    menu: !!String(imp.bot_menu_link || imp.bot_menu_file || '').trim(),
+    degustazione: !!String(imp.bot_menu_degustazione_link || imp.bot_menu_degustazione_file || '').trim(),
+  };
   disegnaEsperienze();
+}
+// Cosa succede quando il cliente, dopo averla scelta, scrive MENU.
+// ⚠️ Detto qui perché il guasto era proprio questo: il business lunch senza un
+// menu suo riceveva la carta, e nessuno se ne accorgeva guardando la scheda.
+function statoMenuEsperienza(e) {
+  if (e.menu === 'suo') {
+    if (e.menuFile) return ['', `A MENU il bot allega «${e.menuNome || e.menuFile}»${e.menuLink ? ' (il collegamento non si usa finché c\'è il file)' : ''}.`];
+    if (e.menuLink.trim()) return ['', 'A MENU il bot manda il collegamento.'];
+    return ['manca', '⚠️ Carica il file o scrivi il collegamento: sennò a MENU il bot dirà che non ce l\'ha.'];
+  }
+  if (e.menu === 'menu' || e.menu === 'degustazione') {
+    const nome = e.menu === 'menu' ? '«Il menu»' : '«Il menu degustazione»';
+    return menuSchedaAttivi[e.menu]
+      ? ['', `A MENU il bot manda ${nome} della scheda Menu.`]
+      : ['manca', `⚠️ ${nome} nella scheda Menu non è impostato: a MENU il bot dirà che non ce l'ha.`];
+  }
+  return ['', 'A MENU il bot risponde che per questa esperienza non ha un menu da mandare (la frase si cambia in Frasi e domande).'];
 }
 function disegnaEsperienze() {
   const el = $('#esperienze-elenco');
@@ -7845,13 +7881,23 @@ function disegnaEsperienze() {
         <div><span>A pranzo</span>${spunte(e, 'pranzo')}</div>
         <div><span>A cena</span>${spunte(e, 'cena')}</div>
       </div>
-      <label>Dopo la scelta, offre un menu
+      <label>Il suo menu, per chi scrive MENU
         <select data-campo="menu" autocomplete="off" style="width:auto">
-          <option value=""${e.menu === '' ? ' selected' : ''}>Nessuno: si passa alle persone</option>
+          <option value=""${e.menu === '' ? ' selected' : ''}>Nessuno</option>
           <option value="menu"${e.menu === 'menu' ? ' selected' : ''}>Il menu (scheda Menu)</option>
           <option value="degustazione"${e.menu === 'degustazione' ? ' selected' : ''}>Il menu degustazione (scheda Menu)</option>
+          <option value="suo"${e.menu === 'suo' ? ' selected' : ''}>Uno suo, caricato qui</option>
         </select></label>
-      <label>Frase di cappello, prima di «vuoi vedere il menu?»
+      ${e.menu === 'suo' ? `<div class="esp-suo">
+        <input type="file" data-esp-file accept="application/pdf,image/png,image/jpeg,image/webp" hidden>
+        <button type="button" class="btn btn-secondario btn-piccolo" data-esp-carica>${e.menuFile ? 'Cambia il file' : 'Carica il PDF o la foto'}</button>
+        ${e.menuFile ? `<span class="conteggio" style="margin:0">📎 ${testoSicuro(e.menuNome || e.menuFile)}</span>
+        <button type="button" class="btn btn-secondario btn-piccolo" data-esp-togli-file>Togli il file</button>` : ''}
+        <label>Oppure un collegamento
+          <input data-campo="menuLink" autocomplete="off" inputmode="url" placeholder="https://…" value="${testoSicuro(e.menuLink)}"></label>
+      </div>` : ''}
+      <p class="esp-menu-stato ${statoMenuEsperienza(e)[0]}" data-menu-stato="${i}">${testoSicuro(statoMenuEsperienza(e)[1])}</p>
+      <label>Frase di cappello, dopo la scelta
         <textarea data-campo="cappello" rows="2" maxlength="400" placeholder="Una o due righe, per esempio cosa distingue i menu (portate, cosa è incluso)…">${testoSicuro(e.cappello)}</textarea></label>
       <p class="esp-anteprima" data-anteprima="${i}">${testoSicuro(anteprimaEsperienza(e, i))}</p>
     </div>`).join('');
@@ -7871,10 +7917,44 @@ $('#esperienze-elenco').addEventListener('input', (e) => {
     if (!e.target.checked) esp[e.target.dataset.servizio] = lista.filter((x) => x !== g);
   }
   esperienzeToccate = true;
+  // Cambiare il menu cambia cosa c'è sotto (il file, il collegamento): si ridisegna.
+  if (e.target.dataset.campo === 'menu') { disegnaEsperienze(); return; }
   const ant = card.querySelector('[data-anteprima]');
   if (ant) ant.textContent = anteprimaEsperienza(esperienzeUI[i], i);
+  const st = card.querySelector('[data-menu-stato]');
+  if (st) { const [classe, testo] = statoMenuEsperienza(esperienzeUI[i]); st.className = `esp-menu-stato ${classe}`; st.textContent = testo; }
+});
+// Il file del menu suo: si carica SUBITO sul computer del locale, ma vale
+// quando si preme Salva (il server butta quelli che nessuna esperienza
+// salvata usa). Al massimo 8 MB, come i menu della scheda Menu.
+$('#esperienze-elenco').addEventListener('change', async (e) => {
+  if (!e.target.matches('[data-esp-file]')) return;
+  const card = e.target.closest('.esp');
+  const esp = card && esperienzeUI[+card.dataset.i];
+  const file = e.target.files && e.target.files[0];
+  if (!esp || !file) return;
+  if (file.size > 8 * 1024 * 1024) { alert('Il file è troppo grande: al massimo 8 MB.'); e.target.value = ''; return; }
+  const dataUrl = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(file); });
+  try {
+    const r = await fetch('/api/bot/menu/file', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quale: 'esperienza', nome: file.name, dataUrl }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.error || !d.file) { alert(d.error || 'Non sono riuscito a caricare il file.'); return; }
+    esp.menuFile = d.file;
+    esp.menuNome = d.nome || file.name;
+    esperienzeToccate = true;
+    disegnaEsperienze();
+    toast('File caricato: premi Salva per tenerlo');
+  } catch { alert('Il computer del ristorante non risponde: il file NON è stato caricato.'); }
 });
 $('#esperienze-elenco').addEventListener('click', (e) => {
+  const card = e.target.closest('.esp');
+  if (card && e.target.closest('[data-esp-carica]')) { card.querySelector('[data-esp-file]').click(); return; }
+  if (card && e.target.closest('[data-esp-togli-file]')) {
+    const esp = esperienzeUI[+card.dataset.i];
+    if (esp) { esp.menuFile = ''; esp.menuNome = ''; esperienzeToccate = true; disegnaEsperienze(); }
+    return;
+  }
   const b = e.target.closest('[data-togli]');
   if (!b) return;
   esperienzeUI.splice(+b.dataset.togli, 1);
@@ -7883,7 +7963,7 @@ $('#esperienze-elenco').addEventListener('click', (e) => {
 });
 $('#esperienze-aggiungi').addEventListener('click', () => {
   if (esperienzeUI.length >= 6) { toast('Al massimo sei esperienze'); return; }
-  esperienzeUI.push({ nome: '', parole: '', riga: '', pranzo: [], cena: [], menu: '', cappello: '' });
+  esperienzeUI.push({ nome: '', parole: '', riga: '', pranzo: [], cena: [], menu: '', cappello: '', menuFile: '', menuNome: '', menuLink: '' });
   esperienzeToccate = true;
   disegnaEsperienze();
   const ultimo = $('#esperienze-elenco .esp:last-child input[data-campo="nome"]');

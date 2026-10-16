@@ -346,6 +346,29 @@ function preparaDatabase(db) {
     if (r && vecchi.includes(r.value)) db.prepare('DELETE FROM settings WHERE key = ?').run(chiave);
   }
 
+  // I menu che c'erano già, collegati alle esperienze (16 ottobre 2026): fino
+  // a ieri un'esperienza senza menu scelto riceveva comunque quello generale,
+  // e chi aveva caricato la carta e il degustazione se li aspetta su «Alla
+  // carta» e «Menu degustazione». UNA volta sola (il segno resta), e solo
+  // dove il menu non era scelto: una scelta del titolare non si tocca, e se
+  // dopo toglie il collegamento non torna da solo.
+  if (leggi(db, 'bot_menu_esperienze_collegati') !== 'true') {
+    const lista = esperienzeValide(leggi(db, 'bot_esperienze'));
+    const attivi = menuAttivi({
+      bot_menu_link: leggi(db, 'bot_menu_link'), bot_menu_file: leggi(db, 'bot_menu_file'),
+      bot_menu_degustazione_link: leggi(db, 'bot_menu_degustazione_link'),
+      bot_menu_degustazione_file: leggi(db, 'bot_menu_degustazione_file'),
+    });
+    let cambiate = false;
+    for (const e of lista || []) {
+      if (e.menu) continue;
+      const parole = paroleDellEsperienza(e).join(' ');
+      if (attivi.degustazione && /degustazion/.test(parole)) { e.menu = 'degustazione'; cambiate = true; } else if (attivi.menu && /\bcarta\b/.test(parole)) { e.menu = 'menu'; cambiate = true; }
+    }
+    if (cambiate) scrivi(db, 'bot_esperienze', JSON.stringify(lista));
+    scrivi(db, 'bot_menu_esperienze_collegati', 'true');
+  }
+
   // Le prenotazioni prese PRIMA che il numero si salvasse da solo hanno il
   // recapito vuoto anche quando la chat lo conteneva. Si riempie qui, una
   // volta, così la sala trova il telefono anche sui tavoli di ieri — sennò la
@@ -794,6 +817,13 @@ const PREDEFINITI = {
   // Niente domanda «vuoi vedere il menu?»: una riga, e chi lo vuole scrive
   // MENU — e riceve quello dell'esperienza scelta, senza «quale?».
   bot_t_esperienza_menu: '📖 Se vuoi vederlo, scrivi MENU.',
+  // Il menu SUO di un'esperienza (file o collegamento caricato nella sua scheda).
+  bot_t_menu_esperienza: '📖 {esperienza}: ecco il menu ✨\n👉 {link}',
+  // MENU dopo aver scelto un'esperienza che un menu non ce l'ha: si dice, non
+  // se ne manda un altro (era il guasto: il business lunch riceveva la carta).
+  bot_t_esperienza_senza_menu: 'Per «{esperienza}» non ho un menu da mandarti: te lo raccontano in sala. 🙂',
+  // MENU prima di scegliere, con più esperienze che hanno un menu: quale?
+  bot_t_menu_quale_esperienze: 'Quale menu vuoi vedere? ✨\n\n{menu}\n\nScrivimi il nome o il numero.',
   // Gli orari d'apertura, a parole dalle fasce di «Orari e tavoli»: nel
   // benvenuto ({orari} vale in ogni frase) e a chi scrive ORARI.
   bot_t_orari: '🕒 Siamo aperti {orari}.',
@@ -2920,7 +2950,17 @@ function annotaMenu(db, telefono, adesso, passo, quale = 'menu') {
 //  sempre: la lista vuota è la regola, non l'eccezione. Con una sola vale
 //  senza domanda: i suoi giorni filtrano, il nome finisce sulla prenotazione.
 const ESPERIENZE_MASSIME = 6;
-const MENU_DELLE_ESPERIENZE = ['', 'menu', 'degustazione'];
+// Il menu dell'esperienza: nessuno, uno dei due della scheda Menu, oppure uno
+// SUO ('suo': un file caricato nella sua scheda, o un collegamento).
+const MENU_DELLE_ESPERIENZE = ['', 'menu', 'degustazione', 'suo'];
+// ⚠️ Il nome del file lo decide il server (`esp-` + dodici cifre esadecimali):
+// qui si accetta SOLO quella forma. Il nome finisce in un percorso su disco, e
+// un «../» arrivato dalla pagina non deve poter uscire dalla cartella dei menu.
+const FILE_MENU_ESPERIENZA = /^esp-[0-9a-f]{12}\.(pdf|png|jpg|webp)$/;
+function linkDiMenu(v) {
+  const l = String(v || '').trim();
+  return /^https?:\/\/\S+$/i.test(l) && l.length <= 500 ? l : '';
+}
 
 // La lista letta e ripulita: un array (anche vuoto), o null se non si legge.
 function esperienzeValide(valore) {
@@ -2944,6 +2984,9 @@ function esperienzeValide(valore) {
       cena: giorni(e.cena),
       menu: MENU_DELLE_ESPERIENZE.includes(e.menu) ? e.menu : '',
       cappello: String(e.cappello || '').trim().slice(0, 400),
+      menuFile: FILE_MENU_ESPERIENZA.test(String(e.menuFile || '')) ? String(e.menuFile) : '',
+      menuNome: String(e.menuNome || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+      menuLink: linkDiMenu(e.menuLink),
     });
   }
   return buone.slice(0, ESPERIENZE_MASSIME);
@@ -3047,6 +3090,14 @@ function interpretaEsperienza(testo, esperienze) {
   if (n) return +n[1] >= 1 && +n[1] <= esperienze.length ? +n[1] - 1 : null;
   const ord = ordinaleDi(testo);
   if (ord && !/\d/.test(t) && ord <= esperienze.length) return ord - 1;
+  return esperienzaNominata(testo, esperienze);
+}
+// Solo per PAROLE, senza numeri: «il menu del business lunch», «menu alla
+// carta». Serve alla richiesta del menu, dove un numero non vuol dire
+// un'esperienza. Indice, o null.
+function esperienzaNominata(testo, esperienze) {
+  const t = normalizza(testo);
+  if (!t || !esperienze.length) return null;
   let scelta = null, lunga = 0;
   esperienze.forEach((e, i) => {
     for (const p of paroleDellEsperienza(e)) {
@@ -3056,6 +3107,26 @@ function interpretaEsperienza(testo, esperienze) {
   });
   return scelta;
 }
+// ⚠️ IL MENU DI UN'ESPERIENZA (16 ottobre 2026). Chiesto dal titolare: dopo
+// «business lunch» il cliente scriveva MENU e gli arrivava quello alla carta,
+// perché la scheda Menu ha due posti soli e il business lunch non ne aveva
+// uno. Ora ogni esperienza dice qual è il SUO: uno dei due della scheda Menu,
+// oppure uno suo (file o collegamento). null se non ne ha — e allora il bot
+// lo dice, invece di mandarne un altro.
+// `quale` è quello che finisce nel registro dei menu e decide il «te l'ho già
+// mandato oggi»: 'menu', 'degustazione', oppure 'esperienza:<nome>'.
+function menuDellEsperienza(cfg, e) {
+  if (!e) return null;
+  const attivi = menuAttivi(cfg);
+  if ((e.menu === 'menu' || e.menu === 'degustazione') && attivi[e.menu]) {
+    return { quale: e.menu, ...attivi[e.menu], frase: e.menu === 'menu' ? 'bot_t_menu' : 'bot_t_menu_degustazione', esperienza: e.nome };
+  }
+  if (e.menu === 'suo' && (e.menuFile || e.menuLink)) {
+    return { quale: `esperienza:${e.nome}`, link: e.menuLink || '', file: e.menuFile || '', frase: 'bot_t_menu_esperienza', esperienza: e.nome };
+  }
+  return null;
+}
+
 // Vale quel giorno a quell'ora? Il servizio dell'ora, e i giorni
 // dell'esperienza per quel servizio.
 function ammessoPer(cfg, e, iso, ora) {
@@ -5271,28 +5342,30 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // dei testi, con la frase come didascalia), col link va nel testo. Sotto,
   // `chiusura`: la domanda da riprendere. Lo usano l'intercetto del menu e
   // il ramo dell'esperienza («vuoi vedere il menu?»).
-  function mandaMenu(quale, chiusura) {
-    const attivi = menuAttivi(cfg);
+  // Manda UN menu: `m` è { quale, link, file, frase, esperienza } (vedi
+  // `menuDellEsperienza`), oppure il nome di uno dei due della scheda Menu.
+  function mandaMenu(m, chiusura) {
+    if (typeof m === 'string') {
+      const a = menuAttivi(cfg)[m] || {};
+      m = { quale: m, link: a.link || '', file: a.file || '', frase: m === 'degustazione' ? 'bot_t_menu_degustazione' : 'bot_t_menu' };
+    }
+    const extra = { esperienza: m.esperienza || '' };
     const pezzi = [];
-    // Un menu: col file va in `esito.allegati` (il server lo manda PRIMA
-    // dei testi, con la frase come didascalia), col link va nel testo.
-    const metti = (chiave, a) => {
-      if (a.file) {
-        (esito.allegati = esito.allegati || []).push({
-          quale: chiave === 'bot_t_menu' ? 'menu' : 'degustazione', file: a.file,
-          didascalia: riempi(senzaLaRigaDelLink(cfg[chiave]), valori),
-          // Il collegamento, se c'è: è il ripiego del server quando il file non parte.
-          link: a.link || '',
-        });
-      } else {
-        pezzi.push(di(chiave, { link: a.link }));
-      }
-    };
-    if (quale === 'degustazione') metti('bot_t_menu_degustazione', attivi.degustazione);
-    else metti('bot_t_menu', attivi.menu);
+    // Col file va in `esito.allegati` (il server lo manda PRIMA dei testi,
+    // con la frase come didascalia), col link va nel testo.
+    if (m.file) {
+      (esito.allegati = esito.allegati || []).push({
+        quale: m.quale, file: m.file,
+        didascalia: riempi(senzaLaRigaDelLink(cfg[m.frase]), { ...valori, ...extra }),
+        // Il collegamento, se c'è: è il ripiego del server quando il file non parte.
+        link: m.link || '',
+      });
+    } else {
+      pezzi.push(di(m.frase, { ...extra, link: m.link }));
+    }
     const testoMenu = [...pezzi, chiusura].filter(Boolean).join('\n\n');
     if (testoMenu) risposte.push(testoMenu);
-    annotaMenu(db, telefono, adesso, stato.passo, quale);
+    annotaMenu(db, telefono, adesso, stato.passo, m.quale);
   }
 
   // --- Il menu, in qualunque momento della prenotazione ---
@@ -5314,25 +5387,47 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       }
       return di('bot_t_menu_prenota');
     };
-    // Manda UN menu. Col file va in `esito.allegati` (il server lo manda
-    // PRIMA dei testi, con la frase come didascalia), col link va nel testo.
-    const manda = (quale) => mandaMenu(quale, dopo());
-    // Quale menu, deciso dal titolare: «degustazione» va dritto; «menu» manda
-    // l'unico attivo, e con tutti e due attivi si chiede quale (null). Chi ha
-    // scelto un'esperienza col suo menu e scrive «menu» vuole quello: niente
-    // «quale?» anche con tutti e due attivi.
+    // Manda UN menu: uno dei due della scheda Menu ('menu', 'degustazione')
+    // o quello di un'esperienza (vedi `menuDellEsperienza`).
+    const manda = (m) => mandaMenu(m, dopo());
+    // Da quello che si ricorda (`rimandaMenu`) al menu da mandare.
+    const menuDaQuale = (q) => (String(q).startsWith('esperienza:')
+      ? menuDellEsperienza(cfg, esperienzaDi(cfg, String(q).slice('esperienza:'.length)))
+      : (attivi[q] ? q : null));
     const quale = qualeMenu(testo);
+    // Con le esperienze, quelle che un menu ce l'hanno.
+    const conMenuE = conEsperienze ? esperienze.filter((e) => menuDellEsperienza(cfg, e)) : [];
+    // Cosa mandare: un menu, { senza: esperienza } se quella un menu non ce
+    // l'ha, oppure null per chiedere quale.
+    // ⚠️ Con le esperienze il menu è QUELLO DELL'ESPERIENZA (16 ottobre 2026):
+    // quella nominata («menu alla carta»), sennò quella già scelta; e se non
+    // ne ha uno si dice, non se ne manda un altro. Era il guasto: dopo
+    // «business lunch», MENU mandava la carta. Prima della scelta, fra quelle
+    // che un menu ce l'hanno: una sola va dritta, di più si chiede quale.
     const scelto = () => {
-      const e = esperienzaScelta();
-      if (quale === 'menu' && e && e.menu && attivi[e.menu]) return e.menu;
+      if (conEsperienze) {
+        const i = esperienzaNominata(testo, esperienze);
+        if (i !== null) return menuDellEsperienza(cfg, esperienze[i]) || { senza: esperienze[i] };
+        if (quale === 'degustazione' && attivi.degustazione) return 'degustazione';
+        const e = esperienzaDi(cfg, dati.esperienza);
+        if (e) return menuDellEsperienza(cfg, e) || { senza: e };
+        if (conMenuE.length === 1) return menuDellEsperienza(cfg, conMenuE[0]);
+        if (conMenuE.length > 1) return null;
+        // Nessuna esperienza ha un menu: vale la scheda Menu, come prima.
+      } else {
+        // Un'esperienza sola: il suo menu, se ce l'ha, a chi scrive «menu».
+        const m = menuDellEsperienza(cfg, esperienzaScelta());
+        if (m && quale === 'menu') return m;
+      }
       if (quale === 'degustazione') return attivi.degustazione ? 'degustazione' : 'menu';
       if (attivi.menu && attivi.degustazione) return null;
       return attivi.menu ? 'menu' : 'degustazione';
     };
     const mandaOChiedi = (q) => {
+      const chiave = typeof q === 'string' ? q : q.quale;
       // Già ricevuto oggi: si chiede prima di rimandarlo, e si ricorda la domanda.
-      if (menuGiaMandatoOggi(db, telefono, adesso, q)) {
-        salvaStato(db, telefono, stato.passo, { ...dati, rimandaMenu: q });
+      if (menuGiaMandatoOggi(db, telefono, adesso, chiave)) {
+        salvaStato(db, telefono, stato.passo, { ...dati, rimandaMenu: chiave });
         risposte.push(di('bot_t_menu_rimando'));
         return esito;
       }
@@ -5341,10 +5436,18 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     };
     // La risposta a «quale vuoi vedere?». Il segno si toglie comunque.
     if (cosa !== undefined && dati.sceltaMenu) {
+      const fra = Array.isArray(dati.sceltaMenu) ? dati.sceltaMenu.map((n) => esperienzaDi(cfg, n)).filter(Boolean) : null;
       delete dati.sceltaMenu;
       salvaStato(db, telefono, stato.passo, dati);
-      if (quale === 'degustazione' && attivi.degustazione) return mandaOChiedi('degustazione');
-      if (quale === 'menu' && attivi.menu) return mandaOChiedi('menu');
+      if (fra) {
+        // Con le esperienze: il numero o il nome di uno dell'elenco.
+        const i = interpretaEsperienza(testo, fra);
+        const m = i !== null ? menuDellEsperienza(cfg, fra[i]) : null;
+        if (m) return mandaOChiedi(m);
+      } else {
+        if (quale === 'degustazione' && attivi.degustazione) return mandaOChiedi('degustazione');
+        if (quale === 'menu' && attivi.menu) return mandaOChiedi('menu');
+      }
     }
     // La risposta a «vuoi che te lo rimandi?». Il segno si toglie comunque:
     // se ha scritto un'altra cosa, quella cosa si legge normalmente.
@@ -5357,21 +5460,33 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       delete dati.rimandaMenu;
       salvaStato(db, telefono, stato.passo, dati);
       const si = interpretaSiNo(testo);
-      if (si === true) { manda(rimandaMenu); return esito; }
+      const daRimandare = menuDaQuale(rimandaMenu);
+      if (si === true && daRimandare) { manda(daRimandare); return esito; }
       if (si === false) { risposte.push(`Va bene 👍\n\n${dopo()}`); return esito; }
     }
     if (cosa !== undefined && quale && !(stato.passo === 'persone' && interpretaPersone(testo) !== null)
         && !(stato.passo === 'esperienza' && interpretaEsperienza(testo, esperienze) !== null)) {
       const faq = stato.passo === 'persone' ? cercaFaq(db, testo) : null;
       if (faq) { risposte.push(riempi(faq, valori)); return esito; }
-      // Nessun menu attivo: lo si dice, invece di far finta di non capire.
-      if (!attivi.menu && !attivi.degustazione) {
+      const q = scelto();
+      // L'esperienza un menu non ce l'ha: lo si dice, non se ne manda un altro.
+      if (q && q.senza) {
+        risposte.push(`${di('bot_t_esperienza_senza_menu', { esperienza: q.senza.nome })}\n\n${dopo()}`);
+        return esito;
+      }
+      // Nessun menu da mandare: lo si dice, invece di far finta di non capire.
+      if (q !== null && typeof q === 'string' && !attivi[q]) {
         risposte.push(`${di('bot_t_menu_nessuno')}\n\n${dopo()}`);
         return esito;
       }
-      const q = scelto();
       if (!q) {
-        // Due menu attivi e «menu» generico: quale?
+        // Più di un menu e «menu» generico: quale? Con le esperienze l'elenco
+        // è quello delle esperienze che un menu ce l'hanno.
+        if (conMenuE.length > 1 && !esperienzaDi(cfg, dati.esperienza)) {
+          salvaStato(db, telefono, stato.passo, { ...dati, sceltaMenu: conMenuE.map((e) => e.nome) });
+          risposte.push(di('bot_t_menu_quale_esperienze', { menu: elencoEsperienze(conMenuE, { senzaQuando: true }) }));
+          return esito;
+        }
         salvaStato(db, telefono, stato.passo, { ...dati, sceltaMenu: true });
         risposte.push(di('bot_t_menu_quale'));
         return esito;
@@ -5569,7 +5684,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   function presaLEsperienza(e, d) {
     const { scelte, ...resto } = d;
     const dopo = { ...resto, esperienza: e.nome };
-    const conMenu = e.menu && menuAttivi(cfg)[e.menu];
+    const conMenu = menuDellEsperienza(cfg, e);
     const testa = [di('bot_t_esperienza_presa', { esperienza: e.nome }), e.cappello, conMenu ? di('bot_t_esperienza_menu') : '']
       .map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
     return dopoLEsperienza(dopo, testa);
@@ -6477,6 +6592,7 @@ module.exports = {
   esperienzeValide, esperienzeDi, esperienzaDi, quandoDetto, giorniDetti, elencoEsperienze, interpretaEsperienza, ammessoPer, turniAmmessi, conEsperienza, ESPERIENZE_MASSIME,
   dateRaddrizzate, esempioPer, parolaVicina,
   tettoRisposte, risposteDiOggi,
+  menuDellEsperienza, esperienzaNominata, FILE_MENU_ESPERIENZA,
   orariDetti, chiedeGliOrari, valeIlGiorno,
   prenotazioneFutura,
   elencoPrenotazioni,
