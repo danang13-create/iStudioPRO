@@ -6037,14 +6037,14 @@ function diagnosiConversazione(chi) {
     });
   }
 
-  const tetto = bot.num(cfg.bot_max_risposte, 20);
+  const tetto = bot.tettoRisposte(cfg);
   const oggi = new Date().toLocaleDateString('sv-SE');
   const piena = righe.find((r) => r.giorno_risposte === oggi && r.risposte_oggi > tetto);
   if (piena) {
     blocchi.push({
       tipo: 'tetto',
-      testo: `Ha già ricevuto ${piena.risposte_oggi} risposte oggi, oltre il tetto di ${tetto}: `
-        + 'il bot si è fermato per non fare ping-pong all\'infinito. Si riapre da solo domani.',
+      testo: `Ha già scritto ${piena.risposte_oggi} messaggi oggi che non facevano andare avanti una prenotazione, `
+        + `oltre il tetto di ${tetto}: il bot si è fermato per non fare ping-pong all'infinito. Si riapre da solo domani.`,
     });
   }
 

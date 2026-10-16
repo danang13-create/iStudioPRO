@@ -3572,6 +3572,20 @@ function eMuto(db, telefono, adesso) {
   return r.muto_fino > adesso.toLocaleString('sv-SE');
 }
 
+// Il tetto di risposte per chat, fra 3 e 200 (scritto male vale 20).
+function tettoRisposte(cfg) {
+  return Math.min(Math.max(num(cfg.bot_max_risposte, 20), 3), 200);
+}
+// Quante ne ha contate oggi questa chat, senza contarne un'altra.
+function risposteDiOggi(db, telefono, adesso) {
+  const r = db.prepare('SELECT risposte_oggi, giorno_risposte FROM bot_conversazioni WHERE telefono = ?').get(telefono);
+  return r && r.giorno_risposte === comeData(adesso) ? r.risposte_oggi : 0;
+}
+function rimettiIlConto(db, telefono, adesso, quante) {
+  db.prepare('UPDATE bot_conversazioni SET risposte_oggi = ?, giorno_risposte = ? WHERE telefono = ?')
+    .run(quante, comeData(adesso), telefono);
+}
+
 // Tetto di risposte per chat: se qualcuno scrive a raffica, il bot si ferma
 // invece di fare ping-pong all'infinito.
 function contaRisposta(db, telefono, adesso) {
@@ -4795,7 +4809,40 @@ function elencoPrenotazioni(db, cfg, iso, adesso = new Date()) {
   return parti.join('\n');
 }
 
+// ⚠️ IL TETTO NON SI CONSUMA PRENOTANDO (16 ottobre 2026). Il tetto di
+// risposte al giorno (`bot_max_risposte`, 20) ferma il ping-pong: un altro
+// risponditore automatico, qualcuno che scrive a raffica. Ma contava TUTTO, e
+// con le esperienze una prenotazione sono otto-dieci messaggi: il titolare,
+// provando dal suo telefono, alla terza prenotazione del giorno si è sentito
+// dire «ti passo a un operatore» alla domanda sulle note — e da lì silenzio
+// fino a mezzanotte. Un cliente vero che prenota, chiede il menu e gli orari,
+// sbaglia una data e poi sposta, ci arriva uguale.
+//
+// La regola: si conta ogni messaggio (in `rispondiAlMessaggio`), ma quello che
+// fa AVANZARE la prenotazione — il passo dopo è un altro, e non è l'inizio —
+// viene restituito; e una prenotazione confermata azzera il conto, perché
+// dall'altra parte c'è una persona vera. Restano contati i saluti ripetuti, le
+// domande, il menu e gli orari chiesti, le risposte non capite, e ogni ritorno
+// all'inizio: tutto quello che fa un giro a vuoto.
+// ⚠️ NON «dentro una prenotazione non si conta»: passare a una persona non
+// zittisce il bot, e un giro a vuoto fatto di «ciao», MENU o domande frequenti
+// dentro un passo non finirebbe mai.
 function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {}) {
+  const passoPrima = statoDi(db, telefono, adesso).passo;
+  const contoPrima = risposteDiOggi(db, telefono, adesso);
+  const esito = rispondiAlMessaggio(db, telefono, testo, adesso, contesto);
+  if (esito.prenotazione || esito.daPagare) {
+    rimettiIlConto(db, telefono, adesso, 0);
+  } else {
+    const passoDopo = statoDi(db, telefono, adesso).passo;
+    if (passoDopo !== 'inizio' && passoDopo !== passoPrima && risposteDiOggi(db, telefono, adesso) > contoPrima) {
+      rimettiIlConto(db, telefono, adesso, contoPrima);
+    }
+  }
+  return esito;
+}
+
+function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto = {}) {
   // Tutto quello che si salva qui dentro porta la data di QUESTO adesso.
   const salvaStato = (d, t, p, dd) => scriviStato(d, t, p, dd, adesso);
   const azzeraStato = (d, t) => scriviStato(d, t, 'inizio', {}, adesso);
@@ -4956,9 +5003,12 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   }
 
   // --- Tetto di risposte ---
+  // Si conta qui ogni messaggio; quello che fa avanzare la prenotazione viene
+  // restituito dopo, in `elaboraMessaggio` (vedi lì il perché).
   const quante = contaRisposta(db, telefono, adesso);
-  if (quante > num(cfg.bot_max_risposte, 20)) {
-    if (quante === num(cfg.bot_max_risposte, 20) + 1) {
+  const tetto = tettoRisposte(cfg);
+  if (quante > tetto) {
+    if (quante === tetto + 1) {
       risposte.push(di('bot_t_troppe'));
       esito.passaAUmano = true;
     }
@@ -6426,6 +6476,7 @@ module.exports = {
   riempi, chiedeIlMenu, qualeMenu, menuAttivi, senzaLaRigaDelLink, oraScritta, DOMANDA_DOPO_IL_MENU, annotaMenu, statisticheMenu,
   esperienzeValide, esperienzeDi, esperienzaDi, quandoDetto, giorniDetti, elencoEsperienze, interpretaEsperienza, ammessoPer, turniAmmessi, conEsperienza, ESPERIENZE_MASSIME,
   dateRaddrizzate, esempioPer, parolaVicina,
+  tettoRisposte, risposteDiOggi,
   orariDetti, chiedeGliOrari, valeIlGiorno,
   prenotazioneFutura,
   elencoPrenotazioni,

@@ -2256,6 +2256,9 @@
             </select>
             <span class="conteggio" style="margin:0">Di fila, sulla stessa domanda. Alla prima il bot ripete la domanda; dalla seconda chiede di <b>riscriverla</b> con un esempio («Per esempio «sabato» oppure «15 ottobre»»). Le date scritte con un errore («15 ottore», «sabto») le capisce da solo.</span>
           </label>
+          <label>Tetto di messaggi al giorno<input id="cfg-bot_max_risposte" autocomplete="off" type="number" min="3" max="200">
+            <span class="conteggio" style="margin:0">Per ogni cliente. Contano solo i messaggi che <b>non</b> fanno andare avanti una prenotazione: saluti ripetuti, domande, risposte non capite. Superato il tetto, il bot passa la chat a una persona e tace fino a domani. Una prenotazione confermata lo azzera. Fra 3 e 200.</span>
+          </label>
           <label>Chiedi «sei ancora lì?» dopo<input id="cfg-bot_richiamo_minuti" autocomplete="off" type="number" min="0" max="240">
             <span class="conteggio" style="margin:0">Minuti di silenzio prima del richiamo. <b>0</b> per spegnerlo. Se non risponde nemmeno a quello, dopo quattro volte tanto la conversazione viene lasciata andare.</span>
           </label>
@@ -5089,7 +5092,7 @@ const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_menu_link', 'bot_menu_de
   'bot_pagamento_prezzo', 'bot_pagamento_modo', 'bot_pagamento_percentuale',
   'bot_pagamento_minuti', 'bot_pagamento_obbligatorio', 'bot_pagamento_chiave', 'bot_pagamento_ritorno',
   'bot_lista_attesa', 'bot_attesa_minuti',
-  'bot_riapre_minuti', 'bot_tentativi', 'bot_richiamo_minuti',
+  'bot_riapre_minuti', 'bot_tentativi', 'bot_max_risposte', 'bot_richiamo_minuti',
   'bot_parole_richiesta', 'bot_parole_nessuna', 'bot_parole_altro_nome',
   'bot_avvisi_da', 'bot_avvisi_a', 'bot_sollecito_minuti',
   'bot_email_oggetto', 'bot_email_testo', 'bot_email_logo', 'bot_email_html'];
