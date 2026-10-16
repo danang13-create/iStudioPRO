@@ -4777,6 +4777,9 @@ function elencoPrenotazioni(db, cfg, iso, adesso = new Date()) {
     const numero = numeroMostrabile(r.telefono_contatto) || numeroMostrabile(r.telefono);
     parti.push(`${i + 1}. ${nome} — ${r.persone} ${r.persone === 1 ? 'coperto' : 'coperti'}`
       + (r.origine === 'manuale' ? ' (admin)' : ''));
+    // L'esperienza subito sotto il nome: è la prima cosa che la sala deve
+    // sapere di quel tavolo (chiesto dal titolare, 16 ottobre 2026).
+    if (r.esperienza) parti.push(`   🍽️ ${r.esperienza}`);
     if (numero) parti.push(`   📞 ${numero}`);
     if (r.note) parti.push(`   📝 ${r.note}`);
   });

@@ -64,6 +64,9 @@
     --spia-ok: #4ade80; --spia-male: #ff6b5e;
     --spento: #b7c0c6;          /* un pulsante che non si puo premere */
     --pausa-fondo: #eef2ff; --pausa-testo: #3f4bb8;
+    /* L'esperienza della prenotazione (degustazione, business lunch): un
+       colore suo, che non si confonde con ok, attenzione e guasto. */
+    --esp-fondo: #f1ebfd; --esp-testo: #4b2a99; --esp-bordo: #d6c8f5;
     --saltato-fondo: #fff1e6; --saltato-testo: #a35a12;
     --senza-fondo: #fdf4ef; --senza-testo: #8a5a3b;
     --male-premuto: #f8d6d1;    /* il tasto rosso mentre ci sta il dito sopra */
@@ -108,6 +111,7 @@
     --ok-fondo: #12332a; --ok-testo: #7fe0a8; --ok-bordo: #2a5a44;
     --avviso-fondo: #3a2d18; --avviso-testo: #ffc978; --avviso-bordo: #6b5a24;
     --avviso-forte: #e0a00a;
+    --esp-fondo: #2b2244; --esp-testo: #d8c9ff; --esp-bordo: #4d3d7a;
     --male-fondo: #3a1f1d; --male-testo: #ff9a90; --male-bordo: #6b3430;
 
     --chat-sfondo: #10191f; --chat-mio: #16482f; --chat-spunte: #53bdeb;
@@ -595,6 +599,13 @@
      sotto, e la colonna smette di essere una colonna. */
   .sto-riga .ora, .sto-riga .pers { font-variant-numeric: tabular-nums; font-size: .88rem; color: var(--grigio); }
   .sto-riga .nota { grid-column: 1 / -1; font-size: .84rem; color: var(--grigio); }
+  /* ⚠️ L'esperienza si deve VEDERE: scritta in grigio piccolo sotto il nome,
+     uguale a «numero non disponibile», il titolare non l'ha trovata (16
+     ottobre 2026). Un'etichetta col suo colore, in sala uguale. */
+  .etichetta-esp { display: inline-block; max-width: 100%; margin: 4px 0 1px; padding: 2px 9px;
+    border-radius: 999px; border: 1px solid var(--esp-bordo); background: var(--esp-fondo);
+    color: var(--esp-testo); font-size: .8rem; font-weight: 600; line-height: 1.35;
+    overflow-wrap: anywhere; }
   .sto-note { display: flex; flex-wrap: wrap; gap: 6px; }
   .sto-nota { display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 10px;
               border-radius: 999px; background: var(--sfondo); font-size: .84rem; }
@@ -5681,7 +5692,7 @@ async function caricaServizio() {
           class="nome-cliente">${
           testoSicuro([r.nome, r.cognome].filter(Boolean).join(' ') || '—')}</button>
         ${r.origine === 'manuale' ? '<span class="conteggio" style="margin:0"> · admin</span>' : ''}
-        ${r.esperienza ? '<br><span class="conteggio" style="margin:0">🍽️ ' + testoSicuro(r.esperienza) + '</span>' : ''}
+        ${r.esperienza ? '<br><span class="etichetta-esp">🍽️ ' + testoSicuro(r.esperienza) + '</span>' : ''}
         <br><span class="conteggio" style="margin:0">${
         r.telefono_contatto ? '📞 ' + numeroPulito(r.telefono_contatto) : numeroPulito(r.telefono)
       }</span></td>
@@ -6716,7 +6727,11 @@ function sottoRiga(r, inArrivo) {
   if (r.note) pezzi.push(testoSicuro(r.note));
   const segno = segnoDi(r, inArrivo);
   if (segno) pezzi.push(segno);
-  return pezzi.length ? `<span class="nota">${pezzi.join(' · ')}</span>` : '';
+  // L'esperienza in testa, con la sua etichetta: anche nella scheda del
+  // cliente si deve capire cosa ha prenotato.
+  const esp = r.esperienza ? `<span class="etichetta-esp">🍽️ ${testoSicuro(r.esperienza)}</span>` : '';
+  if (!esp && !pezzi.length) return '';
+  return `<span class="nota">${esp}${esp && pezzi.length ? ' ' : ''}${pezzi.join(' · ')}</span>`;
 }
 
 // Centesimi → «120,00 €». La stessa regola del server, che è quella che decide

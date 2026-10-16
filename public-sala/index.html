@@ -43,6 +43,8 @@
     --spia-viva: #1a9e4b;         /* il pallino della spia quando il bot risponde */
     --oggi: #eafff2;              /* il giorno di oggi, e il verde appena acceso */
     --avviso-fondo: #fff4e5; --avviso-bordo: #ffd8a8; --avviso-testo: #8a4b00;
+    /* L'esperienza della prenotazione: un colore suo (vedi la piattaforma). */
+    --esp-fondo: #f1ebfd; --esp-testo: #4b2a99; --esp-bordo: #d6c8f5;
     --nota-fondo: #fff4d6; --nota-testo: #5a4212; --nota-bordo: #e6d3a3;
     --ombra: rgba(0,0,0,.28);
     /* ⚠️ Il toast è «al contrario»: fondo scuro su pagina chiara. Scritto come
@@ -72,6 +74,7 @@
     --spia-viva: #3ddc84;
     --oggi: #12332a;
     --avviso-fondo: #3a2d18; --avviso-bordo: #6b5220; --avviso-testo: #ffc978;
+    --esp-fondo: #2b2244; --esp-testo: #d8c9ff; --esp-bordo: #4d3d7a;
     --nota-fondo: #3a2f14; --nota-testo: #f0dfb0; --nota-bordo: #6b5a24;
     --ombra: rgba(0,0,0,.6);
     --toast-fondo: #e6edf3; --toast-testo: #10171c;
@@ -534,6 +537,12 @@
   .sto-riga .quando { font-size: .92rem; }
   .sto-riga .ora, .sto-riga .pers { font-variant-numeric: tabular-nums; font-size: .88rem; color: var(--grigio); }
   .sto-riga .nota { grid-column: 1 / -1; font-size: .84rem; color: var(--grigio); }
+  /* ⚠️ L'esperienza si deve VEDERE, non stare in grigio piccolo sotto il nome
+     (16 ottobre 2026): un'etichetta col suo colore, come in piattaforma. */
+  .etichetta-esp { display: inline-block; max-width: 100%; margin: 4px 0 1px; padding: 2px 9px;
+    border-radius: 999px; border: 1px solid var(--esp-bordo); background: var(--esp-fondo);
+    color: var(--esp-testo); font-size: .8rem; font-weight: 600; line-height: 1.35;
+    overflow-wrap: anywhere; }
   .sto-riga.annullata { opacity: .55; }
   .sto-riga.annullata .quando { text-decoration: line-through; }
   /* Quelle in arrivo sono l'unica parte che riguarda stasera. */
@@ -1003,7 +1012,7 @@ async function caricaGiorno() {
             ><b>${sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || '—')}</b></button>
           <span class="quanti">${r.persone} <span class="conteggio">pers.</span></span>
           ${r.origine === 'manuale' ? '<span class="conteggio"> · admin</span>' : ''}
-          ${r.esperienza ? `<br><span class="conteggio">🍽️ ${sicuro(r.esperienza)}</span>` : ''}
+          ${r.esperienza ? `<br><span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : ''}
           ${ETICHETTA[r.stato] ? `<span class="conteggio stato-eti"> · ${ETICHETTA[r.stato]}</span>` : ''}
           ${soldiDi(r) ? `<br><span class="conteggio">${soldiDi(r)}</span>` : ''}
           ${numeroPulito(r.telefono_contatto || r.telefono)
@@ -1465,7 +1474,10 @@ function sottoRiga(r, inArrivo) {
   if (r.note) pezzi.push(sicuro(r.note));
   const segno = segnoDi(r, inArrivo);
   if (segno) pezzi.push(segno);
-  return pezzi.length ? `<span class="nota">${pezzi.join(' · ')}</span>` : '';
+  // L'esperienza in testa, con la sua etichetta (come sulla riga del servizio).
+  const esp = r.esperienza ? `<span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : '';
+  if (!esp && !pezzi.length) return '';
+  return `<span class="nota">${esp}${esp && pezzi.length ? ' ' : ''}${pezzi.join(' · ')}</span>`;
 }
 
 // ⚠️ Su una prenotazione passata e confermata NON si scrive «prenotata»: è
