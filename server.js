@@ -3707,6 +3707,54 @@ function chiudiConversazioniFinite() {
 }
 
 // Passa una conversazione a una persona: avvisa il cliente e il personale.
+// L'email all'amministratore quando un cliente aspetta una persona e nessun
+// responsabile di sala riceve le richieste su WhatsApp. Va all'indirizzo degli
+// avvisi (lo stesso di «WhatsApp si è scollegato»). Se non parte — indirizzo
+// vuoto, posta non configurata, server di posta che rifiuta — lo si scrive
+// nel registro: credersi avvisati da una rete che non c'è è peggio che saperlo.
+async function avvisaAmministratoreInAttesa({ codice, chi, telefono, testo, aperto }) {
+  const dove = indirizzoAvvisi();
+  if (!dove) {
+    annota('avviso', `${codice}: nessun responsabile e nessun indirizzo per gli avvisi — non lo sa nessuno`);
+    return false;
+  }
+  const transporter = buildTransporter();
+  if (!transporter) {
+    annota('errore', `${codice}: l'email all'amministratore non è partita, la posta non è configurata`);
+    return false;
+  }
+  const locale = bot.leggi(db, 'bot_locale') || getSetting('smtp_from_name') || 'iStudio';
+  const quando = new Date().toLocaleString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  const righe = [
+    `Un cliente aspetta di parlare con una persona, e nessun responsabile di sala riceve queste richieste su WhatsApp.`,
+    '',
+    `Cliente: ${chi}${telefono && !String(chi).includes(telefono) ? ` (+${telefono})` : ''}`,
+    `Ha scritto: «${String(testo || '').slice(0, 300)}»`,
+    `Quando: ${quando}`,
+    `Codice: ${codice}`,
+    '',
+    aperto
+      ? 'Il bot gli ha detto che una persona del locale gli risponde appena si libera.'
+      : 'Il locale adesso è chiuso: il bot gli ha detto che gli rispondono alla riapertura.',
+    '',
+    'Per rispondergli: scrivigli dal WhatsApp del locale, oppure dalla scheda Chat della piattaforma. Appena rispondi tu, il bot si fa da parte su quella chat.',
+    'Per far arrivare queste richieste su WhatsApp a chi lavora in sala: Prenotazioni → Chi avvisare → «Responsabile di sala».',
+  ];
+  try {
+    await transporter.sendMail({
+      from: getSetting('smtp_user'),
+      to: dove,
+      subject: `🔔 ${locale}: ${chi} aspetta un operatore`,
+      text: righe.join('\n'),
+    });
+    annota('avviso', `${codice}: nessun responsabile su WhatsApp, mandata un'email a ${dove}`);
+    return true;
+  } catch (e) {
+    annota('errore', `${codice}: l'email all'amministratore non è riuscita (${e.message})`);
+    return false;
+  }
+}
+
 async function passaAUnaPersona(chatId, telefono, nomeChat, testo, opzioni = {}) {
   const cfg = bot.config(db);
   const aperto = bot.eOrarioAvvisi(cfg, new Date());
@@ -3757,6 +3805,19 @@ async function passaAUnaPersona(chatId, telefono, nomeChat, testo, opzioni = {})
   // la segue, non a tutti i responsabili — la conversazione è sua. E la
   // risposta del cliente tiene vivo l'aggancio: una chat che va avanti non deve
   // spegnersi a metà perché il conto dei trenta minuti guardava solo un lato.
+  // Solo a chi ha il compito di rispondere ai clienti. Chi vuole soltanto
+  // sapere le prenotazioni non deve essere svegliato da ogni domanda: sono
+  // due mestieri diversi, e confonderli fa smettere di guardare gli avvisi.
+  const responsabili = personale().filter((p) => p.gestisce && p.canale !== 'email');
+  // ⚠️ Nessuno la riceve su WhatsApp: un'email all'amministratore, UNA per
+  // richiesta nuova (le righe dopo dello stesso cliente stanno sotto lo stesso
+  // codice), e anche fuori orario — la posta si legge quando si può. Prima la
+  // richiesta restava solo nella piattaforma, e al cliente era già stato detto
+  // che una persona gli avrebbe risposto. Chiesto dal titolare, 18 ottobre 2026.
+  if (!responsabili.length && !aperta) {
+    await avvisaAmministratoreInAttesa({ codice, chi: nomeChat || (telefono ? '+' + telefono : 'Un cliente'), telefono, testo, aperto });
+  }
+
   if (aperta && aggancioVivo(aperta, new Date())) {
     db.prepare('UPDATE bot_richieste SET presa_at = ? WHERE id = ?')
       .run(new Date().toLocaleString('sv-SE'), aperta.id);
@@ -3780,10 +3841,6 @@ async function passaAUnaPersona(chatId, telefono, nomeChat, testo, opzioni = {})
     // vede lo stesso, ed è tutto quello che serve ricordare.
     `👉 Per rispondere: ${codice} + la tua risposta\n` +
     `⚠️ Per attivare il bot scrivi: LIBERA ${codice}`;
-  // Solo a chi ha il compito di rispondere ai clienti. Chi vuole soltanto
-  // sapere le prenotazioni non deve essere svegliato da ogni domanda: sono
-  // due mestieri diversi, e confonderli fa smettere di guardare gli avvisi.
-  const responsabili = personale().filter((p) => p.gestisce && p.canale !== 'email');
   if (!responsabili.length) {
     annota('avviso', 'nessun responsabile configurato: la richiesta resta in attesa e nessuno lo sa');
   }
@@ -5949,7 +6006,11 @@ app.get('/api/bot/registro', (req, res) => {
     tavoli.length
       ? { voce: 'Almeno un tavolo prenotabile dal bot', ok: tavoli.some((t) => !t.solo_sala), aiuto: 'Sono tutti «solo sala»: il bot passa ogni richiesta a una persona.' }
       : { voce: 'Coperti per turno impostati', ok: bot.num(cfg.bot_coperti_turno, 0) > 0, aiuto: 'Con zero coperti risulta sempre pieno.' },
-    { voce: 'Qualcuno riceve gli avvisi', ok: personale().length > 0, aiuto: 'Senza, quando il bot non capisce nessuno viene avvisato.' },
+    // ⚠️ Conta chi riceve le RICHIESTE su WhatsApp (responsabile di sala), non
+    // chiunque sia in elenco: chi riceve solo le prenotazioni faceva diventare
+    // verde questa riga mentre i clienti in attesa non arrivavano a nessuno.
+    { voce: 'Un responsabile di sala riceve le richieste', ok: personale().some((p) => p.gestisce && p.canale !== 'email'),
+      aiuto: 'Senza, quando un cliente chiede una persona arriva solo un\'email all\'amministratore, e solo se la posta è configurata.' },
   ];
   // Le voci del pagamento compaiono SOLO se il pagamento è acceso: un elenco di
   // controlli pieno di righe che non riguardano questo locale si smette di
