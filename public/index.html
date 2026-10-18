@@ -1267,14 +1267,16 @@
         <div><label for="smtp-pass">Password</label><input id="smtp-pass" type="password" placeholder="lascia vuoto per non cambiarla"></div>
         <div><label for="smtp-from">Nome mittente (facoltativo)</label><input id="smtp-from" placeholder="es. il tuo nome o studio"></div>
         <div>
-          <label for="avvisi-email">Avvisami per email quando WhatsApp si scollega</label>
+          <label for="avvisi-email">Avvisami per email: WhatsApp scollegato, clienti che aspettano una persona</label>
           <input id="avvisi-email" type="email" placeholder="lascia vuoto per non ricevere avvisi">
         </div>
       </div>
       <p class="conteggio" style="margin:6px 0 10px">
         A quell'indirizzo arriva un messaggio quando il collegamento con WhatsApp cade, e un
-        altro quando torna. L'avviso parte usando l'account di posta qui sopra: se l'email non
-        è configurata, l'avviso non può partire.
+        altro quando torna. E uno quando un cliente chiede di parlare con una persona e nessun
+        responsabile di sala la riceve su WhatsApp: chi è, cosa ha scritto, come rispondergli.
+        Gli avvisi partono usando l'account di posta qui sopra: se l'email non è configurata,
+        non possono partire.
       </p>
       <button class="btn" id="btn-salva-smtp">Salva impostazioni</button>
       <button class="btn btn-secondario" id="btn-test-smtp">Prova connessione</button>
