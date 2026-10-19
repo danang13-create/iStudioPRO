@@ -204,9 +204,12 @@ window.Turni = (function () {
     const quota = r.totale ? Math.min(r.occupati / r.totale, 1) : 0;
     const stato = r.pieno ? 'pieno' : quota >= 0.8 ? 'quasi' : '';
     // Il turno unico del servizio non ha numero: il titolo è la fascia.
-    const titolo = r.tipo === 'turno' ? (r.turno ? `${r.turno}° turno` : '')
+    const proprio = r.tipo === 'locale' ? (r.titolo || '')
+      : r.tipo === 'turno' ? (r.turno ? `${r.turno}° turno` : '')
       : r.tipo === 'servizio' ? 'Tutto il servizio'
       : r.tipo === 'chiuso' ? '⚠️ Chiuso' : 'Orario';
+    // Accanto a un altro locale, la sala di sempre dice il suo nome.
+    const titolo = r.locale ? [r.locale, proprio].filter(Boolean).join(' · ') : proprio;
     const coperti = `${r.coperti} ${r.coperti === 1 ? 'coperto' : 'coperti'}`;
     // Coi tavoli il numero grande sono i tavoli, e i coperti stanno sotto: alla
     // cucina servono. Senza tavoli il numero grande sono già i coperti.

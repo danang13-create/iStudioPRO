@@ -4608,7 +4608,8 @@ async function avvisaPrenotazione(p, tipo, opzioni = {}) {
   // stasera: si cerca «il tavolo Angellotti». Col nome in fondo bisognava
   // leggere tutta la riga per sapere se riguardava te, venti volte a sera.
   // L'esperienza, se c'è: alla cucina serve sapere che è un degustazione.
-  const chi = `${nome !== 'senza nome' ? nome : (p.telefono || 'senza nome')} (${p.persone})${p.esperienza ? ` · ${p.esperienza}` : ''}`;
+  const chi = `${nome !== 'senza nome' ? nome : (p.telefono || 'senza nome')} (${p.persone})`
+    + `${p.fuori_sala && p.locale_scelto ? ` · ${p.locale_scelto}` : ''}${p.esperienza ? ` · ${p.esperienza}` : ''}`;
   // ⚠️ Niente «OGGI» davanti alla data: «da OGGI mercoledì 26 agosto» in
   // italiano si legge «a partire da oggi», che è un'altra cosa — la data c'è
   // scritta per esteso e chi legge sa benissimo che giorno è.
@@ -5632,7 +5633,8 @@ function composizioneEmail(cfg, p, link) {
     persone: p.persone,
     telefono: p.telefono_contatto || '',
     note: p.note ? `📝 ${p.note}\n` : '',
-    esperienza: p.esperienza ? `🍽️ ${p.esperienza}\n` : '',
+    // Con più locali anche il locale: «RO bistrot», «REAR Restaurant · Business lunch».
+    esperienza: p.esperienza || p.locale_scelto ? `🍽️ ${[p.locale_scelto, p.esperienza].filter(Boolean).join(' · ')}\n` : '',
     pagamento: bot.bloccoPagamento(p, link),
     locale: cfg.bot_locale || '',
   };
@@ -6296,13 +6298,14 @@ app.get('/api/bot/report/csv', (req, res) => {
   const righe = db.prepare(
     'SELECT * FROM prenotazioni WHERE data >= ? AND data <= ? ORDER BY data, ora, id'
   ).all(p.dal, p.al);
-  const colonne = ['Data', 'Ora', 'Persone', 'Esperienza', 'Nome', 'Cognome', 'Telefono', 'Email', 'Note', 'Stato', 'Origine'];
+  // In fondo, il locale (RO bistrot, REAR Restaurant) quando il titolare li ha nominati.
+  const colonne = ['Data', 'Ora', 'Persone', 'Esperienza', 'Nome', 'Cognome', 'Telefono', 'Email', 'Note', 'Stato', 'Origine', 'Locale'];
   const corpo = righe.map((r) => [
     r.data, r.ora, r.persone, r.esperienza || '', r.nome, r.cognome,
     // L'indirizzo interno di WhatsApp non è un numero e non deve finire in un
     // foglio come se lo fosse: chi lo legge proverebbe a chiamarlo.
     String(r.telefono_contatto || r.telefono || '').includes('@') ? '' : (r.telefono_contatto || r.telefono),
-    r.email, r.note, r.stato, r.origine === 'manuale' ? 'presa a mano' : 'bot',
+    r.email, r.note, r.stato, r.origine === 'manuale' ? 'presa a mano' : 'bot', r.locale_scelto || '',
   ].map(cellaCsv).join(';'));
   // Il punto e virgola e il BOM: è quello che Excel in italiano si aspetta.
   // Con la virgola finisce tutto in una colonna sola, e senza BOM gli accenti
@@ -6545,7 +6548,7 @@ app.get('/api/bot/impostazioni', (req, res) => {
              fasce: bot.fasceDi(cfg), fasceSalvate: !!bot.fasceValide(cfg.bot_fasce),
              // Come le ha scritte il titolare: la scheda le mostra e le risalva
              // così, anche i giorni che oggi sono chiusi (vedi `esperienzeDi`).
-             esperienze: bot.esperienzeScritte(cfg) });
+             esperienze: bot.esperienzeScritte(cfg), locali: bot.localiDi(cfg) });
 });
 
 // Gli indirizzi a cui questo computer risponde davvero. Serve perché la riga
@@ -6736,6 +6739,17 @@ app.post('/api/bot/impostazioni', (req, res) => {
     valori.bot_esperienze = esperienze.length ? JSON.stringify(esperienze) : '';
   }
 
+  // I locali della prima domanda (vedi «I locali» in bot-prenotazioni.js):
+  // come le esperienze, si salvano ripuliti, e uno scritto a metà (senza
+  // data, orario o coperti) non si accetta in silenzio — si dice cosa manca.
+  if (valori.bot_locali !== undefined) {
+    const errori = bot.erroriLocali(valori.bot_locali);
+    if (errori.length) return res.status(400).json({ error: errori.join(' ') });
+    const locali = bot.localiValidi(valori.bot_locali);
+    if (!locali) return res.status(400).json({ error: 'I locali non si leggono: ricarica la pagina e riprova.' });
+    valori.bot_locali = locali.principale || locali.altri.length ? JSON.stringify(locali) : '';
+  }
+
   // Gli orari dei turni si ripuliscono qui: chi li scrive vede subito quello
   // che è rimasto, invece di scoprire un «25:99» fra le proposte al cliente.
   const ripuliti = {};
@@ -6755,7 +6769,7 @@ app.post('/api/bot/impostazioni', (req, res) => {
   if (fasceRipulite) ripuliti.bot_fasce = valori.bot_fasce;
   res.json({ ok: true, impostazioni: salvata, ripuliti,
              fasce: bot.fasceDi(salvata), fasceSalvate: !!bot.fasceValide(salvata.bot_fasce),
-             esperienze: bot.esperienzeScritte(salvata) });
+             esperienze: bot.esperienzeScritte(salvata), locali: bot.localiDi(salvata) });
 });
 
 // ---------------------------------------------------------------------------
@@ -7304,6 +7318,15 @@ const rottaServizio = (req, res) => {
     // I nomi delle esperienze (business lunch, degustazione…), per la tendina
     // del pannello. Vuoto se il locale non ne ha.
     esperienze: bot.esperienzeScritte(cfg).map((e) => e.nome),
+    // I locali, per la tendina del pannello: quello di sempre e gli altri, coi
+    // posti che restano (vedi «I locali»). null se il titolare non li ha scritti.
+    locali: (() => {
+      const l = bot.localiDi(cfg);
+      if (!l.principale && !l.altri.length) return null;
+      return { principale: l.principale ? l.principale.nome : '',
+               altri: l.altri.map((a) => ({ nome: a.nome, data: a.data, da: a.da, a: a.a, coperti: a.coperti,
+                 posti: bot.postiAltroLocale(db, a), aperto: a.data >= bot.comeData(new Date()) })) };
+    })(),
     // Com'è messa la giornata, per turno o per servizio: è quello che si
     // MOSTRA. `turni` resta per le tendine, che hanno bisogno di ogni orario.
     riepilogo: bot.riepilogoDelGiorno(db, cfg, data),
@@ -7385,13 +7408,19 @@ const rottaSettimana = (req, res) => {
     // dell'anno diventava quello che si vedeva meno.
     const bloccato = bot.giornoBloccato(db, data);
     const soldOut = !!bloccato && bloccato.tipo === 'pieno';
-    const chiuso = !turni.length || (!!bloccato && !soldOut);
+    // Gli altri locali di quel giorno (il bistrot del 25 ottobre): i loro
+    // coperti si sommano alla capienza, e il giorno non è «chiuso» se c'è lui.
+    const altri = bot.localiDi(cfg).altri.filter((x) => x.data === data);
+    const chiusoSala = !turni.length || (!!bloccato && !soldOut);
+    const chiuso = chiusoSala && !altri.length;
     // ⚠️ Chi sta pagando TIENE il posto: se non contasse qui, il planning
     // scriverebbe «0 coperti» su una sera in cui il bot rifiuta i tavoli, e chi
     // guarda lo schermo prenderebbe al telefono un tavolo che non c'è.
     const righe = db.prepare(
-      'SELECT persone FROM prenotazioni WHERE data = ? AND stato IN ' + bot.dentro(bot.STATI_VIVI)
+      'SELECT persone, fuori_sala FROM prenotazioni WHERE data = ? AND stato IN ' + bot.dentro(bot.STATI_VIVI)
     ).all(data);
+    // I tavoli li occupano solo quelli della sala di sempre.
+    const inSala = righe.filter((r) => !r.fuori_sala);
     giorni.push({
       data,
       etichetta: bot.dataItaliana(data),
@@ -7402,7 +7431,7 @@ const rottaSettimana = (req, res) => {
       // La capienza di un giorno pieno resta quella vera: serve a leggere
       // quanti coperti ci sono davvero dentro, che è il motivo per cui lo si
       // è chiuso.
-      capienza: chiuso ? 0 : perTurno * bot.giriDelGiorno(cfg, data),
+      capienza: (chiusoSala ? 0 : perTurno * bot.giriDelGiorno(cfg, data)) + altri.reduce((n, x) => n + x.coperti, 0),
       turni: turni.length,
       chiuso,
       soldOut,
@@ -7411,8 +7440,8 @@ const rottaSettimana = (req, res) => {
       coperti: righe.reduce((n, r) => n + r.persone, 0),
       prenotazioni: righe.length,
       conTavoli: quantiTavoli > 0,
-      tavoliOccupati: righe.length,
-      tavoliCapienza: chiuso ? 0 : quantiTavoli * bot.giriDelGiorno(cfg, data),
+      tavoliOccupati: inSala.length,
+      tavoliCapienza: chiusoSala ? 0 : quantiTavoli * bot.giriDelGiorno(cfg, data),
     });
   }
   res.json({ oggi, dal: partenza, giorni });
@@ -7636,6 +7665,23 @@ const rottaModificaPrenotazione = async (req, res) => {
 
   const cambiata = nuovi.data !== p.data || nuovi.ora !== p.ora || nuovi.persone !== p.persone;
 
+  // ⚠️ Un altro locale (il bistrot) ha un giorno e un orario soli: non si
+  // sposta, e i suoi posti sono i suoi coperti — non i tavoli di qui.
+  if (p.fuori_sala) {
+    if (nuovi.data !== p.data || nuovi.ora !== p.ora) {
+      return res.status(400).json({ error: `${p.locale_scelto || 'Questo locale'} ha un giorno e un orario soli: `
+        + 'per spostarla altrove, annullala e rifalla.' });
+    }
+    const altro = bot.altroLocaleDi(cfg, p.locale_scelto);
+    const cresce = nuovi.persone > p.persone || (!bot.STATI_VIVI.includes(p.stato) && bot.STATI_VIVI.includes(nuovi.stato));
+    if (altro && cresce && bot.STATI_VIVI.includes(nuovi.stato) && !b.forza) {
+      const posti = bot.postiAltroLocale(db, altro, p.id);
+      if (nuovi.persone > posti) {
+        return res.status(409).json({ error: `Per ${altro.nome} ${quantoPosto(posti, nuovi.persone)}.`, liberi: posti });
+      }
+    }
+  }
+
   // ⚠️ Cambiare il numero di persone mentre il cliente sta pagando è la cosa
   // peggiore che si possa fare: lui ha davanti una pagina di Stripe con SOPRA
   // UNA CIFRA, e quella cifra non si può cambiare da qui. Portando la
@@ -7667,7 +7713,7 @@ const rottaModificaPrenotazione = async (req, res) => {
   // ⚠️ Chi riapre una prenotazione cancellata le deve ridare un tavolo: il
   // suo, nel frattempo, può averlo preso un altro. Ma come prima non la si
   // blocca — riaprire è correggere un errore, non prenotare di nuovo.
-  const conTavoli = bot.usaTavoli(db) && bot.STATI_VIVI.includes(nuovi.stato);
+  const conTavoli = bot.usaTavoli(db) && bot.STATI_VIVI.includes(nuovi.stato) && !p.fuori_sala;
   const riaperta = !bot.STATI_VIVI.includes(p.stato) && bot.STATI_VIVI.includes(nuovi.stato);
   const tavoloScritto = b.tavolo !== undefined && bot.chiaveTavolo(nuovi.tavolo) !== bot.chiaveTavolo(p.tavolo);
   if (conTavoli && tavoloScritto && nuovi.tavolo) {
@@ -7685,7 +7731,7 @@ const rottaModificaPrenotazione = async (req, res) => {
     nuovi.tavolo = esito.tavolo || bot.tavoloCheResta(db, cfg, nuovi.data, nuovi.ora, p.tavolo, p.id);
   }
 
-  if (cambiata && bot.STATI_VIVI.includes(nuovi.stato) && !bot.usaTavoli(db)) {
+  if (cambiata && bot.STATI_VIVI.includes(nuovi.stato) && !bot.usaTavoli(db) && !p.fuori_sala) {
     const occupatiAltrui = bot.copertiOccupati(db, cfg, nuovi.data, nuovi.ora)
       - (p.data === nuovi.data && p.ora === nuovi.ora && bot.STATI_VIVI.includes(p.stato) ? p.persone : 0);
     const capienza = bot.num(cfg.bot_coperti_turno, 0) - bot.num(cfg.bot_coperti_liberi, 0);
@@ -7934,7 +7980,22 @@ const rottaNuovaPrenotazione = async (req, res) => {
   const guaio = controllaPrenotazione({ data, ora, persone });
   if (guaio) return res.status(400).json({ error: guaio });
   let tavolo = tavoloPulito(b.tavolo);
-  if (bot.usaTavoli(db)) {
+  // ⚠️ Un altro locale (il bistrot del 25 ottobre) ha il suo giorno, il suo
+  // orario e i suoi coperti: non i tavoli di qui. Vedi «I locali».
+  const altro = b.locale ? bot.altroLocaleDi(cfg, String(b.locale)) : null;
+  if (b.locale && !altro && !(bot.localiDi(cfg).principale
+      && bot.normalizza(String(b.locale)) === bot.normalizza(bot.localiDi(cfg).principale.nome))) {
+    return res.status(400).json({ error: `Il locale «${String(b.locale).slice(0, 40)}» non c'è più: ricarica la pagina.` });
+  }
+  if (altro) {
+    if (data !== altro.data || ora !== altro.da) {
+      return res.status(400).json({ error: `${altro.nome} è solo il ${bot.dataItaliana(altro.data)} alle ${altro.da}.` });
+    }
+    const posti = bot.postiAltroLocale(db, altro);
+    if (!b.forza && persone > posti) {
+      return res.status(409).json({ error: `Per ${altro.nome} ${quantoPosto(posti, persone)}.`, liberi: posti });
+    }
+  } else if (bot.usaTavoli(db)) {
     const esito = tavoloPerLaSala(cfg, { data, ora, persone, tavolo, forza: b.forza });
     if (esito.errore) return res.status(409).json(esito.errore);
     tavolo = esito.tavolo;
@@ -7961,12 +8022,16 @@ const rottaNuovaPrenotazione = async (req, res) => {
   // L'esperienza (business lunch, degustazione…), se chi la segna la sa:
   // è un testo libero, perché una prenotazione presa al telefono può essere
   // di un'esperienza che nella scheda non c'è più.
-  const esperienza = esperienzaPulita(b.esperienza);
+  const esperienza = altro ? '' : esperienzaPulita(b.esperienza);
+  // Il locale: quello scelto, o — se il titolare li ha nominati — quello di sempre.
+  const principale = bot.localiDi(cfg).principale;
+  const localeScelto = altro ? altro.nome : (principale ? principale.nome : '');
   const info = db.prepare('INSERT INTO prenotazioni (telefono, nome, cognome, data, ora, persone, note, '
-    + 'telefono_contatto, email, tavolo, esperienza, origine) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    + 'telefono_contatto, email, tavolo, esperienza, origine, locale_scelto, fuori_sala) '
+    + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(telefono, String(b.nome || '').slice(0, 60), String(b.cognome || '').slice(0, 60),
          data, ora, persone, String(b.note || '').slice(0, 200), telefono, email,
-         tavolo, esperienza, 'manuale');
+         tavolo, esperienza, 'manuale', localeScelto, altro ? 1 : 0);
   const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(info.lastInsertRowid);
   // ⚠️ Se quel cliente stava in lista d'attesa per quel giorno, adesso ha un
   // tavolo: esce dalla lista. Senza, più tardi il bot gli scriveva «si è

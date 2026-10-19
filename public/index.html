@@ -776,6 +776,10 @@
      riempia la sua cella: la riga la decide il più alto, gli altri lo
      raggiungono. */
   .campi-pren label { display: flex; flex-direction: column; }
+  /* ⚠️ «display: flex» qui sopra vince sull'attributo «hidden» del browser:
+     le tendine «Locale» ed «Esperienza» nascoste restavano lì, vuote (visto
+     nel browser vero, 19 ottobre 2026). */
+  .campi-pren label[hidden] { display: none; }
   .campi-pren label input, .campi-pren label select { flex: 1; }
   .campi-pren input[type="date"] {
     -webkit-appearance: none; appearance: none;
@@ -842,6 +846,12 @@
   .esp-menu-stato { font-size: .85rem; color: var(--grigio); margin: 4px 0 0; }
   .esp-menu-stato.manca { color: var(--avviso-testo); }
   .esp-chiusi { font-size: .85rem; color: var(--avviso-testo); margin: 6px 0 0; }
+  /* I locali: il giorno, l'orario e i coperti di un altro locale in una riga
+     che va a capo sul telefono. */
+  .locale-quando { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+  .locale-quando label { margin: 0; flex: 1 1 120px; }
+  .locale-quando input { width: 100%; }
+  .locali-principale label { display: block; margin-top: 10px; }
   .esp-anteprima.attenzione { color: var(--avviso-testo); }
   /* Su telefono i sette giorni stanno su una riga sola, sotto la parola. */
   @media (max-width: 480px) { .esp-giorni > div > span { width: 100%; } }
@@ -2404,6 +2414,31 @@
     </div>
 
     <div id="sotto-esperienze" class="sotto-scheda">
+      <div class="card" id="pren-card-locali">
+        <h2 style="font-size:1rem;margin:0 0 6px">I locali</h2>
+        <p class="conteggio" style="margin:0 0 14px">
+          Per chi ha più di un locale sotto lo stesso nome (per esempio «RO bistrot» e «REAR Restaurant»): il bot
+          chiede per prima cosa <b>dove</b>. Il <b>locale di sempre</b> lavora con gli orari, i tavoli e le esperienze
+          di queste schede, come adesso. Gli <b>altri</b> sono serate a sé: un giorno, un orario, i loro coperti (non i
+          tavoli), e una presentazione che il bot manda appena il cliente li sceglie — poi chiede solo le persone.
+          Passata la data, la domanda sparisce da sola. Senza altri locali il bot lavora come sempre. Le frasi sono in
+          «Frasi e domande», gruppo «I locali».
+        </p>
+        <div class="locali-principale">
+          <label>Il locale di sempre
+            <input id="locali-principale-nome" maxlength="40" autocomplete="off" placeholder="REAR Restaurant"></label>
+          <label>Parole con cui il cliente lo nomina
+            <input id="locali-principale-parole" autocomplete="off" placeholder="ristorante, rear">
+            <span class="conteggio" style="margin:0">Separate da virgola. La prima è quella che il bot gli suggerisce di scrivere.</span></label>
+        </div>
+        <div id="locali-altri"></div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
+          <button class="btn btn-secondario" id="locali-aggiungi" type="button">+ Aggiungi un altro locale</button>
+          <button class="btn" id="locali-salva" type="button">Salva</button>
+          <span id="locali-salvato" class="conteggio" style="margin:0"></span>
+        </div>
+        <p class="esp-anteprima" id="locali-anteprima"></p>
+      </div>
       <div class="card" id="pren-card-esperienze">
         <h2 style="font-size:1rem;margin:0 0 6px">Le esperienze</h2>
         <p class="conteggio" style="margin:0 0 14px">
@@ -2668,6 +2703,7 @@
         </label>
         <div id="pann-trovati" style="display:none;margin:-6px 0 12px;border:1px solid var(--bordo);border-radius:9px;overflow:hidden"></div>
         <div class="campi-pren">
+          <label id="pann-locale-riga" hidden>Locale<select id="pann-locale" autocomplete="off"></select></label>
           <label>Giorno<input type="date" id="pann-data" autocomplete="off"></label>
           <label>Ora<select id="pann-ora" autocomplete="off"></select></label>
           <label>Persone<select id="pann-persone" autocomplete="off"></select></label>
@@ -5153,6 +5189,15 @@ const TESTI_BOT = [
   ['bot_t_bentornato', 'Chi torna: «che bello rivederti»', 'Sostituisce il primo messaggio per chi ha già prenotato da te (spunta «Riconoscere chi ha già prenotato»): non ci si ripresenta a chi ci conosce. <b>{nome}</b> è solo il nome, senza cognome.'],
   ['bot_t_quante', 'Chiede le persone a chi conosce già', 'Sostituisce il primo messaggio quando la conversazione è già aperta: chi scrive NUOVA, o chi ha già un tavolo da te. Non ci si ripresenta a chi ha appena letto un nostro messaggio.'],
   ['bot_t_persone_no', 'Non ha capito quante persone', ''],
+  [null, 'I locali: «dove vuoi prenotare?»'],
+  ['bot_t_benvenuto_locali', 'Il primo messaggio, con più locali', 'Sostituisce «Il primo messaggio» quando nella scheda Esperienze, card «I locali», c\'è un altro locale ancora aperto: sotto arriva la domanda «dove?». <b>{locale}</b> è il nome di tutto (RO WORLD), <b>{assistente}</b> il nome dell\'assistente.'],
+  ['bot_t_bentornato_locali', 'Chi torna, con più locali', 'Come sopra, per chi ha già prenotato da te.'],
+  ['bot_t_locali', 'La domanda: dove vuoi prenotare', '<b>{nomi}</b> è «RO bistrot o per REAR Restaurant»; <b>{scelte}</b> è «Scrivi *bistrot* per RO bistrot e *ristorante* per REAR Restaurant.» (la prima parola di ognuno). Puoi scrivere la tua frase per intero: se non nomina tutti i locali, il bot mette le scelte in fondo.'],
+  ['bot_t_locale_no', 'Non ha capito dove', 'Quando la risposta non nomina nessun locale. Vale <b>{scelte}</b>.'],
+  ['bot_t_locale_preso', 'Ha scelto il locale di sempre', 'In cima al messaggio che segue (le esperienze, o le persone), con gli orari d\'apertura. <b>{scelto}</b> è il nome del locale.'],
+  ['bot_t_altro_locale_pieno', 'L\'altro locale è al completo', 'Quando i suoi coperti sono finiti: sotto, di nuovo la domanda «dove?». <b>{scelto}</b>, <b>{data}</b>.'],
+  ['bot_t_altro_locale_restano', 'Chiede più persone dei posti rimasti', '<b>{posti}</b> è «12 posti» (o «1 posto»), <b>{scelto}</b> il locale.'],
+  ['bot_t_altro_locale_sposta', 'Vuole spostare una prenotazione dell\'altro locale', 'L\'altro locale ha un giorno solo: non si sposta. <b>{scelto}</b>, <b>{data}</b>.'],
   [null, 'Le esperienze'],
   ['bot_t_benvenuto_esperienze', 'Il primo messaggio, con le esperienze', 'Sostituisce «Il primo messaggio» quando nella scheda Esperienze ce ne sono almeno due: si ferma prima di chiedere le persone, perché sotto arriva l\'elenco delle esperienze e la domanda «quale?». <b>{orari}</b> sono gli orari d\'apertura a parole, presi da «Orari e tavoli»: togli la riga se non la vuoi.'],
   ['bot_t_bentornato_esperienze', 'Chi torna, con le esperienze', 'Sostituisce «che bello rivederti» quando ci sono le esperienze: anche qui senza la domanda delle persone. Anche qui vale <b>{orari}</b>.'],
@@ -5660,6 +5705,7 @@ async function caricaServizio() {
   // I tavoli del locale (dal più piccolo), per la tendina dei tavoli.
   tavoliDelLocale = d.tavoli || [];
   esperienzeDelLocale = d.esperienze || [];
+  localiDelGiorno = d.locali || null;
   // Una scheda per turno, con la barra dei tavoli — e il cartello del sold out
   // o della chiusura prima di tutto (vedi Turni.disegnaRiepilogo).
   Turni.disegnaRiepilogo($('#pren-turni'), d);
@@ -5713,7 +5759,8 @@ async function caricaServizio() {
           class="nome-cliente">${
           testoSicuro([r.nome, r.cognome].filter(Boolean).join(' ') || '—')}</button>
         ${r.origine === 'manuale' ? '<span class="conteggio" style="margin:0"> · admin</span>' : ''}
-        ${r.esperienza ? '<br><span class="etichetta-esp">🍽️ ' + testoSicuro(r.esperienza) + '</span>' : ''}
+        ${r.locale_scelto ? '<br><span class="etichetta-esp">📍 ' + testoSicuro(r.locale_scelto) + '</span>' : ''}
+        ${r.esperienza ? (r.locale_scelto ? ' ' : '<br>') + '<span class="etichetta-esp">🍽️ ' + testoSicuro(r.esperienza) + '</span>' : ''}
         <br><span class="conteggio" style="margin:0">${
         r.telefono_contatto ? '📞 ' + numeroPulito(r.telefono_contatto) : numeroPulito(r.telefono)
       }</span></td>
@@ -5816,6 +5863,38 @@ let righeServizio = [];
 let tavoliDelLocale = [];
 // Le esperienze del locale, per la tendina del pannello: i nomi.
 let esperienzeDelLocale = [];
+// I locali (vedi «I locali»): { principale, altri: [{ nome, data, da, a, posti, aperto }] } o null.
+let localiDelGiorno = null;
+// La tendina del locale nel pannello. Una prenotazione già fatta resta nel
+// suo locale: per cambiarlo si annulla e si rifà.
+function riempiLocali(p) {
+  const sel = $('#pann-locale');
+  const l = localiDelGiorno;
+  const altri = l ? l.altri.filter((a) => a.aperto || (p && p.fuori_sala && a.nome === p.locale_scelto)) : [];
+  $('#pann-locale-riga').hidden = !altri.length;
+  sel.innerHTML = [`<option value="">${testoSicuro((l && l.principale) || 'Il locale di sempre')}</option>`,
+    ...altri.map((a) => `<option value="${testoSicuro(a.nome)}">${testoSicuro(a.nome)} · ${testoSicuro(a.data.split('-').reverse().join('/'))} ${testoSicuro(a.da)} · ${a.posti} ${a.posti === 1 ? 'posto' : 'posti'}</option>`)].join('');
+  sel.value = p && p.fuori_sala ? p.locale_scelto : '';
+  sel.disabled = !!p;
+  usaLocaleNelPannello(p);
+}
+// Un altro locale ha il suo giorno e il suo orario: si scrivono da soli e non
+// si toccano; le persone vanno fino ai posti che restano.
+function usaLocaleNelPannello(p) {
+  const a = localiDelGiorno && localiDelGiorno.altri.find((x) => x.nome === $('#pann-locale').value);
+  $('#pann-data').disabled = !!a;
+  $('#pann-ora').disabled = !!a;
+  // Le esperienze sono del locale di sempre: per l'altro la tendina sparisce.
+  $('#pann-esperienza-riga').hidden = !!a || !esperienzeDelLocale.length;
+  if (!a) return false;
+  $('#pann-data').value = a.data;
+  $('#pann-ora').innerHTML = `<option value="${testoSicuro(a.da)}">${testoSicuro(a.da)}–${testoSicuro(a.a)}</option>`;
+  const attuale = p ? p.persone : (+$('#pann-persone').value || 0);
+  const fino = Math.max(a.posti + (p ? p.persone : 0), attuale, 1);
+  $('#pann-persone').innerHTML = ['<option value="">Quante persone…</option>',
+    ...Array.from({ length: fino }, (_, i) => `<option value="${i + 1}"${i + 1 === attuale ? ' selected' : ''}>${i + 1}</option>`)].join('');
+  return true;
+}
 function riempiEsperienze(select, valore) {
   const nomi = [...esperienzeDelLocale];
   // Un'esperienza che nella scheda non c'è più resta sulla riga, e si vede.
@@ -5867,6 +5946,7 @@ function apriPannello(p) {
   $('#pann-cognome').value = p ? p.cognome : '';
   $('#pann-note').value = p ? (p.note || '') : '';
   riempiEsperienze($('#pann-esperienza'), p ? (p.esperienza || '') : '');
+  riempiLocali(p);
   $('#pann-tavolo').value = p ? (p.tavolo || '') : '';
   // Chi tiene quali tavoli lo si sa per il giorno e l'ora della prenotazione
   // com'era: cambiati nel pannello, la tendina non dice «libero» a vuoto.
@@ -5931,6 +6011,8 @@ async function salvaPannelloDavvero(forza) {
     cognome: $('#pann-cognome').value.trim(),
     note: $('#pann-note').value.trim(),
     esperienza: $('#pann-esperienza').value,
+    // Il locale, solo per una nuova: quella già fatta resta nel suo.
+    ...(pannelloId ? {} : { locale: $('#pann-locale').value }),
     tavolo: $('#pann-tavolo').value.trim(),
     telefono: $('#pann-telefono').value.trim(),
     telefono_contatto: $('#pann-telefono').value.trim(),
@@ -6053,6 +6135,12 @@ async function cercaInRubrica() {
   });
 }
 
+// Cambiando locale cambia tutto: il giorno e l'ora dell'altro, o quelli di sempre.
+$('#pann-locale').addEventListener('change', () => {
+  if (usaLocaleNelPannello(null)) return;
+  Turni.riempi('#pann-ora', $('#pann-data').value, '');
+  Turni.riempiPersone('#pann-persone', $('#pann-data').value, $('#pann-persone').value, '');
+});
 // Cambiando giorno cambiano i turni: pranzo, cena, giorni di chiusura.
 $('#pann-data').addEventListener('change', () => {
   Turni.riempi('#pann-ora', $('#pann-data').value, '');
@@ -6750,7 +6838,8 @@ function sottoRiga(r, inArrivo) {
   if (segno) pezzi.push(segno);
   // L'esperienza in testa, con la sua etichetta: anche nella scheda del
   // cliente si deve capire cosa ha prenotato.
-  const esp = r.esperienza ? `<span class="etichetta-esp">🍽️ ${testoSicuro(r.esperienza)}</span>` : '';
+  const esp = [r.locale_scelto ? `<span class="etichetta-esp">📍 ${testoSicuro(r.locale_scelto)}</span>` : '',
+    r.esperienza ? `<span class="etichetta-esp">🍽️ ${testoSicuro(r.esperienza)}</span>` : ''].filter(Boolean).join(' ');
   if (!esp && !pezzi.length) return '';
   return `<span class="nota">${esp}${esp && pezzi.length ? ' ' : ''}${pezzi.join(' · ')}</span>`;
 }
@@ -6989,6 +7078,7 @@ async function caricaConfigBot() {
   caricaGiorniPieni();
   mostraFasce(d);
   mostraEsperienze(d);
+  mostraLocali(d);
   caricaTavoli();
   // ⚠️ SESSANTADUE CASELLE IN FILA SONO TREDICIMILA PIXEL. Misurato in un
   // browser vero: questa card da sola faceva il 93% della pagina, e per
@@ -7303,6 +7393,8 @@ async function salvaConfigBot(doveDirlo) {
   if (fasceToccate && fasceUI) corpo.bot_fasce = JSON.stringify(fasceDaSalvare());
   // Le esperienze, stessa regola: partono solo se toccate.
   if (esperienzeToccate) corpo.bot_esperienze = JSON.stringify(esperienzeDaSalvare());
+  // I locali, stessa regola.
+  if (localiToccati) corpo.bot_locali = JSON.stringify(localiDaSalvare());
   const r = await fetch('/api/bot/impostazioni', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
   });
@@ -7334,6 +7426,7 @@ async function salvaConfigBot(doveDirlo) {
   // Gli orari tornano come li ha salvati il server — ripuliti e in ordine.
   if (r.ok && d.fasce) { fasceToccate = false; mostraFasce(d); }
   if (r.ok && d.esperienze) { esperienzeToccate = false; mostraEsperienze(d); }
+  if (r.ok && d.locali) { localiToccati = false; mostraLocali(d); }
   // L'indirizzo da scrivere sul tablet cambia insieme all'interruttore.
   if (d.impostazioni) mostraIndirizzoSala(d.impostazioni);
   caricaServizio();
@@ -8020,6 +8113,105 @@ $('#esperienze-aggiungi').addEventListener('click', () => {
   if (ultimo) ultimo.focus();
 });
 $('#esperienze-salva').addEventListener('click', () => salvaConfigBot('esperienze-salvato'));
+
+// ---- I locali: «RO bistrot o REAR Restaurant?» (vedi «I locali» nel bot) ----
+let localiUI = { principale: { nome: '', parole: '' }, altri: [] };
+let localiToccati = false;
+function mostraLocali(d) {
+  const l = d.locali || {};
+  localiUI = {
+    principale: { nome: (l.principale && l.principale.nome) || '', parole: (l.principale && l.principale.parole) || '' },
+    altri: (l.altri || []).map((a) => ({ nome: a.nome || '', parole: a.parole || '', testo: a.testo || '',
+      data: a.data || '', da: a.da || '', a: a.a || '', coperti: a.coperti || '' })),
+  };
+  $('#locali-principale-nome').value = localiUI.principale.nome;
+  $('#locali-principale-parole').value = localiUI.principale.parole;
+  disegnaLocali();
+}
+// Come le scrive il bot (`nomiDeiLocali` e `sceltaDeiLocali`): gli altri
+// prima, quello di sempre in fondo.
+function sceltaDeiLocaliUI(lista) {
+  const pezzi = lista.map((l) => `*${(String(l.parole || '').split(',')[0] || l.nome).trim().toLowerCase()}* per ${l.nome}`);
+  return `Scrivi ${pezzi.length <= 1 ? pezzi.join('') : `${pezzi.slice(0, -1).join(', ')} e ${pezzi[pezzi.length - 1]}`}.`;
+}
+function statoAltroLocale(a) {
+  if (!a.nome.trim()) return '⚠️ Scrivi il nome: senza, questo locale non si salva.';
+  if (!a.data) return '⚠️ Manca il giorno.';
+  // «12.30» va bene: si salva come «12:30» (vedi `oraScritta`).
+  if (!/^\d{1,2}:\d{2}$/.test(oraScritta(a.da)) || !/^\d{1,2}:\d{2}$/.test(oraScritta(a.a))) return '⚠️ Scrivi l\'orario di inizio e di fine, per esempio 12:30 e 15:30.';
+  if (!(+a.coperti >= 1)) return '⚠️ Scrivi quanti coperti ha.';
+  if (a.data < new Date().toLocaleDateString('sv-SE')) return 'La data è passata: il bot non lo propone più.';
+  return `Il bot lo propone fino al giorno stesso (con l'anticipo minimo), poi sparisce da solo. Giorno e orario non li chiede: scrivili nella presentazione.`;
+}
+function anteprimaLocali() {
+  const el = $('#locali-anteprima');
+  if (!el) return;
+  const altri = localiUI.altri.filter((a) => a.nome.trim());
+  const p = localiUI.principale;
+  if (!altri.length) { el.textContent = 'Nessun altro locale: il bot non fa la domanda, e lavora come sempre.'; return; }
+  if (!p.nome.trim()) { el.textContent = '⚠️ Scrivi anche il nome del locale di sempre: è l\'altra scelta della domanda.'; return; }
+  el.textContent = `Le scelte, come le scrive il bot: ${sceltaDeiLocaliUI([...altri, p])}`;
+}
+function disegnaLocali() {
+  const el = $('#locali-altri');
+  if (!el) return;
+  el.innerHTML = localiUI.altri.map((a, i) => `
+    <div class="esp" data-l="${i}" style="margin-top:12px">
+      <div class="esp-testa">
+        <input data-campo="nome" maxlength="40" autocomplete="off" placeholder="Nome, per esempio «RO bistrot»" value="${testoSicuro(a.nome)}" aria-label="Nome dell'altro locale ${i + 1}">
+        <button type="button" class="btn btn-secondario btn-piccolo" data-togli-locale="${i}">Togli</button>
+      </div>
+      <label>Parole con cui il cliente lo nomina
+        <input data-campo="parole" autocomplete="off" placeholder="bistrot" value="${testoSicuro(a.parole)}"></label>
+      <div class="locale-quando">
+        <label>Giorno<input type="date" data-campo="data" autocomplete="off" value="${testoSicuro(a.data)}"></label>
+        <label>Dalle<input data-campo="da" class="ora-fascia" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="12:30" value="${testoSicuro(a.da)}"></label>
+        <label>Alle<input data-campo="a" class="ora-fascia" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="15:30" value="${testoSicuro(a.a)}"></label>
+        <label>Coperti<input type="number" data-campo="coperti" min="1" max="5000" inputmode="numeric" autocomplete="off" placeholder="60" value="${testoSicuro(a.coperti)}"></label>
+      </div>
+      <label>Presentazione, appena lo scelgono
+        <textarea data-campo="testo" rows="4" maxlength="1000" placeholder="Questo servizio è attivo per il pranzo della…">${testoSicuro(a.testo)}</textarea></label>
+      <p class="esp-anteprima" data-stato-locale="${i}">${testoSicuro(statoAltroLocale(a))}</p>
+    </div>`).join('');
+  anteprimaLocali();
+}
+function localiDaSalvare() {
+  return {
+    principale: { nome: localiUI.principale.nome.trim(), parole: localiUI.principale.parole },
+    altri: localiUI.altri.map((a) => ({ ...a, da: oraScritta(a.da), a: oraScritta(a.a), coperti: +a.coperti || 0 })),
+  };
+}
+['#locali-principale-nome', '#locali-principale-parole'].forEach((id) => $(id).addEventListener('input', () => {
+  localiUI.principale = { nome: $('#locali-principale-nome').value, parole: $('#locali-principale-parole').value };
+  localiToccati = true;
+  anteprimaLocali();
+}));
+$('#locali-altri').addEventListener('input', (e) => {
+  const card = e.target.closest('[data-l]');
+  const a = card && localiUI.altri[+card.dataset.l];
+  if (!a || !e.target.dataset.campo) return;
+  a[e.target.dataset.campo] = e.target.value;
+  localiToccati = true;
+  const st = card.querySelector('[data-stato-locale]');
+  if (st) st.textContent = statoAltroLocale(a);
+  anteprimaLocali();
+});
+$('#locali-altri').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-togli-locale]');
+  if (!b) return;
+  localiUI.altri.splice(+b.dataset.togliLocale, 1);
+  localiToccati = true;
+  disegnaLocali();
+});
+$('#locali-aggiungi').addEventListener('click', () => {
+  if (localiUI.altri.length >= 4) { toast('Al massimo quattro altri locali'); return; }
+  localiUI.altri.push({ nome: '', parole: '', testo: '', data: '', da: '', a: '', coperti: '' });
+  localiToccati = true;
+  disegnaLocali();
+  const ultimo = $('#locali-altri .esp:last-child input[data-campo="nome"]');
+  if (ultimo) ultimo.focus();
+});
+$('#locali-salva').addEventListener('click', () => salvaConfigBot('locali-salvato'));
 
 async function caricaFileMenu() {
   try {

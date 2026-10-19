@@ -397,6 +397,9 @@
      riempia la sua cella — la riga la decide il più alto, gli altri lo
      raggiungono, e i bordi finiscono alla stessa altezza. */
   .griglia2 label { display: flex; flex-direction: column; }
+  /* ⚠️ «display: flex» vince sull'attributo «hidden»: le tendine nascoste
+     («Locale», «Esperienza») restavano lì, vuote. */
+  .griglia2 label[hidden], #p-esperienza-riga[hidden] { display: none; }
   .griglia2 label input, .griglia2 label select { flex: 1; }
   /* Sotto una certa larghezza due colonne sono una forzatura: i campi
      diventano stretti, la data non ci sta e si tocca male. Una colonna sola
@@ -796,6 +799,7 @@
          numeri resta dove ha un padrone solo. -->
     <div class="pann-corpo">
     <div class="griglia2">
+      <label id="p-locale-riga" hidden>Locale<select id="p-locale"></select></label>
       <label>Giorno<input type="date" id="p-data"></label>
       <label>Ora<select id="p-ora"></select></label>
       <label>Persone<select id="p-persone"></select></label>
@@ -942,6 +946,35 @@ function riempiEsperienze(select, valore) {
     ...nomi.map((n) => `<option value="${sicuro(n)}"${n === valore ? ' selected' : ''}>${sicuro(n)}</option>`)].join('');
   select.closest('label').hidden = !nomi.length;
 }
+// I locali (vedi «I locali» nel bot): { principale, altri } o null. Come in
+// piattaforma: un altro locale ha il suo giorno, la sua ora e i suoi posti.
+let localiDelGiorno = null;
+function riempiLocali(p) {
+  const sel = $('#p-locale');
+  const l = localiDelGiorno;
+  const altri = l ? l.altri.filter((a) => a.aperto || (p && p.fuori_sala && a.nome === p.locale_scelto)) : [];
+  $('#p-locale-riga').hidden = !altri.length;
+  sel.innerHTML = [`<option value="">${sicuro((l && l.principale) || 'Il locale di sempre')}</option>`,
+    ...altri.map((a) => `<option value="${sicuro(a.nome)}">${sicuro(a.nome)} · ${sicuro(a.data.split('-').reverse().join('/'))} ${sicuro(a.da)} · ${a.posti} ${a.posti === 1 ? 'posto' : 'posti'}</option>`)].join('');
+  sel.value = p && p.fuori_sala ? p.locale_scelto : '';
+  sel.disabled = !!p;
+  usaLocaleNelPannello(p);
+}
+function usaLocaleNelPannello(p) {
+  const a = localiDelGiorno && localiDelGiorno.altri.find((x) => x.nome === $('#p-locale').value);
+  $('#p-data').disabled = !!a;
+  $('#p-ora').disabled = !!a;
+  // Le esperienze sono del locale di sempre: per l'altro la tendina sparisce.
+  $('#p-esperienza-riga').hidden = !!a || !esperienzeDelLocale.length;
+  if (!a) return false;
+  $('#p-data').value = a.data;
+  $('#p-ora').innerHTML = `<option value="${sicuro(a.da)}">${sicuro(a.da)}–${sicuro(a.a)}</option>`;
+  const attuale = p ? p.persone : (+$('#p-persone').value || 0);
+  const fino = Math.max(a.posti + (p ? p.persone : 0), attuale, 1);
+  $('#p-persone').innerHTML = ['<option value="">Quante persone…</option>',
+    ...Array.from({ length: fino }, (_, i) => `<option value="${i + 1}"${i + 1 === attuale ? ' selected' : ''}>${i + 1}</option>`)].join('');
+  return true;
+}
 let righeDelGiorno = [];
 let appenaArrivate = [];
 
@@ -960,6 +993,7 @@ async function caricaGiorno() {
   // I tavoli del locale (dal più piccolo) e le righe, per la tendina dei tavoli.
   tavoliDelLocale = d.tavoli || [];
   esperienzeDelLocale = d.esperienze || [];
+  localiDelGiorno = d.locali || null;
   righeDelGiorno = d.righe || [];
   // Una riga per turno, o per servizio — non una per ogni mezz'ora.
   // Una scheda per turno, con la barra dei tavoli — e il cartello del sold out
@@ -1012,7 +1046,8 @@ async function caricaGiorno() {
             ><b>${sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || '—')}</b></button>
           <span class="quanti">${r.persone} <span class="conteggio">pers.</span></span>
           ${r.origine === 'manuale' ? '<span class="conteggio"> · admin</span>' : ''}
-          ${r.esperienza ? `<br><span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : ''}
+          ${r.locale_scelto ? `<br><span class="etichetta-esp">📍 ${sicuro(r.locale_scelto)}</span>` : ''}
+          ${r.esperienza ? `${r.locale_scelto ? ' ' : '<br>'}<span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : ''}
           ${ETICHETTA[r.stato] ? `<span class="conteggio stato-eti"> · ${ETICHETTA[r.stato]}</span>` : ''}
           ${soldiDi(r) ? `<br><span class="conteggio">${soldiDi(r)}</span>` : ''}
           ${numeroPulito(r.telefono_contatto || r.telefono)
@@ -1139,6 +1174,7 @@ function apri(p) {
   $('#p-email').value = p ? (p.email || '') : '';
   $('#p-note').value = p ? (p.note || '') : '';
   riempiEsperienze($('#p-esperienza'), p ? (p.esperienza || '') : '');
+  riempiLocali(p);
   $('#p-tavolo').value = p ? (p.tavolo || '') : '';
   // Chi tiene quali tavoli lo si sa per il giorno e l'ora della prenotazione
   // com'era: cambiati nel pannello, la tendina non dice «libero» a vuoto.
@@ -1475,7 +1511,9 @@ function sottoRiga(r, inArrivo) {
   const segno = segnoDi(r, inArrivo);
   if (segno) pezzi.push(segno);
   // L'esperienza in testa, con la sua etichetta (come sulla riga del servizio).
-  const esp = r.esperienza ? `<span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : '';
+  // E il locale, quando il titolare ne ha più di uno (vedi «I locali»).
+  const esp = [r.locale_scelto ? `<span class="etichetta-esp">📍 ${sicuro(r.locale_scelto)}</span>` : '',
+    r.esperienza ? `<span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : ''].filter(Boolean).join(' ');
   if (!esp && !pezzi.length) return '';
   return `<span class="nota">${esp}${esp && pezzi.length ? ' ' : ''}${pezzi.join(' · ')}</span>`;
 }
@@ -1515,6 +1553,8 @@ async function salvaDavvero() {
     persone: $('#p-persone').value, nome: $('#p-nome').value.trim(),
     cognome: $('#p-cognome').value.trim(), note: $('#p-note').value.trim(),
     esperienza: $('#p-esperienza').value,
+    // Il locale, solo per una nuova: quella già fatta resta nel suo.
+    ...(idAperto ? {} : { locale: $('#p-locale').value }),
     tavolo: $('#p-tavolo').value.trim(),
     telefono: $('#p-telefono').value.trim(), email: $('#p-email').value.trim(),
     avvisa: $('#p-avvisa').checked,
@@ -1583,6 +1623,12 @@ $('#sett-indietro').addEventListener('click', () => Planning.sposta(-7, opzioniP
 $('#sett-avanti').addEventListener('click', () => Planning.sposta(7, opzioniPlanning()));
 $('#sett-oggi').addEventListener('click', () => Planning.daOggi(opzioniPlanning()));
 $('#giorno').addEventListener('change', () => { idVisti = null; caricaGiorno(); });
+// Cambiando locale cambia tutto: il giorno e l'ora dell'altro, o quelli di sempre.
+$('#p-locale').addEventListener('change', () => {
+  if (usaLocaleNelPannello(null)) return;
+  Turni.riempi('#p-ora', $('#p-data').value, '');
+  Turni.riempiPersone('#p-persone', $('#p-data').value, $('#p-persone').value, '');
+});
 // Cambiando giorno cambiano i turni: pranzo, cena, giorni di chiusura.
 $('#p-data').addEventListener('change', () => {
   Turni.riempi('#p-ora', $('#p-data').value, '');

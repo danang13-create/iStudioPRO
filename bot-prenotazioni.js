@@ -290,6 +290,11 @@ function preparaDatabase(db) {
   // com'era scritto nella scheda quando il cliente ha prenotato. Alla cucina
   // serve sapere che il tavolo 12 è un degustazione.
   try { db.exec("ALTER TABLE prenotazioni ADD COLUMN esperienza TEXT NOT NULL DEFAULT ''"); } catch {}
+  // Il locale scelto alla prima domanda («RO bistrot», «REAR Restaurant»), e
+  // se quella prenotazione sta FUORI dalla sala di sempre: i suoi coperti non
+  // contano sui tavoli del locale principale (vedi «I locali»).
+  try { db.exec("ALTER TABLE prenotazioni ADD COLUMN locale_scelto TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { db.exec('ALTER TABLE prenotazioni ADD COLUMN fuori_sala INTEGER NOT NULL DEFAULT 0'); } catch {}
   // «chiusura» o «pieno». Le righe già scritte sono chiusure: è quello che
   // voleva dire questa tabella prima che il sold out esistesse.
   try { db.exec("ALTER TABLE bot_chiusure ADD COLUMN tipo TEXT NOT NULL DEFAULT 'chiusura'"); } catch {}
@@ -620,6 +625,7 @@ const PREDEFINITI = {
   // lista JSON, vuota di fabbrica. Con meno di due il bot non chiede niente
   // e lavora come sempre. Vedi `esperienzeValide`.
   bot_esperienze: '',
+  bot_locali: '',            // la prima domanda: «RO bistrot o REAR?» (vedi «I locali»)
   bot_giorni: '1,2,3,4,5,6,0',
   bot_turni_pranzo: '',
   bot_turni_cena: '19:30,20:00,21:30',
@@ -812,6 +818,18 @@ const PREDEFINITI = {
   bot_t_benvenuto_esperienze: '{saluto} ✨ \n\nSono {assistente} l\'assistente virtuale di {locale}\nSarà un piacere aiutarti con la tua prenotazione.\n\n🕒 Siamo aperti {orari}.\n',
   bot_t_bentornato_esperienze: 'Che bello rivederti, {nome}! ✨\n\n🕒 Siamo aperti {orari}.\n',
   bot_t_esperienze: 'Ecco cosa puoi prenotare da noi:\n\n{esperienze}\n\nA quale sei interessato? Scrivimi il nome o il numero.',
+  // ---- I locali: la prima domanda, prima di tutto (vedi «I locali») ----
+  // {nomi} è «RO bistrot o per REAR Restaurant», {scelte} è «Scrivi *bistrot*
+  // per RO bistrot e *ristorante* per REAR Restaurant.»; {scelto} è il locale
+  // scelto ({locale} resta il nome di tutto, «RO WORLD»).
+  bot_t_benvenuto_locali: '{saluto} ✨\n\nSono {assistente} l\'assistente virtuale di {locale}\nSeguirò la tua prenotazione.\n',
+  bot_t_bentornato_locali: 'Che bello rivederti, {nome}! ✨\n',
+  bot_t_locali: 'Vuoi prenotare per {nomi}?\n\n{scelte}',
+  bot_t_locale_no: 'Non ho capito dove vuoi prenotare.\n\n{scelte}',
+  bot_t_locale_preso: 'Perfetto, {scelto} 👍',
+  bot_t_altro_locale_pieno: 'Mi dispiace: {scelto} per {data} è al completo. 😔',
+  bot_t_altro_locale_restano: 'Mi dispiace, per {scelto} restano solo {posti}: per quante persone vuoi prenotare?',
+  bot_t_altro_locale_sposta: 'La prenotazione per {scelto} è per {data}, e quel giorno non si può spostare.\n\nSe non potete venire scrivi ANNULLA, oppure OPERATORE per parlare con una persona.',
   // Il giorno l'ha già detto: solo le esperienze che valgono quel giorno.
   bot_t_esperienze_giorno: '{data}{servizio} puoi scegliere:\n\n{esperienze}\n\nQuale preferisci? Scrivimi il nome o il numero.',
   bot_t_esperienza_no: 'Non ho capito quale preferisci: scrivimi il nome o il numero.\n\n{esperienze}',
@@ -1970,8 +1988,10 @@ function prenotazioniSovrapposte(db, cfg, iso, ora, escludiId) {
   const fasceIeri = fasceDelGiorno(cfg, ieri);
   const inizio = inMinuti(ora);
   const fine = fineDelTavolo(cfg, fasceOggi, ora);
+  // ⚠️ Solo la sala di sempre: chi ha prenotato un altro locale (il bistrot
+  // del 25 ottobre) ha i suoi coperti, e non toglie posto ai tavoli di qui.
   const righeDel = (data) => db.prepare(
-    'SELECT id, ora, persone, tavolo FROM prenotazioni WHERE data = ? AND stato IN ' + dentro(STATI_VIVI)
+    'SELECT id, ora, persone, tavolo FROM prenotazioni WHERE data = ? AND fuori_sala = 0 AND stato IN ' + dentro(STATI_VIVI)
   ).all(data);
   const siSovrappone = (scarto, fasce) => (r) => {
     if (escludiId && r.id === escludiId) return false;
@@ -2160,7 +2180,8 @@ function daAssegnare(db, iso) {
   const tavoli = tavoliDi(db);
   if (!tavoli.length) return { senza: [], sconosciuti: [] };
   const nomi = new Set(tavoli.map((t) => chiaveTavolo(t.nome)));
-  const vive = db.prepare('SELECT * FROM prenotazioni WHERE data = ? AND stato IN ' + dentro(STATI_VIVI)
+  // Chi è in un altro locale un tavolo di qui non ce l'ha, e non lo aspetta.
+  const vive = db.prepare('SELECT * FROM prenotazioni WHERE data = ? AND fuori_sala = 0 AND stato IN ' + dentro(STATI_VIVI)
     + ' ORDER BY ora, id').all(iso);
   return {
     senza: vive.filter((r) => !chiaveTavolo(r.tavolo)),
@@ -2242,12 +2263,32 @@ function tavoliLiberi(db, cfg, iso, ora, opzioni = {}) {
 //         'chiuso' (servizio chiuso, ma con gente prenotata).
 //   unita: 'tavoli' o 'coperti' — di cosa sono `occupati` e `totale`.
 function riepilogoDelGiorno(db, cfg, iso) {
+  // Gli altri locali di quel giorno (il bistrot del 25 ottobre): una scheda
+  // ciascuno, coi SUOI coperti. In fondo al loro servizio: pranzo prima di cena.
+  const altri = localiDi(cfg).altri.filter((a) => a.data === iso).map((a) => {
+    const presi = a.coperti - postiAltroLocale(db, a);
+    const pieno = presi >= a.coperti;
+    return { servizio: servizioPerOrario(a.da), etichetta: `${a.nome} ${a.da}–${a.a}`,
+             testo: `${presi}/${a.coperti} coperti${pieno ? ' · pieno' : ''}`,
+             pieno, occupati: presi, totale: a.coperti, coperti: presi, senzaTavolo: 0,
+             tipo: 'locale', turno: null, titolo: a.nome, orario: `${a.da}–${a.a}`, unita: 'coperti' };
+  });
+  // Con un altro locale lo stesso giorno, le schede della sala dicono di chi
+  // sono: «REAR Restaurant · 1° turno» accanto a «RO bistrot».
+  const principale = altri.length ? localiDi(cfg).principale : null;
+  const sala = riepilogoDellaSala(db, cfg, iso)
+    .map((r) => (principale ? { ...r, locale: principale.nome, etichetta: `${principale.nome} · ${r.etichetta}` } : r));
+  return [...sala, ...altri]
+    .map((r, i) => [r, i]).sort((x, y) => SERVIZI.indexOf(x[0].servizio) - SERVIZI.indexOf(y[0].servizio) || x[1] - y[1])
+    .map(([r]) => r);
+}
+function riepilogoDellaSala(db, cfg, iso) {
   const fasce = fasceDelGiorno(cfg, iso);
   const tavoli = tavoliDi(db);
   const conTavoli = tavoli.length > 0;
   const totale = conTavoli ? tavoli.length : capienzaDi(db, cfg);
   const passo = passoDi(cfg);
-  const vive = db.prepare('SELECT ora, persone, tavolo FROM prenotazioni WHERE data = ? AND stato IN ' + dentro(STATI_VIVI)).all(iso);
+  const vive = db.prepare('SELECT ora, persone, tavolo FROM prenotazioni WHERE data = ? AND fuori_sala = 0 AND stato IN ' + dentro(STATI_VIVI)).all(iso);
   // Quante aspettano ancora il numero del tavolo (vedi `daAssegnare`).
   const nomi = new Set(tavoli.map((x) => chiaveTavolo(x.nome)));
   const senzaTavolo = (lista) => (conTavoli ? lista.filter((r) => !nomi.has(chiaveTavolo(r.tavolo))).length : 0);
@@ -3043,6 +3084,162 @@ function esperienzaDi(cfg, nome) {
   return esperienzeDi(cfg).find((e) => normalizza(e.nome) === normalizza(nome)) || null;
 }
 
+// ---------------------------------------------------------------------------
+//  I locali: la prima domanda («RO bistrot o REAR Restaurant?»)
+// ---------------------------------------------------------------------------
+//  Chiesto dal titolare (19 ottobre 2026): sotto lo stesso nome («RO WORLD»)
+//  ci sono due locali. Il PRINCIPALE è quello di sempre: orari, tavoli,
+//  esperienze di «Orari e tavoli» e «Esperienze» — non cambia niente. Gli
+//  ALTRI sono serate a sé, con TUTTO il loro: una data, un turno, i coperti
+//  (il bistrot: il pranzo della Giornata mondiale della Pasta, 25 ottobre,
+//  12:30–15:30, 60 coperti, nessun tavolo). Il cliente sceglie per primo, e
+//  dall'altro locale non gli si chiede né il giorno né l'ora: sono scritti
+//  nella presentazione.
+//
+//  ⚠️ Le prenotazioni di un altro locale hanno `fuori_sala = 1` e NON contano
+//  sui tavoli e sui coperti del principale (`prenotazioniSovrapposte`), né il
+//  principale sui loro. Il segno sta sulla riga e non si ricava dal nome: se
+//  domani la serata si toglie dalla scheda, le sue prenotazioni non devono
+//  cominciare a occupare i tavoli del REAR.
+//
+//  La domanda c'è solo quando c'è da scegliere: passata la data, l'altro
+//  locale sparisce da solo e il bot torna a lavorare come prima.
+const LOCALI_MASSIMI = 4;
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+function dataEsiste(iso) {
+  if (!DATA_ISO.test(String(iso || ''))) return false;
+  const [a, m, g] = iso.split('-').map(Number);
+  const d = new Date(a, m - 1, g);
+  return d.getFullYear() === a && d.getMonth() === m - 1 && d.getDate() === g;
+}
+// Letti e ripuliti: { principale: { nome, parole } | null, altri: [...] }.
+// Un altro locale senza nome, data, turno o coperti si scarta: la scheda dice
+// perché prima di salvare (`erroriLocali`). null se non si legge affatto.
+function localiValidi(valore) {
+  let grezzi = valore;
+  if (typeof grezzi === 'string') {
+    if (!grezzi.trim()) return { principale: null, altri: [] };
+    try { grezzi = JSON.parse(grezzi); } catch { return null; }
+  }
+  if (!grezzi || typeof grezzi !== 'object' || Array.isArray(grezzi)) return null;
+  const pulito = (x, max) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, max);
+  const parole = (x) => String(x == null ? '' : x).split(',').map((p) => pulito(p, 40)).filter(Boolean).join(', ');
+  const p = grezzi.principale && typeof grezzi.principale === 'object' ? grezzi.principale : null;
+  const principale = p && pulito(p.nome, 40) ? { nome: pulito(p.nome, 40), parole: parole(p.parole) } : null;
+  const visti = new Set(principale ? [normalizza(principale.nome)] : []);
+  const altri = [];
+  for (const a of Array.isArray(grezzi.altri) ? grezzi.altri : []) {
+    if (!a || typeof a !== 'object') continue;
+    const nome = pulito(a.nome, 40);
+    const [da] = turniValidi(a.da);
+    const [fine] = turniValidi(a.a);
+    const coperti = parseInt(a.coperti, 10);
+    if (!nome || visti.has(normalizza(nome)) || !dataEsiste(a.data) || !da || !fine
+        || inMinuti(fine) <= inMinuti(da) || !(coperti >= 1 && coperti <= 5000)) continue;
+    visti.add(normalizza(nome));
+    altri.push({ nome, parole: parole(a.parole), testo: String(a.testo == null ? '' : a.testo).trim().slice(0, 1000),
+      data: a.data, da, a: fine, coperti });
+  }
+  return { principale, altri: altri.slice(0, LOCALI_MASSIMI) };
+}
+// Perché un altro locale non si salverebbe: una frase per ognuno, vuoto se
+// vanno tutti bene. Per la rotta delle impostazioni.
+function erroriLocali(valore) {
+  let grezzi = valore;
+  if (typeof grezzi === 'string') { try { grezzi = JSON.parse(grezzi || '{}'); } catch { return ['I locali non si leggono.']; } }
+  const errori = [];
+  const nomi = new Set();
+  const p = grezzi && grezzi.principale;
+  if (p && String(p.nome || '').trim()) nomi.add(normalizza(p.nome));
+  const altri = Array.isArray(grezzi && grezzi.altri) ? grezzi.altri : [];
+  if (altri.length > LOCALI_MASSIMI) errori.push(`Al massimo ${LOCALI_MASSIMI} altri locali.`);
+  for (const a of altri) {
+    const nome = String((a && a.nome) || '').trim();
+    const chi = nome ? `«${nome}»` : 'Un locale senza nome';
+    if (!nome) { errori.push(`${chi}: scrivi il nome.`); continue; }
+    if (nomi.has(normalizza(nome))) errori.push(`${chi}: c'è già un locale con questo nome.`);
+    nomi.add(normalizza(nome));
+    if (!dataEsiste(a.data)) errori.push(`${chi}: manca la data.`);
+    const [da] = turniValidi(a.da);
+    const [fine] = turniValidi(a.a);
+    if (!da || !fine) errori.push(`${chi}: scrivi l'orario di inizio e di fine (per esempio 12:30 e 15:30).`);
+    else if (inMinuti(fine) <= inMinuti(da)) errori.push(`${chi}: l'orario di fine viene prima dell'inizio.`);
+    const c = parseInt(a.coperti, 10);
+    if (!(c >= 1 && c <= 5000)) errori.push(`${chi}: scrivi quanti coperti ha (un numero da 1 a 5000).`);
+  }
+  if (altri.length && !(p && String(p.nome || '').trim())) {
+    errori.push('Scrivi anche il nome del locale di sempre: è la seconda scelta della domanda.');
+  }
+  return errori;
+}
+function localiDi(cfg) { return localiValidi(cfg.bot_locali) || { principale: null, altri: [] }; }
+// Un altro locale per nome, anche passato (serve a dire la sua ora e a
+// contarne i posti). null se non c'è.
+function altroLocaleDi(cfg, nome) {
+  if (!nome) return null;
+  return localiDi(cfg).altri.find((a) => normalizza(a.nome) === normalizza(nome)) || null;
+}
+// Si può ancora prenotare? Fino all'anticipo minimo, come per i turni.
+function altroLocaleAperto(cfg, a, adesso = new Date()) {
+  const [y, m, g] = a.data.split('-').map(Number);
+  const inizio = new Date(y, m - 1, g, Math.floor(inMinuti(a.da) / 60), inMinuti(a.da) % 60);
+  return inizio.getTime() - num(cfg.bot_preavviso_ore, 2) * 3600000 > adesso.getTime();
+}
+// Quello che si propone alla prima domanda: gli altri locali ancora aperti,
+// poi quello di sempre. Vuoto se non c'è niente da scegliere (nessun altro
+// locale aperto): allora la domanda non si fa.
+function localiDaProporre(cfg, adesso = new Date()) {
+  const { principale, altri } = localiDi(cfg);
+  const aperti = altri.filter((a) => altroLocaleAperto(cfg, a, adesso));
+  const tutti = [...aperti, ...(principale ? [principale] : [])];
+  return tutti.length >= 2 ? tutti : [];
+}
+// I posti che restano in un altro locale: i coperti meno le persone già
+// prenotate lì (le prenotazioni vive, come per i tavoli).
+function postiAltroLocale(db, a, escludiId = null) {
+  const r = db.prepare('SELECT COALESCE(SUM(persone), 0) AS n FROM prenotazioni WHERE fuori_sala = 1 AND locale_scelto = ? '
+    + 'AND data = ? AND stato IN ' + dentro(STATI_VIVI) + (escludiId ? ' AND id <> ?' : ''))
+    .get(...[a.nome, a.data, ...(escludiId ? [escludiId] : [])]);
+  return a.coperti - (r ? r.n : 0);
+}
+// L'ora di una prenotazione, come si dice al cliente: per un altro locale il
+// suo turno («12:30 (fino alle 15:30)»), sennò quella di sempre (`oraColTurno`).
+function oraDellaPrenotazione(cfg, p) {
+  const fuori = p.fuori_sala || p.fuoriSala;
+  const a = fuori ? altroLocaleDi(cfg, p.locale_scelto || p.localeScelto) : null;
+  if (a && a.da === p.ora) return `${p.ora} (fino alle ${a.a})`;
+  if (fuori) return p.ora;
+  return oraColTurno(cfg, p.data, p.ora);
+}
+// «RO bistrot o per REAR Restaurant» e «Scrivi *bistrot* per RO bistrot e
+// *ristorante* per REAR Restaurant.», per la domanda.
+function nomiDeiLocali(lista) {
+  const n = lista.map((l) => l.nome);
+  return n.length <= 1 ? n.join('') : `${n.slice(0, -1).join(', per ')} o per ${n[n.length - 1]}`;
+}
+function sceltaDeiLocali(lista) {
+  const pezzi = lista.map((l) => `*${(String(l.parole || '').split(',')[0] || l.nome).trim().toLowerCase()}* per ${l.nome}`);
+  return `Scrivi ${pezzi.length <= 1 ? pezzi.join('') : `${pezzi.slice(0, -1).join(', ')} e ${pezzi[pezzi.length - 1]}`}.`;
+}
+// Quale ha scelto: come per le esperienze (numero, nome, parole), e in più le
+// parole scritte con una lettera sbagliata («bistot»).
+// ⚠️ Niente numeri: la domanda chiede una PAROLA, e «2» lì è quasi sempre
+// «siamo in 2» — si tiene da parte (vedi il passo «locale»).
+function interpretaLocale(testo, lista) {
+  const i = esperienzaNominata(testo, lista);
+  if (i !== null) return i;
+  const parole = normalizza(testo).split(' ').filter(Boolean);
+  if (parole.length > 4) return null;
+  const trovati = new Set();
+  lista.forEach((l, j) => {
+    // Una volta sola ciascuna: «bistrot» sta sia nel nome sia fra le parole, e
+    // `parolaVicina` vuole UNA parola vicina, non due uguali.
+    const sue = [...new Set(paroleDellEsperienza(l).flatMap((x) => x.split(' ')).filter((x) => x.length >= 5))];
+    if (parole.some((p) => parolaVicina(p, sue))) trovati.add(j);
+  });
+  return trovati.size === 1 ? [...trovati][0] : null;
+}
+
 // I giorni a parole: «dal lunedì al venerdì», «il sabato», «la domenica»,
 // «il venerdì e il sabato». La settimana comincia dal lunedì.
 const conArticolo = (g) => (g === 0 ? 'la domenica' : `il ${NOMI_GIORNI[g]}`);
@@ -3241,6 +3438,7 @@ function statisticheMenu(db, dal, al) {
 const DOMANDA_DOPO_IL_MENU = {
   inizio: '', persone: '',          // niente da riprendere: si propone di prenotare
   esperienza: 'quale esperienza preferisci',
+  locale: 'dove vuoi prenotare', altro_locale_persone: 'per quante persone',
   giorno: 'per che giorno', servizio: 'pranzo o cena', ora: 'a che ora',
   telefono: 'il numero di telefono', telefono_altro: 'il numero di telefono',
   email: "l'indirizzo email", conferma: 'se confermi la prenotazione',
@@ -3327,7 +3525,7 @@ function minutiFermi(riga, adesso = new Date()) {
 //    vorrebbe dire far perdere l'offerta a chi stava per accettarla;
 //  - «sposta_*» e «annulla_*»: sono percorsi corti e voluti, non ci si perde;
 //  - «sala_*»: sono i comandi del locale, hanno una scadenza loro.
-const PASSI_CHE_RIAPRONO = ['esperienza', 'persone', 'giorno', 'servizio', 'ora', 'telefono', 'email'];
+const PASSI_CHE_RIAPRONO = ['locale', 'altro_locale_persone', 'esperienza', 'persone', 'giorno', 'servizio', 'ora', 'telefono', 'email'];
 
 function riapreConUnSaluto(cfg, riga, testo, adesso = new Date()) {
   if (!riga || !PASSI_CHE_RIAPRONO.includes(riga.passo)) return false;
@@ -3341,6 +3539,8 @@ function riapreConUnSaluto(cfg, riga, testo, adesso = new Date()) {
 // Cosa manca, detto a parole, per la frase del richiamo. Un «sei ancora lì?»
 // che non dice a cosa costringe a scorrere indietro la chat.
 const COSA_MANCA = {
+  locale: 'dove vuoi prenotare',
+  altro_locale_persone: 'per quante persone',
   esperienza: 'quale esperienza preferisci',
   persone: 'per quante persone',
   giorno: 'per che giorno',
@@ -4934,6 +5134,8 @@ function elencoPrenotazioni(db, cfg, iso, adesso = new Date()) {
       + (r.origine === 'manuale' ? ' (admin)' : ''));
     // L'esperienza subito sotto il nome: è la prima cosa che la sala deve
     // sapere di quel tavolo (chiesto dal titolare, 16 ottobre 2026).
+    // Il locale, quando non è quello di sempre (il bistrot del 25 ottobre).
+    if (r.fuori_sala && r.locale_scelto) parti.push(`   📍 ${r.locale_scelto}`);
     if (r.esperienza) parti.push(`   🍽️ ${r.esperienza}`);
     if (numero) parti.push(`   📞 ${numero}`);
     if (r.note) parti.push(`   📝 ${r.note}`);
@@ -5036,7 +5238,24 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // Le esperienze del locale. Con almeno due si chiede; con una vale da sé.
   const esperienze = esperienzeDi(cfg);
   const conEsperienze = esperienze.length >= 2;
-  const esperienzaScelta = (d = dati) => esperienzaDi(cfg, d.esperienza) || (esperienze.length === 1 ? esperienze[0] : null);
+  // I locali della prima domanda (vedi «I locali»): vuoto se non c'è da scegliere.
+  const localiProposti = localiDaProporre(cfg, adesso);
+  const conLocali = localiProposti.length >= 2;
+  const localePrincipale = localiDi(cfg).principale;
+  // La domanda, con le scelte anche se il titolare ha riscritto la frase senza
+  // {nomi} né {scelte} (come per l'elenco delle esperienze).
+  const diLocali = (chiave, extra) => {
+    const scritta = String(cfg[chiave] || '');
+    const scelte = sceltaDeiLocali(localiProposti);
+    const piena = di(chiave, { ...(extra || {}), nomi: nomiDeiLocali(localiProposti), scelte }).trim();
+    if (!piena) return scelte;
+    const nominati = localiProposti.every((l) => normalizza(scritta).includes(normalizza(l.nome)));
+    return scritta.includes('{nomi}') || scritta.includes('{scelte}') || nominati ? piena : `${piena}\n\n${scelte}`;
+  };
+  // ⚠️ Un altro locale (il bistrot) non ha le esperienze del locale di sempre:
+  // con una sola, quella valeva «da sé» anche per lui.
+  const esperienzaScelta = (d = dati) => (d.fuoriSala ? null
+    : esperienzaDi(cfg, d.esperienza) || (esperienze.length === 1 ? esperienze[0] : null));
   const perEsperienza = (d = dati) => { const e = esperienzaScelta(d); return e ? { esperienza: e } : {}; };
   const nomeEsperienza = (d = dati) => { const e = esperienzaScelta(d); return e ? { esperienza: e.nome } : {}; };
 
@@ -5176,6 +5395,13 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // («cambia, siamo in quattro»), e non deve buttare all'aria il percorso.
   // Da qui in poi lo spostamento vero: vale su UNA prenotazione, quella scelta.
   const avviaSposta = (p) => {
+    // ⚠️ Un altro locale (il bistrot) ha un giorno solo: non si sposta. Lo si
+    // dice, invece di proporre i giorni del locale di sempre.
+    if (p.fuori_sala) {
+      risposte.push(di('bot_t_altro_locale_sposta', { scelto: p.locale_scelto, data: dataItaliana(p.data) }));
+      azzeraStato(db, telefono);
+      return esito;
+    }
     // Chi sposta ha già un tavolo: l'anticipo minimo non lo riguarda, e la sua
     // riga non deve contare contro di lui nel cercare il posto nuovo.
     const opzioni = { escludiId: p.id, senzaPreavviso: true, ...perEsperienza({ esperienza: p.esperienza }) };
@@ -5451,6 +5677,10 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // «da dove si era» è la domanda sull'esperienza.
     const dopo = () => {
       if (cosa) return di('bot_t_menu_riprendi', { cosa });
+      if (conLocali && stato.passo === 'inizio') {
+        salvaStato(db, telefono, 'locale', {});
+        return diLocali('bot_t_locali');
+      }
       if (conEsperienze && stato.passo === 'inizio') {
         salvaStato(db, telefono, 'esperienza', {});
         return diConElenco('bot_t_esperienze', elencoEsperienze(esperienze));
@@ -5535,9 +5765,16 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       if (si === false) { risposte.push(`Va bene 👍\n\n${dopo()}`); return esito; }
     }
     if (cosa !== undefined && quale && !(stato.passo === 'persone' && interpretaPersone(testo) !== null)
-        && !(stato.passo === 'esperienza' && interpretaEsperienza(testo, esperienze) !== null)) {
+        && !(stato.passo === 'esperienza' && interpretaEsperienza(testo, esperienze) !== null)
+        && !(stato.passo === 'locale' && interpretaLocale(testo, localiProposti) !== null)) {
       const faq = stato.passo === 'persone' ? cercaFaq(db, testo) : null;
       if (faq) { risposte.push(riempi(faq, valori)); return esito; }
+      // ⚠️ Chi ha scelto un altro locale (il bistrot) non riceve il menu del
+      // locale di sempre: lo si dice, come per un'esperienza senza menu.
+      if (dati.fuoriSala) {
+        risposte.push(`${di('bot_t_esperienza_senza_menu', { esperienza: dati.localeScelto || '' })}\n\n${dopo()}`);
+        return esito;
+      }
       const q = scelto();
       // L'esperienza un menu non ce l'ha: lo si dice, non se ne manda un altro.
       if (q && q.senza) {
@@ -5571,6 +5808,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // esperienze, sotto arriva la domanda sull'esperienza.
   if (valori.orari && DOMANDA_DOPO_IL_MENU[stato.passo] !== undefined && chiedeGliOrari(testo)) {
     const cosa = DOMANDA_DOPO_IL_MENU[stato.passo];
+    if (!cosa && conLocali && stato.passo === 'inizio') return chiediLocale({}, '', di('bot_t_orari'));
     if (!cosa && conEsperienze && stato.passo === 'inizio') return chiediEsperienza({}, '', di('bot_t_orari'));
     risposte.push(`${di('bot_t_orari')}\n\n${cosa ? di('bot_t_menu_riprendi', { cosa }) : di('bot_t_menu_prenota')}`);
     return esito;
@@ -5616,7 +5854,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       }
       risposte.push(di('bot_t_gia_prenotato', {
         nome,
-        data: dataItaliana(gia.data), ora: oraColTurno(cfg, gia.data, gia.ora), persone: gia.persone,
+        data: dataItaliana(gia.data), ora: oraDellaPrenotazione(cfg, gia), persone: gia.persone,
       }));
       return esito;
     };
@@ -5624,7 +5862,9 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // già letto, e gli si sta rispondendo. Senza questa riga «nuova
     // prenotazione» ricadrebbe nel ricordino — la stessa frase, di nuovo.
     if (PAROLA_NUOVA.test(String(testo).trim())) {
-      // Con le esperienze, anche a chi scrive NUOVA si chiede prima quale.
+      // Con le esperienze, anche a chi scrive NUOVA si chiede prima quale (e
+      // con più locali, prima ancora dove).
+      if (conLocali) return chiediLocale({}, '');
       if (conEsperienze) return chiediEsperienza({}, '');
       salvaStato(db, telefono, 'persone', nomeEsperienza({}));
       // ⚠️ Qui NON va il benvenuto. Chi scrive NUOVA ha appena letto il nostro
@@ -5693,6 +5933,10 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       if (gia && !sembraPrenotazione) return ricordaIlTavolo(true);
       // Con le esperienze la prima domanda è «cosa vuoi mangiare»: il
       // benvenuto senza la domanda delle persone, e sotto l'elenco.
+      // Con più locali la prima domanda è DOVE (vedi «I locali»).
+      if (conLocali) {
+        return chiediLocale({ ...conServizio({}), ...conGiorno }, gia ? '' : (giaVisto ? 'bot_t_bentornato_locali' : 'bot_t_benvenuto_locali'));
+      }
       if (conEsperienze) {
         return chiediEsperienza({ ...conServizio({}), ...conGiorno }, gia ? '' : (giaVisto ? 'bot_t_bentornato_esperienze' : 'bot_t_benvenuto_esperienze'));
       }
@@ -5711,6 +5955,10 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     }
     // Le persone già nel primo messaggio: con le esperienze si tengono da
     // parte, si chiede l'esperienza, e la domanda delle persone non si rifà.
+    if (conLocali) {
+      return chiediLocale({ ...conServizio({}), persone, ...conGiorno },
+        gia ? '' : (giaVisto ? 'bot_t_bentornato_locali' : 'bot_t_benvenuto_locali'));
+    }
     if (conEsperienze) {
       return chiediEsperienza({ ...conServizio({}), persone, ...conGiorno },
         gia ? '' : (giaVisto ? 'bot_t_bentornato_esperienze' : 'bot_t_benvenuto_esperienze'));
@@ -5782,6 +6030,111 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const t = String(testa || '').trim();
     if (t && risposte.length > prima) risposte[prima] = `${t}\n\n${risposte[prima]}`;
     return r;
+  }
+
+  // ---- Il locale: «RO bistrot o REAR Restaurant?» (vedi «I locali») ----
+  // La prima domanda, prima ancora dell'esperienza. `d` porta quello che il
+  // cliente ha già detto (persone, giorno, servizio): vale per il locale di
+  // sempre, e le persone anche per l'altro.
+  function chiediLocale(d, benvenuto, testaInPiu = '') {
+    const testa = [testaInPiu, benvenuto ? riempi(senzaRigheVuote(cfg[benvenuto], valori), valori).trim() : '']
+      .map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
+    salvaStato(db, telefono, 'locale', d);
+    risposte.push([testa, diLocali('bot_t_locali')].filter(Boolean).join('\n\n'));
+    return esito;
+  }
+  // Il locale di sempre: tutto come prima, dall'esperienza (o dalle persone)
+  // in giù, con «Perfetto, REAR Restaurant 👍» e i suoi orari in cima.
+  function presoIlPrincipale(d) {
+    const testa = [di('bot_t_locale_preso', { scelto: localePrincipale.nome }), valori.orari ? di('bot_t_orari') : '']
+      .map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
+    if (conEsperienze) return chiediEsperienza(d, '', testa);
+    return dopoLEsperienza(d, testa);
+  }
+  // Un altro locale: la sua presentazione, poi le persone. Il giorno e l'ora
+  // sono i suoi, e non si chiedono: sono scritti nella presentazione.
+  function presoAltroLocale(a, d) {
+    if (postiAltroLocale(db, a) <= 0) return altroLocalePieno(a);
+    const testa = riempi(a.testo || '', valori).trim();
+    if (d.persone) return personeAltroLocale(a, d.persone, testa);
+    salvaStato(db, telefono, 'altro_locale_persone', baseAltroLocale(a));
+    risposte.push([testa, di('bot_t_quante')].filter(Boolean).join('\n\n'));
+    return esito;
+  }
+  function baseAltroLocale(a) { return { localeScelto: a.nome, fuoriSala: true, data: a.data, ora: a.da }; }
+  // Pieno: lo si dice, e si ripropone la scelta (il locale di sempre c'è ancora).
+  function altroLocalePieno(a) {
+    salvaStato(db, telefono, 'locale', {});
+    risposte.push(`${di('bot_t_altro_locale_pieno', { scelto: a.nome, data: dataItaliana(a.data) })}\n\n${diLocali('bot_t_locali')}`);
+    return esito;
+  }
+  function personeAltroLocale(a, persone, testa = '') {
+    const conTesta = (x) => [testa, x].filter(Boolean).join('\n\n');
+    const base = baseAltroLocale(a);
+    // Come per la sala di sempre: i gruppi grossi li prende una persona.
+    if (persone > num(cfg.bot_max_persone, 8)) {
+      risposte.push(conTesta(`Per ${persone} persone preferisco farti parlare con il locale: ti risponde una persona a breve.`));
+      esito.passaAUmano = true;
+      azzeraStato(db, telefono);
+      return esito;
+    }
+    if (persone < num(cfg.bot_min_persone, 1)) {
+      salvaStato(db, telefono, 'altro_locale_persone', base);
+      risposte.push(conTesta(di('bot_t_persone_no')));
+      return esito;
+    }
+    const posti = postiAltroLocale(db, a);
+    if (posti <= 0) return altroLocalePieno(a);
+    // Meno posti di quelli chiesti: si dice quanti, e si richiede.
+    if (persone > posti) {
+      salvaStato(db, telefono, 'altro_locale_persone', base);
+      risposte.push(conTesta(di('bot_t_altro_locale_restano', { scelto: a.nome, posti: posti === 1 ? '1 posto' : `${posti} posti` })));
+      return esito;
+    }
+    const prima = risposte.length;
+    const r = dopoLOra({ ...base, persone });
+    if (testa && risposte.length > prima) risposte[prima] = `${testa}\n\n${risposte[prima]}`;
+    return r;
+  }
+
+  if (stato.passo === 'locale') {
+    // Nel frattempo la scelta è sparita (l'altro locale ha chiuso le
+    // prenotazioni): si riparte come se fosse il primo messaggio.
+    if (!conLocali) {
+      azzeraStato(db, telefono);
+      return rispondiAlMessaggio(db, telefono, testo, adesso, contesto);
+    }
+    const i = interpretaLocale(testo, localiProposti);
+    if (i === null) {
+      const faq = cercaFaq(db, testo);
+      if (faq) { risposte.push(riempi(faq, valori)); return esito; }
+      // «Siamo in 4», «sabato»: si tiene da parte e si richiede il locale. Non
+      // è un equivoco: ha risposto a una domanda che viene dopo.
+      const persone = interpretaPersone(testo);
+      const giorno = giornoDettoInsieme(testo);
+      if (persone !== null || giorno) {
+        salvaStato(db, telefono, 'locale', { ...avanzato(dati), ...conServizio(),
+          ...(persone !== null ? { persone } : {}), ...(giorno ? { giornoDetto: giorno } : {}) });
+        risposte.push(diLocali('bot_t_locali'));
+        return esito;
+      }
+      return nonCapito('locale', dati, diLocali('bot_t_locale_no'));
+    }
+    const scelto = localiProposti[i];
+    if (localePrincipale && normalizza(scelto.nome) === normalizza(localePrincipale.nome)) return presoIlPrincipale(avanzato(dati));
+    return presoAltroLocale(scelto, avanzato(dati));
+  }
+
+  if (stato.passo === 'altro_locale_persone') {
+    const a = altroLocaleDi(cfg, dati.localeScelto);
+    // Le prenotazioni per quel locale si sono chiuse mentre scriveva.
+    if (!a || !altroLocaleAperto(cfg, a, adesso)) {
+      azzeraStato(db, telefono);
+      return rispondiAlMessaggio(db, telefono, testo, adesso, contesto);
+    }
+    const persone = interpretaPersone(testo);
+    if (persone === null) return nonCapito('altro_locale_persone', dati, di('bot_t_persone_no'));
+    return personeAltroLocale(a, persone);
   }
 
   if (stato.passo === 'esperienza') {
@@ -6441,12 +6794,14 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const valoriRiepilogo = {
       ...valori,
       // L'orario col suo turno e la fine: «19:30 (1° turno, fino alle 21:00)».
-      data: dataItaliana(d.data), ora: oraColTurno(cfg, d.data, d.ora), persone: d.persone,
+      data: dataItaliana(d.data), ora: oraDellaPrenotazione(cfg, d), persone: d.persone,
       nome: [d.nome, d.cognome].filter(Boolean).join(' ') || '—',
       cognome: d.cognome || '',
       telefono: d.telefono || '',
       note: d.note || '',
-      esperienza: nomeEsperienza(d).esperienza || '',
+      // Con più locali, anche il locale: «RO bistrot», «REAR Restaurant · Business lunch».
+      esperienza: [d.fuoriSala ? d.localeScelto : (conLocali && localePrincipale ? localePrincipale.nome : ''),
+        nomeEsperienza(d).esperienza || ''].filter(Boolean).join(' · '),
     };
     // ⚠️ La riga per correggere il nome esce SOLO se il nome l'abbiamo messo
     // noi. A chi l'ha appena scritto non serve, ed è solo rumore in fondo a un
@@ -6513,7 +6868,13 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   function scrivilaInArchivio(d) {
     // Ultimo controllo prima di scrivere: due clienti possono aver confermato
     // lo stesso ultimo posto mentre scrivevano.
-    const posto = postoPer(db, cfg, d.data, d.ora, d.persone);
+    // Un altro locale ha i suoi coperti, non i tavoli di qui (vedi «I locali»).
+    const altro = d.fuoriSala ? altroLocaleDi(cfg, d.localeScelto) : null;
+    const posto = d.fuoriSala ? { ok: !!altro && postiAltroLocale(db, altro) >= d.persone }
+      : postoPer(db, cfg, d.data, d.ora, d.persone);
+    // Il bistrot pieno mentre scriveva: «al completo», e la domanda «dove?» —
+    // non «vuoi un altro giorno?», che per lui non c'è.
+    if (!posto.ok && altro && conLocali) return altroLocalePieno(altro);
     if (!posto.ok) {
       risposte.push(di('bot_t_completo', { data: dataItaliana(d.data) }));
       azzeraStato(db, telefono);
@@ -6539,10 +6900,12 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const blocca = bloccaLaPrenotazione(cfg, d.persone);
     const info = db.prepare(
       'INSERT INTO prenotazioni (telefono, nome, cognome, data, ora, persone, note, telefono_contatto, email, '
-      + 'per_altri, tavolo, esperienza, stato, importo_dovuto, importo_totale, pagamento_scade_at) '
-      + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      + 'per_altri, tavolo, esperienza, locale_scelto, fuori_sala, stato, importo_dovuto, importo_totale, pagamento_scade_at) '
+      + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(telefono, d.nome || '', d.cognome || '', d.data, d.ora, d.persone,
           d.note || '', recapito, d.email || '', d.perAltri ? 1 : 0, '', nomeEsperienza(d).esperienza || '',
+          // Il locale: quello scelto, o — se il titolare li ha nominati — quello di sempre.
+          d.fuoriSala ? d.localeScelto : (localePrincipale ? localePrincipale.nome : ''), d.fuoriSala ? 1 : 0,
           blocca ? 'attesa_pagamento' : 'confermata',
           // Gli importi si scrivono comunque: anche una caparra facoltativa è
           // un conto che il locale deve poter vedere e ritrovare.
@@ -6723,6 +7086,8 @@ module.exports = {
   tettoRisposte, risposteDiOggi,
   menuDellEsperienza, esperienzaNominata, FILE_MENU_ESPERIENZA,
   esperienzeScritte, serviziAperti,
+  localiValidi, erroriLocali, localiDi, altroLocaleDi, altroLocaleAperto, localiDaProporre, postiAltroLocale,
+  oraDellaPrenotazione, nomiDeiLocali, sceltaDeiLocali, interpretaLocale, LOCALI_MASSIMI,
   orariDetti, chiedeGliOrari, valeIlGiorno,
   prenotazioneFutura,
   elencoPrenotazioni,
