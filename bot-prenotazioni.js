@@ -403,6 +403,8 @@ function preparaDatabase(db) {
 // dalla storia del progetto — ogni frase che è stata riscritta lascia qui
 // dietro quella di prima.
 const TESTI_SUPERATI = {
+  bot_t_turno_unico: [
+    'Per {data} a {servizio} c’è un solo turno disponibile, {fascia}. ✨\n\nTi va bene? Scrivi SÌ per continuare.',  ],
   bot_t_menu_invito: [
     '📖 Se vuoi dare prima un’occhiata, scrivi {scelte}.',  ],
   bot_t_menu: [
@@ -888,8 +890,10 @@ const PREDEFINITI = {
   // (orari di prima) vale ancora `bot_t_ora`, con gli orari sotto.
   bot_t_ora_turno: 'Per {data} c’è disponibilità nei seguenti orari:\n\n{turni}\n\nScrivimi il turno che preferisci (per esempio «il primo») oppure l’orario.',
   // Un servizio con un turno solo: invece di un elenco di una riga, si chiede
-  // se va bene. {fascia} è «dalle 13:00 alle 15:00», o «alle 13:00».
-  bot_t_turno_unico: 'Per {data} a {servizio} c’è un solo turno disponibile, {fascia}. ✨\n\nTi va bene? Scrivi SÌ per continuare.',
+  // se va bene. {arrivo} è «alle 12:30, e il tavolo è tuo fino alle 15:30»
+  // (o «alle 12:30» se la fine non è scritta); {fascia} è «dalle 12:30 alle
+  // 15:30». Senza la parola «turno»: deciso dal titolare (19 ottobre 2026).
+  bot_t_turno_unico: 'Per {data} a {servizio} ti aspettiamo {arrivo}. ✨\n\nTi va bene? Scrivi SÌ per continuare.',
   // Il servizio chiesto è chiuso (o pieno) e dell'altro resta un turno solo:
   // sotto quel turno, la domanda.
   bot_t_unico_va_bene: 'Ti va bene? Scrivi SÌ per continuare.',
@@ -2282,11 +2286,13 @@ function riepilogoDelGiorno(db, cfg, iso) {
         const pieno = occupati >= totale;
         const fissa = sue.find((f) => f.da === o);
         const fascia = fissa && fissa.turno && fissa.a !== fissa.da ? `${o}–${fissa.a}` : o;
-        righe.push({ servizio, etichetta: `${NOMI[servizio]} ${fissa && fissa.turno ? `· ${i + 1}° turno ` : ''}${fascia}`,
+        // Il numero solo se i turni sono più di uno (vedi `turnoDellOra`).
+        const numerato = fissa && fissa.turno && orari.length > 1;
+        righe.push({ servizio, etichetta: `${NOMI[servizio]} ${numerato ? `· ${i + 1}° turno ` : ''}${fascia}`,
                      testo: conTavoli ? `${misura(occupati)} · ${cop(coperti)}${pieno ? ' · pieno' : ''}`
                        : `${misura(occupati)} coperti${pieno ? ' · pieno' : ''}`,
                      pieno, occupati, totale, coperti, senzaTavolo: senzaTavolo(loro),
-                     tipo: fissa && fissa.turno ? 'turno' : 'orario', turno: fissa && fissa.turno ? i + 1 : null,
+                     tipo: fissa && fissa.turno ? 'turno' : 'orario', turno: numerato ? i + 1 : null,
                      orario: fascia, unita: conTavoli ? 'tavoli' : 'coperti' });
       });
     } else {
@@ -3753,18 +3759,35 @@ function elencoTurni(turni, cfg, iso) {
   return `Pranzo: ${pranzo.join(' · ')}\nCena: ${cena.join(' · ')}`;
 }
 
-// Il turno di un orario, per dirlo al cliente: { numero, da, a }. `a` c'è solo
-// se il titolare ha scritto la fine del turno. null se l'orario non è un turno.
+// Il turno di un orario, per dirlo al cliente: { numero, da, a, unico }. `a`
+// c'è solo se il titolare ha scritto la fine del turno. `unico`: è l'unico
+// turno del suo servizio quel giorno. null se l'orario non è un turno.
+//
+// ⚠️ Con un turno solo il numero NON si dice (deciso dal titolare, 19 ottobre
+// 2026): «1° turno» quando non c'è un secondo sembra un modulo, e al cliente
+// non dice niente. Si dice l'orario: «dalle 12:30 alle 15:30», «12:30 (fino
+// alle 15:30)». Il numero resta per la logica (`numeroDelTurno`): chi scrive
+// comunque «il primo» viene capito lo stesso.
 function turnoDellOra(cfg, iso, ora) {
   const numero = numeroDelTurno(cfg, iso, ora);
   if (!numero) return null;
-  const f = fasceDelGiorno(cfg, iso).find((x) => x.turno && x.da === ora);
-  return { numero, da: ora, a: f && inMinuti(f.a) > inMinuti(f.da) ? f.a : '' };
+  const fasce = fasceDelGiorno(cfg, iso);
+  const f = fasce.find((x) => x.turno && x.da === ora);
+  const servizio = servizioDellOra(cfg, iso, ora);
+  const unico = fasce.filter((x) => x.servizio === servizio).length === 1;
+  return { numero, da: ora, a: f && inMinuti(f.a) > inMinuti(f.da) ? f.a : '', unico };
+}
+// Il numero del turno da DIRE: null se il turno è l'unico del servizio (vedi
+// sopra). Per le tendine della piattaforma e le schede del servizio.
+function numeroDaDire(cfg, iso, ora) {
+  const t = turnoDellOra(cfg, iso, ora);
+  return t && !t.unico ? t.numero : null;
 }
 function rigaTurno(cfg, iso, ora) {
   const t = turnoDellOra(cfg, iso, ora);
   if (!t) return ora;
-  return `*${t.numero}° turno* · ${t.a ? `dalle ${t.da} alle ${t.a}` : `alle ${t.da}`}`;
+  const fascia = t.a ? `dalle ${t.da} alle ${t.a}` : `alle ${t.da}`;
+  return t.unico ? fascia : `*${t.numero}° turno* · ${fascia}`;
 }
 // «dalle 13:00 alle 15:00», o «alle 13:00» se la fine non è scritta.
 function fasciaDetta(cfg, iso, ora) {
@@ -3785,7 +3808,14 @@ function ordinaleDi(testo) {
 function oraColTurno(cfg, iso, ora) {
   const t = turnoDellOra(cfg, iso, ora);
   if (!t) return ora;
+  if (t.unico) return t.a ? `${ora} (fino alle ${t.a})` : ora;
   return `${ora} (${t.numero}° turno${t.a ? `, fino alle ${t.a}` : ''})`;
+}
+// «alle 12:30, e il tavolo è tuo fino alle 15:30», o «alle 12:30» se la fine
+// del turno non è scritta. Per la domanda sul turno che resta.
+function arrivoDetto(cfg, iso, ora) {
+  const t = turnoDellOra(cfg, iso, ora);
+  return t && t.a ? `alle ${ora}, e il tavolo è tuo fino alle ${t.a}` : `alle ${ora}`;
 }
 
 // «il primo», «2° turno», «secondo», o un «1» da solo: il turno scelto,
@@ -5853,6 +5883,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       salvaStato(db, telefono, passo, { ...avanzato(d), data: iso, turni, servizio: servizioDellOra(cfg, iso, ora), unico: ora });
       risposte.push(di('bot_t_turno_unico', {
         data: dataItaliana(iso), servizio: servizioDellOra(cfg, iso, ora), fascia: fasciaDetta(cfg, iso, ora), ora,
+        arrivo: arrivoDetto(cfg, iso, ora),
       }));
       return esito;
     }
@@ -6645,7 +6676,7 @@ module.exports = {
   turniDelGiorno,
   turniValidi,
   fasceDi, fasceValide, fasceDaiTurni, fasceDelGiorno, fineDelTavolo, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
-  servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI, turnoDellOra, rigaTurno, oraColTurno, fasciaDetta, ordinaleDi, interpretaTurno,
+  servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI, turnoDellOra, numeroDaDire, rigaTurno, oraColTurno, arrivoDetto, fasciaDetta, ordinaleDi, interpretaTurno,
   tavoliDi, usaTavoli, capienzaDi, trovaTavolo, postoPer, ciStanno, gruppoMassimo, tavoliLiberi,
   chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, numeroDelTurno, tavoloCheResta, daAssegnare, tavoliPresiPer, minimoDi, adattoA, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
   importoDaPagare,

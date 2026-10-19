@@ -203,7 +203,8 @@ window.Turni = (function () {
   function schedaTurno(r) {
     const quota = r.totale ? Math.min(r.occupati / r.totale, 1) : 0;
     const stato = r.pieno ? 'pieno' : quota >= 0.8 ? 'quasi' : '';
-    const titolo = r.tipo === 'turno' ? `${r.turno}° turno`
+    // Il turno unico del servizio non ha numero: il titolo è la fascia.
+    const titolo = r.tipo === 'turno' ? (r.turno ? `${r.turno}° turno` : '')
       : r.tipo === 'servizio' ? 'Tutto il servizio'
       : r.tipo === 'chiuso' ? '⚠️ Chiuso' : 'Orario';
     const coperti = `${r.coperti} ${r.coperti === 1 ? 'coperto' : 'coperti'}`;
@@ -222,7 +223,8 @@ window.Turni = (function () {
     ].filter(Boolean).join(' · ');
     return `<div class="tg-scheda${stato ? ' ' + stato : ''}${r.tipo === 'chiuso' ? ' chiuso' : ''}"
         title="${sicuro(`${r.etichetta}: ${r.testo}`)}">
-      <div class="tg-testa"><span class="tg-titolo">${sicuro(titolo)}</span><span class="tg-ora">${sicuro(r.orario)}</span></div>
+      <div class="tg-testa">${titolo ? `<span class="tg-titolo">${sicuro(titolo)}</span><span class="tg-ora">${sicuro(r.orario)}</span>`
+        : `<span class="tg-titolo">${sicuro(r.orario)}</span>`}</div>
       <div class="tg-num">${numero}</div>
       ${r.tipo === 'chiuso' ? '' : `<div class="meter" role="img" aria-label="${r.occupati} su ${r.totale} ${r.unita}"><i class="${stato}" style="width:${Math.round(quota * 100)}%"></i></div>`}
       ${sotto ? `<div class="tg-sotto">${sicuro(sotto)}</div>` : ''}

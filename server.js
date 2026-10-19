@@ -7271,11 +7271,12 @@ const rottaServizio = (req, res) => {
   // tavoli «solo sala»: chi guarda questa pagina è il personale, che li può dare.
   const conTavoli = bot.usaTavoli(db);
   // Il servizio e il numero del turno servono alla tendina degli orari, che li
-  // raggruppa: «Pranzo — 1° turno · 12:30», invece di una lista unica.
+  // raggruppa: «Pranzo — 1° turno · 12:30», invece di una lista unica. Il
+  // numero manca quando il turno è l'unico del servizio: «12:30» e basta.
   const turni = bot.turniDelGiorno(cfg, data).map((t) => ({
     ora: t,
     servizio: bot.servizioDellOra(cfg, data, t),
-    turno: bot.numeroDelTurno(cfg, data, t),
+    turno: bot.numeroDaDire(cfg, data, t),
     occupati: bot.copertiOccupati(db, cfg, data, t),
     ...(conTavoli
       ? { liberi: bot.gruppoMassimo(db, cfg, data, t, { ancheSala: true }),
