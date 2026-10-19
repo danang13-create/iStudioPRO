@@ -835,6 +835,13 @@ const PREDEFINITI = {
   bot_t_altro_locale_pieno: 'Mi dispiace: {scelto} per {data} è al completo. 😔',
   bot_t_altro_locale_restano: 'Mi dispiace, per {scelto} restano solo {posti}: per quante persone vuoi prenotare?',
   bot_t_altro_locale_sposta: 'La prenotazione per {scelto} è per {data}, e quel giorno non si può spostare.\n\nSe non potete venire scrivi ANNULLA, oppure OPERATORE per parlare con una persona.',
+  // Chi ha già un posto all'altro locale e riscrive: il promemoria dice DOVE
+  // (chi ha prenotato anche il REAR deve capire quale delle due sta leggendo),
+  // e non offre CAMBIA — quel giorno non si sposta, e promettergli una cosa
+  // per dirgli di no al messaggio dopo è peggio che non dirla. Lo stesso nella
+  // domanda prima di cancellare (deciso dal titolare, 19 ottobre 2026).
+  bot_t_gia_altro_locale: '{saluto} {nome}! \nHai già una prenotazione confermata:\n\n📍 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nCosa vuoi fare?\n\n• Per annullarla, scrivi CANCELLA.\n• Per fare un\'altra prenotazione, scrivi NUOVA.',
+  bot_t_annulla_altro_locale: 'Sei sicuro di voler cancellare la prenotazione?\n\n📍 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nScrivi SÌ per confermare',
   // Il giorno l'ha già detto: solo le esperienze che valgono quel giorno.
   bot_t_esperienze_giorno: '{data}{servizio} puoi scegliere:\n\n{esperienze}\n\nQuale preferisci? Scrivimi il nome o il numero.',
   bot_t_esperienza_no: 'Non ho capito quale preferisci: scrivimi il nome o il numero.\n\n{esperienze}',
@@ -4503,9 +4510,13 @@ function sceltaFraCandidati(candidati, testo, db) {
 // Un elenco numerato corto: si legge su un telefono e si risponde con una
 // cifra sola. Data breve, ora, persone — niente altro: il nome è sempre lo
 // stesso (è lui), e le note non aiutano a distinguere una sera dall'altra.
+//
+// Il locale sì, quando non è quello di sempre: il 25 ottobre chi ha il
+// bistrot a pranzo e il REAR a cena deve capire quale delle due sta toccando.
 function elencoDaScegliere(righe) {
   return righe.map((r, i) => `${i + 1}. ${dataBreve(r.data)} · ${r.ora} · `
-    + `${r.persone} ${r.persone === 1 ? 'persona' : 'persone'}`).join('\n');
+    + `${r.persone} ${r.persone === 1 ? 'persona' : 'persone'}`
+    + (r.fuori_sala && r.locale_scelto ? ` · ${r.locale_scelto}` : '')).join('\n');
 }
 
 // Il testo lo scrive il ristoratore, l'elenco lo mette il programma: se nella
@@ -5568,7 +5579,10 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
 
   const chiediConfermaAnnullo = (p) => {
     salvaStato(db, telefono, 'annulla_conferma', { id: p.id });
-    risposte.push(di('bot_t_annulla_quale', {
+    // Dall'altro locale: dove, e fino a che ora (vedi `bot_t_gia_altro_locale`).
+    risposte.push(p.fuori_sala ? di('bot_t_annulla_altro_locale', {
+      scelto: p.locale_scelto, data: dataItaliana(p.data), ora: oraDellaPrenotazione(cfg, p), persone: p.persone,
+    }) : di('bot_t_annulla_quale', {
       data: dataItaliana(p.data), ora: p.ora, persone: p.persone,
     }));
     return esito;
@@ -5857,8 +5871,8 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
         risposte.push(conElenco(di('bot_t_gia_prenotate', { nome, quante: tutte.length }), tutte));
         return esito;
       }
-      risposte.push(di('bot_t_gia_prenotato', {
-        nome,
+      risposte.push(di(gia.fuori_sala ? 'bot_t_gia_altro_locale' : 'bot_t_gia_prenotato', {
+        nome, scelto: gia.locale_scelto,
         data: dataItaliana(gia.data), ora: oraDellaPrenotazione(cfg, gia), persone: gia.persone,
       }));
       return esito;
