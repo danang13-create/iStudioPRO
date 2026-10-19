@@ -98,9 +98,10 @@ window.Planning = (function () {
         // ciascuna): sotto ci vanno i coperti, che servono alla cucina.
         : `${g.conTavoli ? `${coperti} coperti` : `${prenotazioni} pren.`}${pieno ? ' · pieno' : quasi ? ' · quasi pieno' : ''}`;
       // Una riga per ogni altro locale di quel giorno: il nome, le persone
-      // sui suoi coperti, e «pieno» a parole quando lo è.
+      // sui suoi coperti, e «pieno» a parole quando lo è. 🍝 è l'icona del
+      // bistrot, la stessa delle etichette (vedi `iconaLocale`).
       const altri = g.locali || [];
-      const righeAltri = altri.map((x) => `<span class="sotto locale">📍 ${sicuro(x.nome)} ${x.coperti}/${x.capienza}`
+      const righeAltri = altri.map((x) => `<span class="sotto locale">🍝 ${sicuro(x.nome)} ${x.coperti}/${x.capienza}`
         + `${x.capienza && x.coperti >= x.capienza ? ' · pieno' : ''}</span>`).join('');
       const titoloAltri = altri.map((x) => `, ${x.nome}: ${x.coperti} coperti su ${x.capienza}`).join('');
       const classi = ['giorno', g.oggi ? 'oggi' : '', g.data === scelto ? 'scelto' : '', g.chiuso ? 'chiuso' : '',

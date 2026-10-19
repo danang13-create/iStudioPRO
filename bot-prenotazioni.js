@@ -410,6 +410,11 @@ function preparaDatabase(db) {
 const TESTI_SUPERATI = {
   bot_t_locali: [
     'Vuoi prenotare per {nomi}?\n\n{scelte}',  ],
+  // Col segnaposto 📍 al posto di 🍝 (19 ottobre 2026, chiesto dal titolare).
+  bot_t_gia_altro_locale: [
+    '{saluto} {nome}! \nHai già una prenotazione confermata:\n\n📍 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nCosa vuoi fare?\n\n• Per annullarla, scrivi CANCELLA.\n• Per fare un\'altra prenotazione, scrivi NUOVA.',  ],
+  bot_t_annulla_altro_locale: [
+    'Sei sicuro di voler cancellare la prenotazione?\n\n📍 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nScrivi SÌ per confermare',  ],
   bot_t_turno_unico: [
     'Per {data} a {servizio} c’è un solo turno disponibile, {fascia}. ✨\n\nTi va bene? Scrivi SÌ per continuare.',  ],
   bot_t_menu_invito: [
@@ -840,8 +845,10 @@ const PREDEFINITI = {
   // e non offre CAMBIA — quel giorno non si sposta, e promettergli una cosa
   // per dirgli di no al messaggio dopo è peggio che non dirla. Lo stesso nella
   // domanda prima di cancellare (deciso dal titolare, 19 ottobre 2026).
-  bot_t_gia_altro_locale: '{saluto} {nome}! \nHai già una prenotazione confermata:\n\n📍 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nCosa vuoi fare?\n\n• Per annullarla, scrivi CANCELLA.\n• Per fare un\'altra prenotazione, scrivi NUOVA.',
-  bot_t_annulla_altro_locale: 'Sei sicuro di voler cancellare la prenotazione?\n\n📍 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nScrivi SÌ per confermare',
+  // 🍝 e non 📍: l'icona del bistrot, la stessa delle pagine (chiesto dal
+  // titolare). Il 📍 resta al locale di sempre, nelle etichette delle pagine.
+  bot_t_gia_altro_locale: '{saluto} {nome}! \nHai già una prenotazione confermata:\n\n🍝 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nCosa vuoi fare?\n\n• Per annullarla, scrivi CANCELLA.\n• Per fare un\'altra prenotazione, scrivi NUOVA.',
+  bot_t_annulla_altro_locale: 'Sei sicuro di voler cancellare la prenotazione?\n\n🍝 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nScrivi SÌ per confermare',
   // Il giorno l'ha già detto: solo le esperienze che valgono quel giorno.
   bot_t_esperienze_giorno: '{data}{servizio} puoi scegliere:\n\n{esperienze}\n\nQuale preferisci? Scrivimi il nome o il numero.',
   bot_t_esperienza_no: 'Non ho capito quale preferisci: scrivimi il nome o il numero.\n\n{esperienze}',
@@ -5151,7 +5158,7 @@ function elencoPrenotazioni(db, cfg, iso, adesso = new Date()) {
     // L'esperienza subito sotto il nome: è la prima cosa che la sala deve
     // sapere di quel tavolo (chiesto dal titolare, 16 ottobre 2026).
     // Il locale, quando non è quello di sempre (il bistrot del 25 ottobre).
-    if (r.fuori_sala && r.locale_scelto) parti.push(`   📍 ${r.locale_scelto}`);
+    if (r.fuori_sala && r.locale_scelto) parti.push(`   🍝 ${r.locale_scelto}`);
     if (r.esperienza) parti.push(`   🍽️ ${r.esperienza}`);
     if (numero) parti.push(`   📞 ${numero}`);
     if (r.note) parti.push(`   📝 ${r.note}`);

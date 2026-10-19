@@ -1061,7 +1061,7 @@ async function caricaGiorno() {
             ><b>${sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || '—')}</b></button>
           <span class="quanti">${r.persone} <span class="conteggio">pers.</span></span>
           ${r.origine === 'manuale' ? '<span class="conteggio"> · admin</span>' : ''}
-          ${r.locale_scelto ? `<br><span class="etichetta-esp">📍 ${sicuro(r.locale_scelto)}</span>` : ''}
+          ${r.locale_scelto ? `<br><span class="etichetta-esp">${Turni.iconaLocale(r)} ${sicuro(r.locale_scelto)}</span>` : ''}
           ${r.esperienza ? `${r.locale_scelto ? ' ' : '<br>'}<span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : ''}
           ${ETICHETTA[r.stato] ? `<span class="conteggio stato-eti"> · ${ETICHETTA[r.stato]}</span>` : ''}
           ${soldiDi(r) ? `<br><span class="conteggio">${soldiDi(r)}</span>` : ''}
@@ -1527,7 +1527,7 @@ function sottoRiga(r, inArrivo) {
   if (segno) pezzi.push(segno);
   // L'esperienza in testa, con la sua etichetta (come sulla riga del servizio).
   // E il locale, quando il titolare ne ha più di uno (vedi «I locali»).
-  const esp = [r.locale_scelto ? `<span class="etichetta-esp">📍 ${sicuro(r.locale_scelto)}</span>` : '',
+  const esp = [r.locale_scelto ? `<span class="etichetta-esp">${Turni.iconaLocale(r)} ${sicuro(r.locale_scelto)}</span>` : '',
     r.esperienza ? `<span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : ''].filter(Boolean).join(' ');
   if (!esp && !pezzi.length) return '';
   return `<span class="nota">${esp}${esp && pezzi.length ? ' ' : ''}${pezzi.join(' · ')}</span>`;

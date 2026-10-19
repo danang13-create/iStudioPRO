@@ -469,6 +469,11 @@ window.Turni = (function () {
   // Quando cambia il giorno, i turni possono essere altri (pranzo, chiusure).
   function dimentica() { ultimaData = null; ultimiTurni = []; ultimaCapienza = 0; conTavoli = false; quando = 0; }
 
+  // L'icona dell'etichetta del locale su una prenotazione: 🍝 per l'altro
+  // locale (il bistrot del 25 ottobre: chiesto dal titolare, 19 ottobre 2026),
+  // 📍 per quello di sempre. Qui e non in ciascuna pagina: due copie divergono.
+  function iconaLocale(r) { return r && r.fuori_sala ? '🍝' : '📍'; }
+
   return { dellaGiornata, riempi, riempiPersone, liberiPer, capienza, dimentica, opzioniOrari, disegnaRiepilogo,
-           aggiornaRiepilogo, sceltaTavolo, elencoTavoli, chiudiTavoli };
+           aggiornaRiepilogo, sceltaTavolo, elencoTavoli, chiudiTavoli, iconaLocale };
 })();
