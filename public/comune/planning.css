@@ -51,6 +51,9 @@
 .giorno .gg { font-size: .72rem; color: var(--grigio); text-transform: uppercase; letter-spacing: .04em; }
 .giorno .num { font-size: 1.5rem; font-weight: 700; line-height: 1; }
 .giorno .sotto { font-size: .74rem; color: var(--grigio); }
+/* Un altro locale di quel giorno (il bistrot): la sua riga, col suo nome.
+   Più scura delle altre: è un servizio a parte, e non va perso fra i grigi. */
+.giorno .sotto.locale { color: var(--testo); font-weight: 600; }
 /* 4px di raggio sulle estremità del dato, come tutte le barre del sistema */
 .meter { height: 6px; border-radius: 4px; background: var(--meter-fondo, #cdeedd); overflow: hidden; }
 .meter > i { display: block; height: 100%; border-radius: 4px; background: var(--verde-scuro); }
@@ -126,7 +129,7 @@
    basterebbe (e non deve bastare): la scritta dice già «chiuso, ma N pren.». */
 .giorno.chiuso-con-gente { opacity: 1; border-color: var(--allarme, #b26a00); background: var(--allarme-fondo, #fff8e6); }
 .giorno.chiuso-con-gente .num { color: var(--allarme, #b26a00); }
-.giorno.chiuso-con-gente .sotto:last-child { color: var(--allarme, #b26a00); font-weight: 600; }
+.giorno.chiuso-con-gente .sotto.stato { color: var(--allarme, #b26a00); font-weight: 600; }
 
 /* ── La tendina dei tavoli (Turni.sceltaTavolo) ──
    Dal più piccolo al più grande, a gruppi per posti. Lo stato di ogni tavolo

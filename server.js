@@ -7428,10 +7428,11 @@ const rottaSettimana = (req, res) => {
     // scriverebbe «0 coperti» su una sera in cui il bot rifiuta i tavoli, e chi
     // guarda lo schermo prenderebbe al telefono un tavolo che non c'è.
     const righe = db.prepare(
-      'SELECT persone, fuori_sala FROM prenotazioni WHERE data = ? AND stato IN ' + bot.dentro(bot.STATI_VIVI)
+      'SELECT persone, fuori_sala, locale_scelto FROM prenotazioni WHERE data = ? AND stato IN ' + bot.dentro(bot.STATI_VIVI)
     ).all(data);
     // I tavoli li occupano solo quelli della sala di sempre.
     const inSala = righe.filter((r) => !r.fuori_sala);
+    const coperti = (lista) => lista.reduce((n, r) => n + r.persone, 0);
     giorni.push({
       data,
       etichetta: bot.dataItaliana(data),
@@ -7448,11 +7449,23 @@ const rottaSettimana = (req, res) => {
       soldOut,
       passato: data < oggi,
       oggi: data === oggi,
-      coperti: righe.reduce((n, r) => n + r.persone, 0),
+      coperti: coperti(righe),
       prenotazioni: righe.length,
       conTavoli: quantiTavoli > 0,
       tavoliOccupati: inSala.length,
       tavoliCapienza: chiusoSala ? 0 : quantiTavoli * bot.giriDelGiorno(cfg, data),
+      // La sala di sempre e gli altri locali, ciascuno coi suoi numeri: nel
+      // riquadro il bistrot ha la sua riga (vedi `planning.js`). I totali qui
+      // sopra restano di tutta la giornata. Le persone di un altro locale si
+      // contano come le conta il bot (`postiAltroLocale`): per nome.
+      chiusoSala,
+      copertiSala: coperti(inSala),
+      prenotazioniSala: inSala.length,
+      capienzaSala: chiusoSala ? 0 : perTurno * bot.giriDelGiorno(cfg, data),
+      locali: altri.map((x) => {
+        const sue = righe.filter((r) => r.fuori_sala && r.locale_scelto === x.nome);
+        return { nome: x.nome, coperti: coperti(sue), prenotazioni: sue.length, capienza: x.coperti };
+      }),
     });
   }
   res.json({ oggi, dal: partenza, giorni });
