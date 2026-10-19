@@ -408,6 +408,8 @@ function preparaDatabase(db) {
 // dalla storia del progetto — ogni frase che è stata riscritta lascia qui
 // dietro quella di prima.
 const TESTI_SUPERATI = {
+  bot_t_locali: [
+    'Vuoi prenotare per {nomi}?\n\n{scelte}',  ],
   bot_t_turno_unico: [
     'Per {data} a {servizio} c’è un solo turno disponibile, {fascia}. ✨\n\nTi va bene? Scrivi SÌ per continuare.',  ],
   bot_t_menu_invito: [
@@ -824,7 +826,10 @@ const PREDEFINITI = {
   // scelto ({locale} resta il nome di tutto, «RO WORLD»).
   bot_t_benvenuto_locali: '{saluto} ✨\n\nSono {assistente} l\'assistente virtuale di {locale}\nSeguirò la tua prenotazione.\n',
   bot_t_bentornato_locali: 'Che bello rivederti, {nome}! ✨\n',
-  bot_t_locali: 'Vuoi prenotare per {nomi}?\n\n{scelte}',
+  // Senza «Scrivi *bistrot* per…»: deciso dal titolare (19 ottobre 2026), è
+  // scontato — il bot capisce i nomi, le parole e anche «bistot». Le scelte
+  // restano in `bot_t_locale_no`, per chi risponde altro.
+  bot_t_locali: 'Vuoi prenotare per {nomi}?',
   bot_t_locale_no: 'Non ho capito dove vuoi prenotare.\n\n{scelte}',
   bot_t_locale_preso: 'Perfetto, {scelto} 👍',
   bot_t_altro_locale_pieno: 'Mi dispiace: {scelto} per {data} è al completo. 😔',
