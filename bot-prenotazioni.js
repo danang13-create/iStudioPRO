@@ -410,6 +410,13 @@ function preparaDatabase(db) {
 const TESTI_SUPERATI = {
   bot_t_locali: [
     'Vuoi prenotare per {nomi}?\n\n{scelte}',  ],
+  // «Scrivimi il nome o il numero» → «Scrivi il numero: 1, 2 o 3» (19 ottobre 2026).
+  bot_t_esperienze: [
+    'Ecco cosa puoi prenotare da noi:\n\n{esperienze}\n\nA quale sei interessato? Scrivimi il nome o il numero.',  ],
+  bot_t_esperienze_giorno: [
+    '{data}{servizio} puoi scegliere:\n\n{esperienze}\n\nQuale preferisci? Scrivimi il nome o il numero.',  ],
+  bot_t_esperienza_no: [
+    'Non ho capito quale preferisci: scrivimi il nome o il numero.\n\n{esperienze}',  ],
   // Col segnaposto 📍 al posto di 🍝 (19 ottobre 2026, chiesto dal titolare).
   bot_t_gia_altro_locale: [
     '{saluto} {nome}! \nHai già una prenotazione confermata:\n\n📍 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nCosa vuoi fare?\n\n• Per annullarla, scrivi CANCELLA.\n• Per fare un\'altra prenotazione, scrivi NUOVA.',  ],
@@ -824,7 +831,10 @@ const PREDEFINITI = {
   // prima della domanda, e sotto arriva l'elenco. Deciso dal titolare.
   bot_t_benvenuto_esperienze: '{saluto} ✨ \n\nSono {assistente} l\'assistente virtuale di {locale}\nSarà un piacere aiutarti con la tua prenotazione.\n\n🕒 Siamo aperti {orari}.\n',
   bot_t_bentornato_esperienze: 'Che bello rivederti, {nome}! ✨\n\n🕒 Siamo aperti {orari}.\n',
-  bot_t_esperienze: 'Ecco cosa puoi prenotare da noi:\n\n{esperienze}\n\nA quale sei interessato? Scrivimi il nome o il numero.',
+  // {numeri} è «1, 2 o 3»: si sceglie col numero (chiesto dal titolare, 19
+  // ottobre 2026). Il nome lo capisce lo stesso, ma «business lunch» può
+  // valere per due — vedi `bot_t_esperienza_quale`.
+  bot_t_esperienze: 'Ecco cosa puoi prenotare da noi:\n\n{esperienze}\n\nA quale sei interessato? Scrivi il numero: {numeri}.',
   // ---- I locali: la prima domanda, prima di tutto (vedi «I locali») ----
   // {nomi} è «RO bistrot o per REAR Restaurant», {scelte} è «Scrivi *bistrot*
   // per RO bistrot e *ristorante* per REAR Restaurant.»; {scelto} è il locale
@@ -850,8 +860,13 @@ const PREDEFINITI = {
   bot_t_gia_altro_locale: '{saluto} {nome}! \nHai già una prenotazione confermata:\n\n🍝 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nCosa vuoi fare?\n\n• Per annullarla, scrivi CANCELLA.\n• Per fare un\'altra prenotazione, scrivi NUOVA.',
   bot_t_annulla_altro_locale: 'Sei sicuro di voler cancellare la prenotazione?\n\n🍝 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nScrivi SÌ per confermare',
   // Il giorno l'ha già detto: solo le esperienze che valgono quel giorno.
-  bot_t_esperienze_giorno: '{data}{servizio} puoi scegliere:\n\n{esperienze}\n\nQuale preferisci? Scrivimi il nome o il numero.',
-  bot_t_esperienza_no: 'Non ho capito quale preferisci: scrivimi il nome o il numero.\n\n{esperienze}',
+  bot_t_esperienze_giorno: '{data}{servizio} puoi scegliere:\n\n{esperienze}\n\nQuale preferisci? Scrivi il numero: {numeri}.',
+  bot_t_esperienza_no: 'Non ho capito quale preferisci 🙏 Scrivi il numero: {numeri}.\n\n{esperienze}',
+  // Il nome scritto va bene per più d'una («business lunch»: da €35 o da
+  // €45?). L'elenco è solo di quelle, coi numeri di prima.
+  bot_t_esperienza_quale: 'Ne abbiamo più di uno 🙂\n\n{esperienze}\n\nQuale preferisci? Scrivi il numero: {numeri}.',
+  // «No» subito dopo «Perfetto, business lunch 👍»: si sceglie di nuovo.
+  bot_t_esperienza_altra: 'Nessun problema 🙂 Ecco di nuovo cosa puoi prenotare:\n\n{esperienze}\n\nQuale preferisci? Scrivi il numero: {numeri}.',
   bot_t_esperienza_presa: 'Perfetto, {esperienza} 👍',
   // Niente domanda «vuoi vedere il menu?»: una riga, e chi lo vuole scrive
   // MENU — e riceve quello dell'esperienza scelta, senza «quale?».
@@ -1110,7 +1125,10 @@ const NUMERI_A_PAROLE = {
 // NON accetta «io, mia moglie e i suoceri»: lì restituisce null e passa a una
 // persona, che è meglio di prenotare per il numero sbagliato.
 function interpretaPersone(testo) {
-  const t = normalizza(testo);
+  // ⚠️ «No, business lunch da 45 euro» diventava «per 45 persone preferisco
+  // farti parlare con il locale» (19 ottobre 2026). Un prezzo non è un
+  // numero di persone: «45 euro», «45€», «€45», «45,50 €» si tolgono prima.
+  const t = normalizza(testo).replace(/€\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:€|euro\b|eur\b)/g, ' ').trim();
   if (!t) return null;
   const cifre = t.match(/\b(\d{1,2})\b/);
   if (cifre) {
@@ -3291,12 +3309,21 @@ function quandoDetto(e) {
 }
 const NUMERI_IN_CERCHIO = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
 // L'elenco per il cliente: numero, nome in grassetto, quando vale, la riga.
+// Con `numeri` i numeri sono quelli dati (una parte dell'elenco, coi numeri
+// che il cliente ha già letto); sennò da 1.
 function elencoEsperienze(esperienze, opzioni = {}) {
   return esperienze.map((e, i) => {
     const quando = opzioni.senzaQuando ? '' : quandoDetto(e);
-    return `${NUMERI_IN_CERCHIO[i] || `${i + 1}.`} *${e.nome}*${quando ? ` · ${quando}` : ''}${e.riga ? `\n${e.riga}` : ''}`;
+    const n = opzioni.numeri ? opzioni.numeri[i] : i + 1;
+    return `${NUMERI_IN_CERCHIO[n - 1] || `${n}.`} *${e.nome}*${quando ? ` · ${quando}` : ''}${e.riga ? `\n${e.riga}` : ''}`;
   }).join('\n\n');
 }
+// «1, 2 o 3»: i numeri da scrivere, nella domanda sotto un elenco.
+function numeriDetti(numeri) {
+  const n = numeri.map(String);
+  return n.length <= 1 ? n.join('') : `${n.slice(0, -1).join(', ')} o ${n[n.length - 1]}`;
+}
+const daUnoA = (k) => Array.from({ length: k }, (_, i) => i + 1);
 // Vale quel giorno (a quel servizio, se detto)? Per restringere l'elenco a
 // chi il giorno l'ha già scritto: «sabato sera» non ha il business lunch.
 function valeIlGiorno(e, iso, servizio) {
@@ -3357,17 +3384,52 @@ function interpretaEsperienza(testo, esperienze) {
 // Solo per PAROLE, senza numeri: «il menu del business lunch», «menu alla
 // carta». Serve alla richiesta del menu, dove un numero non vuol dire
 // un'esperienza. Indice, o null.
+// ⚠️ Un nome solo, oppure null — anche quando ne nomina più d'una: allora
+// indovinarne una è il guasto (vedi `esperienzeNominate`).
 function esperienzaNominata(testo, esperienze) {
+  const n = esperienzeNominate(testo, esperienze);
+  return n.length === 1 ? n[0] : null;
+}
+// I pezzi di un nome, per spareggiare: «Business lunch da €45» → business,
+// lunch, da, 45.
+function pezziDelNome(testo) {
+  return normalizza(testo).split(/[^a-z0-9]+/).filter(Boolean);
+}
+// QUALI esperienze nomina il testo (indici). Le parole intere, e vince la più
+// lunga: «menu degustazione» batte «menu».
+// ⚠️ IL GUASTO, visto in una chat vera (19 ottobre 2026): due esperienze,
+// «Business lunch da €35» e «da €45», con le stesse parole. Il cliente
+// scriveva «business lunch» e il bot prendeva la PRIMA, senza dirlo. Ora a
+// parità spareggia il resto del nome («da 45 euro» ha il 45); se resta il
+// pari le restituisce tutte, e il bot chiede quale.
+// Senza nessuna parola, vale un prezzo che sta nel nome di una sola — ma solo
+// scritto da prezzo: «quello da 45», «45 euro», «45€». «Siamo in 45» sono
+// persone, e «2» è la scelta dall'elenco.
+function esperienzeNominate(testo, esperienze) {
   const t = normalizza(testo);
-  if (!t || !esperienze.length) return null;
-  let scelta = null, lunga = 0;
-  esperienze.forEach((e, i) => {
+  if (!t || !esperienze.length) return [];
+  const lunghezze = esperienze.map((e) => {
+    let lunga = 0;
     for (const p of paroleDellEsperienza(e)) {
       const re = new RegExp(`(^|[^a-z0-9])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`);
-      if (p.length > lunga && re.test(t)) { scelta = i; lunga = p.length; }
+      if (p.length > lunga && re.test(t)) lunga = p.length;
     }
+    return lunga;
   });
-  return scelta;
+  const pezzi = new Set(pezziDelNome(t));
+  const max = Math.max(...lunghezze);
+  if (!max) {
+    const prezzi = [...t.matchAll(/(?:\bda\s*€?\s*|€\s*)(\d+)\b|\b(\d+)\s*(?:€|euro\b|eur\b)/g)].map((m) => m[1] || m[2]);
+    const col = prezzi.length ? daUnoA(esperienze.length).map((n) => n - 1)
+      .filter((i) => pezziDelNome(esperienze[i].nome).some((x) => prezzi.includes(x))) : [];
+    return col.length === 1 ? col : [];
+  }
+  const pari = daUnoA(esperienze.length).map((n) => n - 1).filter((i) => lunghezze[i] === max);
+  if (pari.length === 1) return pari;
+  const punti = pari.map((i) => pezziDelNome(esperienze[i].nome).filter((x) => pezzi.has(x)).length);
+  const meglio = Math.max(...punti);
+  const vincono = pari.filter((_, k) => punti[k] === meglio);
+  return vincono.length === 1 ? vincono : pari;
 }
 // ⚠️ IL MENU DI UN'ESPERIENZA (16 ottobre 2026). Chiesto dal titolare: dopo
 // «business lunch» il cliente scriveva MENU e gli arrivava quello alla carta,
@@ -5261,6 +5323,13 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // Le esperienze del locale. Con almeno due si chiede; con una vale da sé.
   const esperienze = esperienzeDi(cfg);
   const conEsperienze = esperienze.length >= 2;
+  // Le persone, senza il prezzo di un'esperienza: in «no quello da 45» o
+  // «business lunch da 45 per 4» il 45 è il business lunch, non la tavolata
+  // (visto in una chat vera, 19 ottobre 2026). Solo «da» + un numero che sta
+  // nel nome di un'esperienza: «siamo in 45» resta 45.
+  const numeriDeiNomi = new Set(esperienze.flatMap((e) => pezziDelNome(e.nome)).filter((x) => /^\d+$/.test(x)));
+  const personeDette = (x) => interpretaPersone(numeriDeiNomi.size
+    ? normalizza(x).replace(/\bda\s*€?\s*(\d+)\b/g, (intero, n) => (numeriDeiNomi.has(n) ? ' ' : intero)) : x);
   // I locali della prima domanda (vedi «I locali»): vuoto se non c'è da scegliere.
   const localiProposti = localiDaProporre(cfg, adesso);
   const conLocali = localiProposti.length >= 2;
@@ -5709,7 +5778,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       }
       if (conEsperienze && stato.passo === 'inizio') {
         salvaStato(db, telefono, 'esperienza', {});
-        return diConElenco('bot_t_esperienze', elencoEsperienze(esperienze));
+        return diConElenco('bot_t_esperienze', elencoEsperienze(esperienze), { numeri: numeriDetti(daUnoA(esperienze.length)) });
       }
       return di('bot_t_menu_prenota');
     };
@@ -5790,7 +5859,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       if (si === true && daRimandare) { manda(daRimandare); return esito; }
       if (si === false) { risposte.push(`Va bene 👍\n\n${dopo()}`); return esito; }
     }
-    if (cosa !== undefined && quale && !(stato.passo === 'persone' && interpretaPersone(testo) !== null)
+    if (cosa !== undefined && quale && !(stato.passo === 'persone' && personeDette(testo) !== null)
         && !(stato.passo === 'esperienza' && interpretaEsperienza(testo, esperienze) !== null)
         && !(stato.passo === 'locale' && interpretaLocale(testo, localiProposti) !== null)) {
       const faq = stato.passo === 'persone' ? cercaFaq(db, testo) : null;
@@ -5912,7 +5981,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       return ricordaIlTavolo();
     }
 
-    const persone = interpretaPersone(testo);
+    const persone = personeDette(testo);
     // ⚠️ Il giorno detto già nel primo messaggio (19 ottobre 2026): «vorrei
     // prenotare per 2 domenica sera» si perdeva per strada — senza esperienze
     // il bot richiedeva «quale giorno?», e a chi la domenica sera trovava
@@ -6001,14 +6070,15 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // I numeri dell'elenco ristretto si ricordano in `scelte`.
   function elencoDaProporre(d) {
     const tutte = { valide: esperienze, ristrette: false,
-      testo: diConElenco('bot_t_esperienze', elencoEsperienze(esperienze)) };
+      testo: diConElenco('bot_t_esperienze', elencoEsperienze(esperienze), { numeri: numeriDetti(daUnoA(esperienze.length)) }) };
     if (!d.giornoDetto) return tutte;
     const valide = esperienze.filter((e) => valeIlGiorno(e, d.giornoDetto, d.servizio));
     if (!valide.length) return tutte;
     const data = dataItaliana(d.giornoDetto);
     return { valide, ristrette: true,
       testo: diConElenco('bot_t_esperienze_giorno', elencoEsperienze(valide, { senzaQuando: true }),
-        { data: data.charAt(0).toUpperCase() + data.slice(1), servizio: d.servizio ? ` a ${d.servizio}` : '' }) };
+        { data: data.charAt(0).toUpperCase() + data.slice(1), servizio: d.servizio ? ` a ${d.servizio}` : '',
+          numeri: numeriDetti(daUnoA(valide.length)) }) };
   }
   // Il benvenuto (senza righe coi segnaposto vuoti: la riga degli orari di un
   // locale senza orari non deve uscire mezza) e la domanda. Se il giorno già
@@ -6017,12 +6087,20 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const testa = [testaInPiu, benvenuto ? riempi(senzaRigheVuote(cfg[benvenuto], valori), valori).trim() : '']
       .map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
     const elenco = elencoDaProporre(d);
-    if (elenco.ristrette && elenco.valide.length === 1) {
+    // In testa alla risposta che segue: il benvenuto, o «Che bello rivederti».
+    const conTesta = (fai) => {
       const prima = risposte.length;
-      const r = presaLEsperienza(elenco.valide[0], d);
+      const r = fai();
       if (testa && risposte.length > prima) risposte[prima] = `${testa}\n\n${risposte[prima]}`;
       return r;
-    }
+    };
+    if (elenco.ristrette && elenco.valide.length === 1) return conTesta(() => presaLEsperienza(elenco.valide[0], d));
+    // L'ha già detta («vorrei il business lunch da 45 per 4»): si prende,
+    // senza fargliela riscegliere da un elenco. Se il nome vale per più
+    // d'una, si chiede fra quelle.
+    const detta = esperienzeNominate(testo, elenco.valide);
+    if (detta.length === 1) return conTesta(() => presaLEsperienza(elenco.valide[detta[0]], d));
+    if (detta.length > 1) return conTesta(() => chiediQualeFra(elenco.valide, detta, elenco.ristrette ? { ...d, scelte: elenco.valide.map((e) => e.nome) } : d));
     salvaStato(db, telefono, 'esperienza', { ...d, ...(elenco.ristrette ? { scelte: elenco.valide.map((e) => e.nome) } : {}) });
     risposte.push([testa, elenco.testo].filter(Boolean).join('\n\n'));
     return esito;
@@ -6032,6 +6110,61 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // Scelta: «perfetto», il cappello scritto dal titolare, e — se ha un menu
   // attivo da offrire — «se vuoi vederlo scrivi MENU». Niente domanda in
   // più, deciso dal titolare: si va dritti alle persone.
+  // Il nome scritto vale per più d'una («business lunch»: da €35 o da €45?):
+  // si chiede quale, con l'elenco di quelle sole e i numeri che il cliente ha
+  // già letto. `lista` è l'elenco a cui si riferiscono i numeri: quello
+  // proposto (ristretto al giorno) o tutte — e allora i numeri sono di tutte.
+  function chiediQualeFra(lista, indici, d) {
+    const { scelte, ...resto } = d;
+    salvaStato(db, telefono, 'esperienza', { ...resto, ...(lista !== esperienze && scelte ? { scelte } : {}) });
+    const sue = indici.map((i) => lista[i]);
+    const numeri = indici.map((i) => i + 1);
+    // «Quando vale» solo se le distingue: due business lunch dal lunedì al
+    // venerdì a pranzo, scritto due volte, è rumore.
+    const senzaQuando = new Set(sue.map((e) => quandoDetto(e))).size <= 1;
+    risposte.push(diConElenco('bot_t_esperienza_quale', elencoEsperienze(sue, { numeri, senzaQuando }), { numeri: numeriDetti(numeri) }));
+    return esito;
+  }
+  // «No» a «Perfetto, business lunch 👍»: l'elenco di nuovo, tutte.
+  function sceltaDaCapo(d) {
+    const { scelte, esperienza, tentativi, ...resto } = d;
+    salvaStato(db, telefono, 'esperienza', resto);
+    risposte.push(diConElenco('bot_t_esperienza_altra', elencoEsperienze(esperienze), { numeri: numeriDetti(daUnoA(esperienze.length)) }));
+    return esito;
+  }
+  // ⚠️ L'esperienza si corregge anche DOPO averla scelta. Visto in una chat
+  // vera (19 ottobre 2026): «business lunch» → «Perfetto, Business lunch da
+  // €35 👍 Per quante persone?» → «No business lunch da 45 euro» → «Per 45
+  // persone preferisco farti parlare con il locale». Il cliente correggeva.
+  // Ai passi delle persone e del giorno (quelli che vengono subito dopo):
+  // - ne nomina un'ALTRA, una sola → si cambia, e si riparte da lì;
+  // - ne nomina più d'una → si chiede quale;
+  // - «no» + quella di adesso fra altre («no, business lunch») → le altre;
+  // - un «no» secco, alla domanda delle persone → l'elenco di nuovo.
+  // Il servizio e l'ora no: lì «pranzo» o «no» rispondono alla domanda, e una
+  // parola dell'esperienza potrebbe essere proprio quella.
+  function correggeLEsperienza() {
+    // Il giorno e il servizio non contano: «sabato a cena» risponde alla
+    // domanda del giorno anche se fra le parole della carta c'è «cena».
+    const daGuardare = normalizza(testo)
+      .replace(/\b(pranzo|cena|stasera|oggi|domani|dopodomani|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)\b/g, ' ');
+    const nominate = esperienzeNominate(daGuardare, esperienze);
+    const attuale = esperienze.findIndex((e) => e.nome === dati.esperienza);
+    const nega = /^(no|non|nono)\b/.test(normalizza(testo));
+    let altre = [];
+    if (nominate.length && !nominate.includes(attuale)) altre = nominate;
+    else if (nominate.length > 1 && nega) altre = nominate.filter((i) => i !== attuale);
+    const { esperienza, tentativi, scelte, ...resto } = dati;
+    const persone = personeDette(testo);
+    const giorno = giornoDettoInsieme(testo);
+    const tenuti = { ...resto, ...(persone !== null ? { persone } : {}), ...(giorno ? { giornoDetto: giorno } : {}) };
+    if (altre.length === 1) return presaLEsperienza(esperienze[altre[0]], tenuti);
+    if (altre.length > 1) return chiediQualeFra(esperienze, altre, tenuti);
+    if (stato.passo === 'persone' && !nominate.length && persone === null && interpretaSiNo(testo) === false) {
+      return sceltaDaCapo(dati);
+    }
+    return null;
+  }
   function presaLEsperienza(e, d) {
     const { scelte, ...resto } = d;
     const dopo = { ...resto, esperienza: e.nome };
@@ -6169,26 +6302,41 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const proposte = dati.scelte ? esperienze.filter((e) => dati.scelte.includes(e.nome)) : esperienze;
     let fra = proposte;
     let scelta = interpretaEsperienza(testo, proposte);
-    if (scelta === null && proposte !== esperienze) { fra = esperienze; scelta = interpretaEsperienza(testo, esperienze); }
+    if (scelta === null) {
+      const ambigue = esperienzeNominate(testo, proposte);
+      if (ambigue.length > 1) return chiediQualeFra(proposte, ambigue, { ...avanzato(dati), ...conServizio() });
+    }
+    if (scelta === null && proposte !== esperienze) {
+      fra = esperienze;
+      scelta = interpretaEsperienza(testo, esperienze);
+      const ambigue = scelta === null ? esperienzeNominate(testo, esperienze) : [];
+      if (ambigue.length > 1) return chiediQualeFra(esperienze, ambigue, { ...avanzato(dati), ...conServizio() });
+    }
     if (scelta === null) {
       const faq = cercaFaq(db, testo);
       if (faq) { risposte.push(riempi(faq, valori)); return esito; }
       // «Siamo in 4», «sabato»: si tiene da parte e si richiede l'esperienza.
       // Non è un equivoco: ha risposto a una domanda che viene dopo.
-      const persone = interpretaPersone(testo);
+      const persone = personeDette(testo);
       const giorno = giornoDettoInsieme(testo);
       if (persone !== null || giorno || eSaluto(testo)) {
         const { scelte, ...resto } = avanzato(dati);
         return chiediEsperienza({ ...resto, ...conServizio(),
           ...(persone !== null ? { persone } : {}), ...(giorno ? { giornoDetto: giorno } : {}) }, '');
       }
-      return nonCapito('esperienza', dati, diConElenco('bot_t_esperienza_no', elencoEsperienze(proposte, { senzaQuando: !!dati.scelte })));
+      return nonCapito('esperienza', dati, diConElenco('bot_t_esperienza_no', elencoEsperienze(proposte, { senzaQuando: !!dati.scelte }),
+        { numeri: numeriDetti(daUnoA(proposte.length)) }));
     }
     return presaLEsperienza(fra[scelta], { ...avanzato(dati), ...conServizio() });
   }
 
+  if ((stato.passo === 'persone' || stato.passo === 'giorno') && conEsperienze && dati.esperienza && !dati.fuoriSala) {
+    const corretta = correggeLEsperienza();
+    if (corretta) return corretta;
+  }
+
   if (stato.passo === 'persone') {
-    const persone = interpretaPersone(testo);
+    const persone = personeDette(testo);
     if (persone === null) {
       // Dopo il benvenuto il cliente può fare tutt'altro: «avete il
       // parcheggio?». Rispondergli «non ho capito il numero di persone»
@@ -7110,7 +7258,7 @@ module.exports = {
   esperienzeValide, esperienzeDi, esperienzaDi, quandoDetto, giorniDetti, elencoEsperienze, interpretaEsperienza, ammessoPer, turniAmmessi, conEsperienza, ESPERIENZE_MASSIME,
   dateRaddrizzate, esempioPer, parolaVicina,
   tettoRisposte, risposteDiOggi,
-  menuDellEsperienza, esperienzaNominata, FILE_MENU_ESPERIENZA,
+  menuDellEsperienza, esperienzaNominata, esperienzeNominate, FILE_MENU_ESPERIENZA,
   esperienzeScritte, serviziAperti,
   localiValidi, erroriLocali, localiDi, altroLocaleDi, altroLocaleAperto, localiDaProporre, postiAltroLocale,
   oraDellaPrenotazione, nomiDeiLocali, sceltaDeiLocali, interpretaLocale, LOCALI_MASSIMI,
