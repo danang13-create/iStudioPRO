@@ -263,8 +263,10 @@
      resta dentro il tasto per chi ascolta, e cambia con lo stato. */
   #tema, #spia-wa { height: 30px; width: auto; aspect-ratio: 1;
                     padding: 0; justify-content: center; font-size: 1.05rem; line-height: 1; }
-  #tema { order: 5; }
-  #spia-wa { order: 4; }
+  /* La spia nell'angolo, il tema prima (19 ottobre 2026). Anche nel file
+     stanno in quest'ordine: chi passa coi tasti li incontra come li vede. */
+  #tema { order: 4; }
+  #spia-wa { order: 5; }
   #spia-wa .parola { position: absolute; width: 1px; height: 1px;
                      overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   #tema svg { width: 18px; height: 18px; }
@@ -731,7 +733,9 @@
   <!-- Il tema, a portata di pollice. Sta in sala e non solo in «Impostazioni»
        perché chi si accorge che lo schermo dà fastidio è chi è lì alle nove di
        sera, non chi apre la piattaforma la mattina dopo. Un tocco, tre modi. -->
-  <!-- ⚠️ La spia di WhatsApp. Si vede SEMPRE, anche quando va tutto bene: una
+  <button class="btn btn-piccolo" id="tema" type="button" aria-live="polite"></button>
+  <!-- ⚠️ La spia di WhatsApp, nell'angolo (chiesto dal titolare, 19 ottobre
+       2026: è la cosa da guardare, il tema si tocca una volta e basta). Si vede SEMPRE, anche quando va tutto bene: una
        spia che compare solo nei guai non la si impara a guardare, e la prima
        volta che appare nessuno sa cosa sia. Pallino verde che pulsa = il bot
        risponde. «!» rosso = no, e allora si preme e si riattacca col QR. Il guasto succede di sera, quando
@@ -742,7 +746,6 @@
     <span class="spia-scritta">Attivo</span>
     <span class="parola" id="spia-wa-testo">WhatsApp</span>
   </button>
-  <button class="btn btn-piccolo" id="tema" type="button" aria-live="polite"></button>
 </header>
 
 <!-- La finestra del QR: si apre solo premendo la spia rossa. -->
