@@ -20,7 +20,8 @@
 set -u
 CARTELLA="$(cd "$(dirname "$0")/.." && pwd)"
 MODELLO="$CARTELLA/Linux/istudio.service"
-INSTALLATO=/etc/systemd/system/istudio.service
+# ISTUDIO_UNITA serve solo alle prove, che girano su un finto mini-PC.
+INSTALLATO="${ISTUDIO_UNITA:-/etc/systemd/system/istudio.service}"
 
 [ -f "$MODELLO" ] || { echo "❌ Manca $MODELLO."; exit 1; }
 [ -f "$INSTALLATO" ] || { echo "❌ iStudio non risulta installata come servizio ($INSTALLATO non c'è)."
@@ -45,8 +46,18 @@ if [ -f /etc/istudio.env ]; then
 fi
 
 if sudo diff -q "$INSTALLATO" "$NUOVO" >/dev/null 2>&1; then
-  echo "✅ Il servizio installato è già quello nuovo: non c'è niente da fare."
   rm -f "$NUOVO"
+  # ⚠️ Il file è già quello nuovo, ma systemd può non averlo ancora RILETTO
+  # (19 ottobre 2026): qui si diceva «niente da fare» e l'avviso «unit file
+  # changed on disk» restava. Se è così, glielo si fa rileggere.
+  if systemctl show istudio -p NeedDaemonReload --value 2>/dev/null | grep -q yes; then
+    echo "⏳ Il servizio installato è già quello nuovo, ma systemd usa ancora quello di prima: lo faccio rileggere…"
+    sudo systemctl daemon-reload && sudo systemctl restart istudio \
+      && { echo "✅ Riletto e riavviato."; exit 0; }
+    echo "❌ Non ci sono riuscito. A mano:  sudo systemctl daemon-reload && sudo systemctl restart istudio"
+    exit 1
+  fi
+  echo "✅ Il servizio installato è già quello nuovo: non c'è niente da fare."
   exit 0
 fi
 

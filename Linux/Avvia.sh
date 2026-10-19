@@ -18,6 +18,18 @@ CARTELLA="$(cd "$(dirname "$0")/.." && pwd)"
 echo "⏳ Aggiorno iStudio…"
 bash "$CARTELLA/Linux/aggiornamento-automatico.sh" --adesso
 
+# ⚠️ Il file del servizio è cambiato sul disco e systemd usa ancora quello di
+# prima: è il «Warning: The unit file … changed on disk. Run 'systemctl
+# daemon-reload'» visto sul mini-PC (19 ottobre 2026). Riavviare non basta —
+# il file nuovo resta lì e non comanda niente. Glielo si fa rileggere QUI,
+# dove c'è qualcuno davanti che può dare la password; l'aggiornamento delle 5
+# non può (il permesso senza password è solo start/stop/restart/reload).
+if systemctl show istudio -p NeedDaemonReload --value 2>/dev/null | grep -q yes; then
+  echo "⏳ Il servizio è cambiato sul disco: lo faccio rileggere (può chiedere la password del computer)…"
+  sudo systemctl daemon-reload \
+    || echo "⚠️  Non sono riuscito a farlo rileggere. A mano:  sudo systemctl daemon-reload"
+fi
+
 echo "⏳ Riavvio il servizio…"
 sudo systemctl restart istudio || { echo "❌ Non riesco a riavviare il servizio."; exit 1; }
 

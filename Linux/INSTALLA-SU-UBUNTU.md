@@ -228,6 +228,11 @@ c'è già la versione pubblicata non fa niente e lo dice: non è un errore, un n
 vuol dire programma uguale. **Il numero si legge in fondo a ogni pagina**, piattaforma e
 sala: è il modo più veloce per sapere se un tablet sta guardando la copia aggiornata.
 
+Se lanciando `Avvia.sh` compare **«Il servizio è cambiato sul disco: lo faccio rileggere»**
+e ti chiede la password del computer, dagliela: è systemd (il programma che tiene accesa
+iStudio) che deve rileggere il file del servizio. Senza, ripeterebbe ogni volta l'avviso
+inglese «The unit file … changed on disk».
+
 ---
 
 ## Cosa fa l'installatore sul Desktop
