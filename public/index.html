@@ -2218,7 +2218,9 @@
               qui sopra, una riga in fondo. Se ci scrivi il tuo HTML, viene usato al posto del modello.
               Dentro valgono gli stessi segnaposto del testo, più <code>{logo}</code> (l'immagine, o niente)
               e <code>{testo}</code> (tutto il testo dell'email già riempito, se vuoi solo metterci una
-              cornice intorno). Quello che scrive il cliente — nome, note — entra sempre reso innocuo:
+              cornice intorno), e <code>{scelta}</code> col suo <code>{scelta_titolo}</code>: il locale e
+              l'esperienza scelti («RO Bistrot», «REAR Restaurant · Business lunch»), sotto il titolo
+              «Locale» — o «Esperienza», se il locale è uno solo. Quello che scrive il cliente — nome, note — entra sempre reso innocuo:
               non può cambiare la tua grafica.
             </p>
             <p class="conteggio" style="margin:0 0 6px">
@@ -8444,6 +8446,10 @@ const MODELLO_EMAIL_PRONTO = `<!-- Modello dell'email della prenotazione. Tabell
         <td style="padding:11px 0;border-bottom:1px solid #eef0f2;color:#667781;width:40%">Giorno</td>
         <td style="padding:11px 0;border-bottom:1px solid #eef0f2;font-weight:700;text-align:right">{data}</td>
       </tr>
+      {?scelta}<tr>
+        <td style="padding:11px 0;border-bottom:1px solid #eef0f2;color:#667781">{scelta_titolo}</td>
+        <td style="padding:11px 0;border-bottom:1px solid #eef0f2;font-weight:700;text-align:right">{scelta}</td>
+      </tr>{/scelta}
       <tr>
         <td style="padding:11px 0;border-bottom:1px solid #eef0f2;color:#667781">Orario</td>
         <td style="padding:11px 0;border-bottom:1px solid #eef0f2;font-weight:700;text-align:right">{ora}</td>

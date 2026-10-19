@@ -5642,6 +5642,11 @@ function composizioneEmail(cfg, p, link) {
     // anche per i modelli già salvati, che usano {locale}. Senza locali resta
     // il nome del locale, come sempre.
     locale: p.locale_scelto || cfg.bot_locale || '',
+    // La riga «Locale» dei modelli (19 ottobre 2026): «RO bistrot», «REAR
+    // Restaurant · Business lunch»; senza locali, l'esperienza da sola — e
+    // allora la riga si chiama «Esperienza». Vuota se non c'è niente.
+    scelta: [p.locale_scelto, p.esperienza].filter(Boolean).join(' · '),
+    scelta_titolo: p.locale_scelto ? 'Locale' : 'Esperienza',
   };
   const oggetto = bot.riempi(cfg.bot_email_oggetto, valori).replace(/\n/g, ' ').trim()
     || 'La tua prenotazione';
@@ -7858,7 +7863,12 @@ function prenotazioneDiEsempio(cfg, a) {
   const domani = new Date(Date.now() + 86400000);
   const conPagamento = bot.boolDi(cfg.bot_pagamento_attivo) && bot.serveIlPagamento(cfg, 2);
   const conti = bot.importoDaPagare(cfg, 2);
+  // Come una prenotazione vera di questo locale: col suo nome e la sua prima
+  // esperienza, se ne ha — così l'anteprima mostra la riga «Locale».
+  const locali = bot.localiDi(cfg);
   return {
+    locale_scelto: locali.principale ? locali.principale.nome : '',
+    esperienza: (bot.esperienzeScritte(cfg)[0] || {}).nome || '',
     nome: 'Anna', cognome: 'Bianchi', data: bot.comeData(domani), ora: '20:00', persone: 2,
     telefono_contatto: '393331112233', note: 'senza glutine', email: a,
     stato: conPagamento && bot.pagamentoObbligatorio(cfg) ? 'attesa_pagamento' : 'confermata',
