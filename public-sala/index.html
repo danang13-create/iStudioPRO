@@ -40,7 +40,10 @@
     --verde: #25d366; --verde-scuro: #128c7e; --verde-premuto: #0f7a6d;
     --sfondo: #f0f2f5; --carta: #ffffff; --testo: #111b21; --grigio: #667781;
     --rosso: #ea4335; --bordo: #e0e4e8;
-    --spia-viva: #1a9e4b;         /* il pallino della spia quando il bot risponde */
+    /* Il pallino della spia quando il bot risponde. Sta sul verde della
+       testata, senza quadrato: serve un verde acceso, che si stacchi. */
+    --spia-viva: #4be38a;
+    --spia-giu: #d93025;          /* il tondo del «!»: fisso, col bianco sopra si legge nei due temi */
     --oggi: #eafff2;              /* il giorno di oggi, e il verde appena acceso */
     --avviso-fondo: #fff4e5; --avviso-bordo: #ffd8a8; --avviso-testo: #8a4b00;
     /* L'esperienza della prenotazione: un colore suo (vedi la piattaforma). */
@@ -70,8 +73,9 @@
     --verde: #2bd66b; --verde-scuro: #0e6b61; --verde-premuto: #0a554d;
     --sfondo: #10171c; --carta: #1a232a; --testo: #e6edf3; --grigio: #9bacb8;
     --rosso: #ff6b5e; --bordo: #2b3740;
-    /* Col fondo scuro il verde di iOS sparisce: qui ne serve uno più chiaro. */
-    --spia-viva: #3ddc84;
+    /* Uguali nei due temi: stanno sul verde della testata, che c'è in tutti e due. */
+    --spia-viva: #4be38a;
+    --spia-giu: #d93025;
     --oggi: #12332a;
     --avviso-fondo: #3a2d18; --avviso-bordo: #6b5220; --avviso-testo: #ffc978;
     --esp-fondo: #2b2244; --esp-testo: #d8c9ff; --esp-bordo: #4d3d7a;
@@ -154,7 +158,9 @@
        non si sa  → «?», fermo.
      Sta dentro il quadrato come la «A» del tema, così i due restano una coppia. */
   .spia .acceso { font-weight: 800; font-size: .72rem; letter-spacing: .02em; line-height: 1; }
+  /* Il bordino bianco lo stacca dal verde della testata. */
   .spia.viva .acceso { position: relative; display: block; width: 12px; height: 12px; border-radius: 50%;
+    box-shadow: 0 0 0 2px #fff; flex: none;
     background: var(--spia-viva); font-size: 0; }
   .spia.viva .acceso::after { content: ''; position: absolute; inset: 0; border-radius: 50%;
     background: var(--spia-viva); animation: spia-respira 3s ease-out infinite; }
@@ -164,12 +170,19 @@
   /* Chi ha chiesto meno movimento vede il pallino fermo: pallino contro «!»
      si distinguono lo stesso. */
   @media (prefers-reduced-motion: reduce) { .spia.viva .acceso::after { animation: none; opacity: 0; } }
-  .spia.giu .acceso { color: var(--rosso); font-size: 1.15rem; }
-  .spia.muta .acceso { color: var(--grigio); font-size: 1rem; }
+  /* «!» bianco in un tondo rosso: un «!» rosso sul verde della testata si
+     vedeva appena. Il rosso è fisso, non `--rosso`: quello del tema scuro è
+     chiaro, e col bianco sopra non si leggerebbe. */
+  .spia.giu .acceso { color: #fff; font-size: .95rem; background: var(--spia-giu); width: 22px; height: 22px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #fff; }
+  .spia.muta .acceso { color: #fff; font-size: 1rem; }
+  /* «Attivo» accanto al pallino (chiesto dal titolare, 19 ottobre 2026): solo
+     quando il bot risponde. Scollegato c'è la barra rossa in cima, a parole. */
+  .spia .spia-scritta { display: none; }
+  .spia.viva .spia-scritta { display: inline; margin-left: 8px; font-weight: 600; font-size: .9rem; color: #fff; }
   /* ⚠️ La pastiglia NON è l'allarme: quello lo fa la barra appiccicata in
      cima. Riempirla di rosso mangiava metà della testata e accorciava il nome
      del locale a «VER…» per dire una cosa che la barra dice già più in grande. */
-  .spia.giu { border-color: var(--rosso); }
   .spia.viva { cursor: default; }
   /* Non sappiamo come sta: il computer del ristorante non risponde. */
   .spia.muta { opacity: .8; cursor: default; }
@@ -257,6 +270,18 @@
   #tema svg { width: 18px; height: 18px; }
   #tema .lettera { font-weight: 700; font-size: 1rem; }
   header .btn:hover { background: var(--oggi); color: var(--verde-scuro); }
+  /* ⚠️ SENZA QUADRATO (19 ottobre 2026, chiesto dal titolare): spia e tema
+     sono icone bianche sul verde della testata. Il bersaglio del dito resta
+     della misura di prima (la coppia qui sopra), solo che non si vede; sotto
+     il dito compare un cerchio chiaro, e il contorno della tastiera è bianco
+     (il verde, sul verde, spariva). */
+  header #tema, header #spia-wa { background: transparent; border-color: transparent; color: #fff; border-radius: 22px; }
+  header #tema:hover, header #spia-wa:hover { background: rgba(255, 255, 255, .12); color: #fff; }
+  header #tema:active, header #spia-wa:active { background: rgba(255, 255, 255, .22); }
+  header #tema:focus-visible, header #spia-wa:focus-visible { outline-color: #fff; }
+  /* Con «Attivo» accanto la spia non è più un quadrato: la larghezza la fa
+     la scritta (l'altezza resta quella della coppia). */
+  #spia-wa.viva { aspect-ratio: auto; padding: 0 10px; }
   /* Chi usa la tastiera — o un tablet con tastiera — deve vedere dov'è. */
   button:focus-visible, .matita:focus-visible, .chi-tocca:focus-visible {
     outline: 2px solid var(--verde); outline-offset: 2px; }
@@ -714,6 +739,7 @@
        locale ed è l'unico che può rimediare. -->
   <button class="btn btn-piccolo spia" id="spia-wa" type="button" aria-live="polite" title="WhatsApp">
     <b class="acceso" id="spia-wa-onoff" aria-hidden="true"></b>
+    <span class="spia-scritta">Attivo</span>
     <span class="parola" id="spia-wa-testo">WhatsApp</span>
   </button>
   <button class="btn btn-piccolo" id="tema" type="button" aria-live="polite"></button>
