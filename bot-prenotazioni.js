@@ -5259,6 +5259,15 @@ function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {
   const passoPrima = statoDi(db, telefono, adesso).passo;
   const contoPrima = risposteDiOggi(db, telefono, adesso);
   const esito = rispondiAlMessaggio(db, telefono, testo, adesso, contesto);
+  // ⚠️ Una frase che finisce con un a capo, attaccata a un pezzo che comincia
+  // con una riga vuota («📖 Se vuoi dare prima un'occhiata al menu…», «Se
+  // preferisci, scrivi RICOMINCIA…»), lasciava su WhatsApp DUE righe vuote di
+  // fila. Trovato facendo girare migliaia di conversazioni a caso (19 ottobre
+  // 2026). Si sistema qui, all'uscita, una volta per tutte le frasi — comprese
+  // quelle riscritte dai locali.
+  if (Array.isArray(esito.risposte)) {
+    esito.risposte = esito.risposte.map((r) => (typeof r === 'string' ? r.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim() : r));
+  }
   if (esito.prenotazione || esito.daPagare) {
     rimettiIlConto(db, telefono, adesso, 0);
   } else {

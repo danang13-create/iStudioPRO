@@ -38,12 +38,16 @@
      «--bianco» era giusto finché il tema era uno solo. */
   :root {
     --verde: #25d366; --verde-scuro: #128c7e; --verde-premuto: #0f7a6d;
-    --sfondo: #f0f2f5; --carta: #ffffff; --testo: #111b21; --grigio: #667781;
+    --sfondo: #f0f2f5; --carta: #ffffff; --testo: #111b21; --grigio: #5a6a74;
     --rosso: #ea4335; --bordo: #e0e4e8;
     /* Il pallino della spia quando il bot risponde. Sta sul verde della
        testata, senza quadrato: serve un verde acceso, che si stacchi. */
     --spia-viva: #4be38a;
     --spia-giu: #d93025;          /* il tondo del «!»: fisso, col bianco sopra si legge nei due temi */
+    /* Il verde da LEGGERE (nomi, collegamenti): lo stesso della piattaforma.
+       Prima qui mancava, e chi lo usava prendeva il colore del testo intorno. */
+    --verde-testo: #0f7a6d;
+    --ok-testo: #1c7c4b;          /* «✅ WhatsApp è ricollegato», nella finestra del QR */
     --oggi: #eafff2;              /* il giorno di oggi, e il verde appena acceso */
     --avviso-fondo: #fff4e5; --avviso-bordo: #ffd8a8; --avviso-testo: #8a4b00;
     /* L'esperienza della prenotazione: un colore suo (vedi la piattaforma). */
@@ -76,6 +80,8 @@
     /* Uguali nei due temi: stanno sul verde della testata, che c'è in tutti e due. */
     --spia-viva: #4be38a;
     --spia-giu: #d93025;
+    --verde-testo: #4fd8a0;
+    --ok-testo: #7fe0a8;
     --oggi: #12332a;
     --avviso-fondo: #3a2d18; --avviso-bordo: #6b5220; --avviso-testo: #ffc978;
     --esp-fondo: #2b2244; --esp-testo: #d8c9ff; --esp-bordo: #4d3d7a;
@@ -616,7 +622,10 @@
      pulsante vero, con la sua area da 44px, non un testo colorato. */
   .chi-tocca { border: none; background: none; padding: 6px 0; margin: -6px 0; font: inherit;
                color: inherit; text-align: left; cursor: pointer; min-height: 44px; }
-  .chi-tocca b { color: var(--verde-scuro); }
+  /* Il verde «da leggere», non quello della testata: col tema scuro il
+     verde scuro sul grigio scuro della scheda faceva 2,5:1 e i nomi dei
+     clienti quasi sparivano. */
+  .chi-tocca b { color: var(--verde-testo); }
   /* ⚠️ Il caso peggiore della pagina vecchia è proprio questo tablet, lasciato
      acceso da martedì: nessun ricaricamento lo salva, e da lì in poi una pagina
      vecchia parla con un server nuovo. Deve accorgersene da sola e dirlo. */

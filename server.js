@@ -1419,6 +1419,19 @@ if(r.ok){location.reload();return;}let d={};try{d=await r.json();}catch{}documen
 // ---------- API ----------
 const app = express();
 app.use(express.json({ limit: '25mb' })); // limite alto per le immagini allegate
+// ⚠️ Un corpo JSON rotto riceveva la pagina d'errore di Express: in inglese,
+// in HTML, e con dentro i percorsi dei file del computer del ristorante —
+// anche sulla porta della sala, quella che vede il tablet. Trovato nel
+// controllo completo (19 ottobre 2026). Si risponde come tutte le rotte: JSON,
+// in italiano, senza dire niente di come è fatto il programma.
+function corpoRotto(err, req, res, next) {
+  if (err && (err.type === 'entity.parse.failed' || err.type === 'entity.too.large')) {
+    return res.status(err.type === 'entity.too.large' ? 413 : 400)
+      .json({ error: err.type === 'entity.too.large' ? 'Il file è troppo grande.' : 'Richiesta non valida.' });
+  }
+  return next(err);
+}
+app.use(corpoRotto);
 
 // ===== Abbonamento a seriale: nessun server da contattare, tutto in locale =====
 if (modalitaAbbonamento) {
@@ -8316,6 +8329,7 @@ function salaAutenticato(req) {
 
 const sala = express();
 sala.use(express.json({ limit: '1mb' }));
+sala.use(corpoRotto);
 
 // L'interruttore vale per TUTTO, compreso l'accesso: spenta, questa porta non
 // risponde niente. È l'unico modo per cui «spenta» vuol dire davvero spenta.

@@ -38,7 +38,10 @@
     --carta: #ffffff;
     --carta-2: #f7f8fa;         /* riquadri dentro una scheda: registri, riepiloghi */
     --testo: #111b21;
-    --grigio: #667781;
+    /* #5a6a74 e non #667781 (19 ottobre 2026): sui fondi grigi delle schede
+       (#f0f2f5) il grigio di prima arrivava a 4,1:1, sotto il 4,5 che serve
+       a un testo piccolo. Misurato in un browser vero su ogni scheda. */
+    --grigio: #5a6a74;
     --grigio-2: #8696a0;        /* più tenue del grigio: spie, etichette secondarie */
     --rosso: #ea4335;
     --bordo: #e0e4e8;
@@ -85,6 +88,7 @@
        così, col tema chiaro. Questo terzo verde serve solo per SCRIVERE, ed è
        l'unico dei tre che nei due temi passa 4,5:1. */
     --verde-testo: #0f7a6d;
+    --urgente: #d93025;         /* il numero delle notifiche urgenti: col bianco sopra, 4,8:1 */
     /* Quelle che servono a «comune/planning.css» — la striscia della settimana
        è la STESSA della sala, e finché qui non erano definite restava chiara
        dentro una pagina scura: numeri bianchi su verde pallido, 1,1:1. */
@@ -136,6 +140,7 @@
     --ombra-bassa: rgba(0,0,0,.5);
     --ombra-alta: rgba(0,0,0,.7);
     --verde-testo: #4fd8a0;
+    --urgente: #d93025;
     --colonna: #141d23; --voce-scelta: #16302a;
     --oggi: #12332a;
     --meter-fondo: #22403a; --quasi: #d99400;
@@ -376,7 +381,7 @@
   .btn-secondario { background: var(--carta); color: var(--testo); border: 1px solid var(--bordo); }
   .btn-secondario:hover { background: var(--sfondo); }
   .btn-piccolo { padding: 5px 10px; font-size: .82rem; font-weight: 500; border-radius: 6px; }
-  .btn-rosso { background: var(--male-fondo); color: var(--rosso); border: 1px solid var(--male-bordo); }
+  .btn-rosso { background: var(--male-fondo); color: var(--male-testo); border: 1px solid var(--male-bordo); }
   .btn-rosso:hover { background: var(--male-premuto); border-color: var(--male-bordo); }
   /* [nome] e [cognome] cliccabili nelle etichette: inseriscono il segnaposto nel testo */
   /* I corpi dei riquadri di testo stanno qui e non in linea: uno stile in
@@ -399,7 +404,9 @@
     color: #fff; font-size: .68rem; font-weight: 700; line-height: 17px;
     border: 2px solid var(--testata-btn-fondo, #fff);
   }
-  #conta-notifiche.urgente { background: var(--rosso); }
+  /* Il rosso del numero è uno suo: col bianco sopra il rosso di sempre
+     arrivava a 3,9:1 (e il rosso chiaro del tema scuro a 2,8). */
+  #conta-notifiche.urgente { background: var(--urgente); }
   /* Una notifica: tutta la riga si preme e porta dov'è il problema. */
   .notifica {
     display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left;
@@ -431,7 +438,7 @@
   .gruppo[open] > summary::before { transform: rotate(90deg); }
   .gruppo > summary:hover { background: var(--carta-2); }
   .gruppo .gruppo-frasi { flex: 1; margin: 0; padding: 0; border: none; }
-  .gruppo .quante { font-size: .78rem; color: var(--grigio-2); background: var(--carta-2);
+  .gruppo .quante { font-size: .78rem; color: var(--grigio); background: var(--carta-2);
                     border-radius: 999px; padding: 2px 9px; }
   .gruppo-corpo { padding: 4px 4px 18px; display: flex; flex-direction: column; gap: 16px; }
   #cfg-bot_email_html { font-size: .85rem; }
@@ -495,8 +502,10 @@
     font-size: .8rem; line-height: 1; padding: 3px 5px; border-radius: 5px;
   }
   .freccia-chat:hover { background: var(--bordo); color: var(--testo); }
-  .filtro-canale.attivo { background: var(--verde); color: #fff; border-color: var(--verde); font-weight: 600; }
-  .filtro-canale.attivo:hover { background: var(--verde-scuro); }
+  /* Il verde chiaro col bianco sopra faceva 2:1 — «📱 WhatsApp» acceso si
+     leggeva meno di quello spento. Lo stesso verde dei tasti pieni. */
+  .filtro-canale.attivo { background: var(--verde-scuro); color: #fff; border-color: var(--verde-scuro); font-weight: 600; }
+  .filtro-canale.attivo:hover { background: var(--verde-premuto); }
   .etichetta { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .76rem; font-weight: 600; }
   .etichetta.inviato, .etichetta.completata { background: var(--ok-fondo); color: var(--ok-testo); }
   .etichetta.errore { background: var(--male-fondo); color: var(--rosso); }
@@ -628,6 +637,13 @@
      Il verde chiaro del marchio si ferma a 1,98 e per una barra non basta. */
   .rep-testa { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
   .rep-scarica { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  /* Sul telefono i due tasti stavano incolonnati a destra e mandavano il
+     periodo («dal 20 settembre al 19 ottobre») a capo a metà: vanno sotto il
+     titolo, uno accanto all'altro. */
+  @media (max-width: 480px) {
+    .rep-testa { flex-wrap: wrap; }
+    .rep-scarica { justify-content: flex-start; width: 100%; }
+  }
   .rep-filtri { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
   /* Le date a mano: chiuse dietro «Altre date», e quando si aprono cambiano
      il report da sole — un tasto «Guarda» in più era un passo che nessuno
@@ -1617,7 +1633,7 @@
       <h2>Scrivi il messaggio</h2>
       <div style="margin-bottom:12px">
         <label for="invio-alias">Nome dell'invio (facoltativo, solo per te)</label>
-        <input id="invio-alias" placeholder="es. Promo estate — non viene inviato ai destinatari">
+        <input id="invio-alias" placeholder="es. Promo estate">
       </div>
       <div style="margin-bottom:12px">
         <label for="invio-tetto">Limite messaggi giornaliero</label>
@@ -1662,7 +1678,7 @@
       </div>
       <div id="lista-destinatari" style="max-height:340px;overflow-y:auto"></div>
       <p class="conteggio"><span id="n-selezionati">0</span> destinatari selezionati</p>
-      <button class="btn" id="btn-invia">Invia broadcast</button>
+      <button class="btn" id="btn-invia">Invia il messaggio</button>
       <div id="progresso" style="display:none; margin-top:14px">
         <p class="conteggio" id="progresso-testo"></p>
         <div class="barra"><div id="progresso-barra" style="width:0%"></div></div>
@@ -1719,7 +1735,7 @@
           <input type="checkbox" id="pren-attivo" autocomplete="off" style="width:18px;height:18px">
           Bot acceso
         </label>
-        <span id="pren-spia" class="beta-badge" style="background:var(--grigio-2);border-color:transparent"></span>
+        <span id="pren-spia" class="beta-badge" style="background:var(--carta-2);color:var(--grigio);border-color:var(--bordo)"></span>
         <span id="pren-riassunto" class="conteggio" style="margin:0"></span>
         <span style="flex:1"></span>
         <button class="btn btn-secondario" id="pren-vai-impostazioni">Impostazioni del bot</button>
@@ -2801,7 +2817,7 @@
       <h2>Scrivi la newsletter</h2>
       <div style="margin-bottom:12px">
         <label for="email-alias">Nome dell'invio (facoltativo, solo per te)</label>
-        <input id="email-alias" placeholder="es. Newsletter luglio — non viene inviato ai destinatari">
+        <input id="email-alias" placeholder="es. Newsletter luglio">
       </div>
       <!-- Niente menù del tetto giornaliero, al contrario degli invii WhatsApp: quanti
            messaggi al giorno accetta il provider di posta non è una preferenza di chi
@@ -3721,7 +3737,7 @@ function disegnaContatti() {
   document.querySelectorAll('th.ordinabile').forEach((th) => {
     const attivo = th.dataset.ordina === ordinaPer;
     th.querySelector('.frecciaOrd').textContent = attivo ? (ordinaVerso === 'asc' ? '▲' : '▼') : '';
-    th.style.color = attivo ? 'var(--verde-scuro)' : '';
+    th.style.color = attivo ? 'var(--verde-testo)' : '';
   });
 
   const pagineTotali = Math.max(1, Math.ceil(righe.length / PER_PAGINA));
@@ -5412,7 +5428,11 @@ async function caricaPrenotazioni() {
   // rimettesse a ripristinare i moduli da solo, lo stato vero resta visibile.
   const spia = $('#pren-spia');
   spia.textContent = stato.attivo ? 'ACCESO' : 'SPENTO';
-  spia.style.background = stato.attivo ? 'var(--verde)' : 'var(--grigio-2)';
+  // ⚠️ I colori del «tutto bene», non il verde pieno: col testo grigio sopra
+  // «ACCESO» faceva 2,3:1, e 1,2 col tema scuro — non si leggeva.
+  spia.style.background = stato.attivo ? 'var(--ok-fondo)' : 'var(--carta-2)';
+  spia.style.color = stato.attivo ? 'var(--ok-testo)' : 'var(--grigio)';
+  spia.style.borderColor = stato.attivo ? 'var(--ok-bordo)' : 'var(--bordo)';
   const pezzi = [`${stato.prenotazioni} prenotazioni oggi`, `${stato.coperti} coperti`];
   if (stato.inAttesa) pezzi.push(`${stato.inAttesa} in attesa di risposta`);
   if (stato.nonCapite) pezzi.push(`${stato.nonCapite} frasi non capite`);
@@ -5637,7 +5657,7 @@ async function caricaRegistroBot() {
                    ignorato: 'var(--grigio-2)', 'a una persona': 'var(--avviso-testo)', errore: 'var(--rosso)' };
   $('#pren-registro').innerHTML = d.registro.length
     ? d.registro.map((r) => `<div><span style="color:var(--grigio-2)">${r.ora}</span> <b style="color:${colori[r.evento] || 'var(--testo)'}">${r.evento}</b> ${r.dettaglio}</div>`).join('')
-    : '<span style="color:var(--grigio-2)">Nessun messaggio ricevuto da quando iStudio è stata avviata.</span>';
+    : '<span style="color:var(--grigio)">Nessun messaggio ricevuto da quando iStudio è stata avviata.</span>';
   const note = [];
   if (d.zittite) {
     note.push('⚠️ Il bot tace su ' + d.zittite + (d.zittite === 1 ? ' conversazione' : ' conversazioni')
