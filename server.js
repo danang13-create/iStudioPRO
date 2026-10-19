@@ -5583,7 +5583,7 @@ function testoInHtml(t) {
 // modello può limitarsi a metterci una cornice intorno).
 function corpoEmailRiepilogo(cfg, valori, testo, conLogo) {
   const logoHtml = conLogo
-    ? '<img src="cid:logo-istudio" alt="' + htmlSicuro(cfg.bot_locale || '') + '" style="max-width:220px;max-height:120px;height:auto;display:block;margin:0 auto 18px">'
+    ? '<img src="cid:logo-istudio" alt="' + htmlSicuro(valori.locale || '') + '" style="max-width:220px;max-height:120px;height:auto;display:block;margin:0 auto 18px">'
     : '';
   const modello = String(cfg.bot_email_html || '').trim();
   if (modello) {
@@ -5613,11 +5613,11 @@ function corpoEmailRiepilogo(cfg, valori, testo, conLogo) {
   return '<div style="background:#f0f2f5;padding:24px 12px;font-family:Arial,Helvetica,sans-serif">'
     + '<div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #e0e4e8;border-radius:12px;padding:28px 26px;color:#222;font-size:15px;line-height:1.6">'
     + logoHtml
-    + (cfg.bot_locale ? '<div style="text-align:center;font-size:18px;font-weight:700;color:#128c7e;margin-bottom:18px">' + htmlSicuro(cfg.bot_locale) + '</div>' : '')
+    + (valori.locale ? '<div style="text-align:center;font-size:18px;font-weight:700;color:#128c7e;margin-bottom:18px">' + htmlSicuro(valori.locale) + '</div>' : '')
     + testoInHtml(testo)
     + '</div>'
     + '<div style="max-width:600px;margin:12px auto 0;text-align:center;font-size:12px;color:#667781">'
-    + 'Questa email riguarda la tua prenotazione' + (cfg.bot_locale ? ' da ' + htmlSicuro(cfg.bot_locale) : '') + '.</div>'
+    + 'Questa email riguarda la tua prenotazione' + (valori.locale ? ' da ' + htmlSicuro(valori.locale) : '') + '.</div>'
     + '</div>';
 }
 
@@ -5636,7 +5636,12 @@ function composizioneEmail(cfg, p, link) {
     // Con più locali anche il locale: «RO bistrot», «REAR Restaurant · Business lunch».
     esperienza: p.esperienza || p.locale_scelto ? `🍽️ ${[p.locale_scelto, p.esperienza].filter(Boolean).join(' · ')}\n` : '',
     pagamento: bot.bloccoPagamento(p, link),
-    locale: cfg.bot_locale || '',
+    // ⚠️ Con più locali l'email è DEL locale scelto (chiesto dal titolare, 19
+    // ottobre 2026): titolo, oggetto, firma e riga in fondo dicono «RO
+    // bistrot» o «REAR Restaurant», non il nome di tutto («RO World»). Vale
+    // anche per i modelli già salvati, che usano {locale}. Senza locali resta
+    // il nome del locale, come sempre.
+    locale: p.locale_scelto || cfg.bot_locale || '',
   };
   const oggetto = bot.riempi(cfg.bot_email_oggetto, valori).replace(/\n/g, ' ').trim()
     || 'La tua prenotazione';
