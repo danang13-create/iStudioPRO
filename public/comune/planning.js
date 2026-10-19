@@ -101,7 +101,9 @@ window.Planning = (function () {
       // sui suoi coperti, e «pieno» a parole quando lo è. 🍝 è l'icona del
       // bistrot, la stessa delle etichette (vedi `iconaLocale`).
       const altri = g.locali || [];
-      const righeAltri = altri.map((x) => `<span class="sotto locale">🍝 ${sicuro(x.nome)} ${x.coperti}/${x.capienza}`
+      // Sul telefono il nome sparisce («🍝 9/60», vedi `planning.css`): in un
+      // riquadro da 108 pixel mandava i numeri a capo, e 🍝 dice già chi è.
+      const righeAltri = altri.map((x) => `<span class="sotto locale">🍝 <span class="locale-nome">${sicuro(x.nome)} </span>${x.coperti}/${x.capienza}`
         + `${x.capienza && x.coperti >= x.capienza ? ' · pieno' : ''}</span>`).join('');
       const titoloAltri = altri.map((x) => `, ${x.nome}: ${x.coperti} coperti su ${x.capienza}`).join('');
       const classi = ['giorno', g.oggi ? 'oggi' : '', g.data === scelto ? 'scelto' : '', g.chiuso ? 'chiuso' : '',

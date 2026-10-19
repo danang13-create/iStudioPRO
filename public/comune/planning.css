@@ -76,13 +76,17 @@
      fra i fratelli — cioè il primo <span>, che è il giorno — e non sarebbe mai
      stata la riga giusta. Serve una classe sua. */
   .giorno .capienza { display: none; }
+  /* La riga del bistrot: «🍝 9/60». Il nome resta nel titolo del riquadro. */
+  .giorno .locale-nome { display: none; }
 }
 
 /* ── Il servizio del giorno: una scheda per turno ──
    Due servizi affiancati quando c'è spazio, uno sotto l'altro sul telefono;
    dentro, le schede in griglia. La barra è la stessa del planning (.meter):
    stesso significato, stessi colori. */
-.turni-giorno { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px 16px; margin: 0 0 12px; }
+/* «min(280px, 100%)»: su un telefono da 320 il riquadro dentro è largo meno
+   di 280, e la colonna sporgeva dal bordo tagliando la scheda di destra. */
+.turni-giorno { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 12px 16px; margin: 0 0 12px; }
 .tg-servizio h3 { font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: var(--grigio); margin: 0 0 6px; font-weight: 600; }
 .tg-schede { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .tg-scheda {

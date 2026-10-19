@@ -316,13 +316,21 @@
                  padding: 8px 12px; background: var(--sfondo); border-radius: 9px;
                  position: sticky; top: 0; z-index: 2; }
   .turno-ora { font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .pren { border-top: 1px solid var(--bordo); padding: 12px 2px; display: flex;
-          align-items: center; gap: 12px; flex-wrap: wrap; }
+  /* In alto il nome, il tavolo e la matita; sotto, a tutta larghezza, il
+     resto (vedi la riga in `caricaGiorno`). In colonna accanto al nome, sul
+     telefono, il resto aveva 150 pixel e ogni nota andava a capo tre volte. */
+  .pren { border-top: 1px solid var(--bordo); padding: 12px 2px; display: grid;
+          grid-template-columns: minmax(0, 1fr) auto auto;
+          grid-template-areas: "chi tavolo matita" "dettagli dettagli dettagli";
+          align-items: center; column-gap: 12px; row-gap: 4px; }
+  .pren .dettagli { grid-area: dettagli; min-width: 0; line-height: 1.55; }
+  .pren .tavolo-campo { grid-area: tavolo; }
+  .pren .matita { grid-area: matita; }
   /* ⚠️ Non «:first-of-type»: il primo <div> del blocco è l'intestazione del
      turno, non una prenotazione, quindi quella regola non prendeva niente.
      La prima prenotazione si riconosce da chi la precede. */
   .turno-testa + .pren { border-top: none; }
-  .pren .chi { flex: 1; min-width: 140px; }
+  .pren .chi { grid-area: chi; min-width: 0; }
   /* Le persone stanno accanto al nome, non su una riga loro: sono la seconda
      cosa che si guarda, e una riga in meno per prenotazione su un telefono si
      sente. */
@@ -432,6 +440,15 @@
     .griglia2 { gap: 10px; }
     .griglia2 label:has(#p-persone),
     .griglia2 label:has(#p-telefono) { grid-column: 1 / -1; }
+    /* Il locale (con più locali, vedi «I locali») su una riga sua: in prima
+       cella spingeva l'Ora sotto, da sola a metà riga, e Giorno e Ora non
+       erano più una coppia. */
+    .griglia2 #p-locale-riga { grid-column: 1 / -1; }
+    /* I tre tasti della settimana occupano la riga intera, «Questa
+       settimana» nel mezzo si allarga: prima restavano a sinistra con un
+       vuoto accanto, come se ne mancasse uno. */
+    .riga-strumenti .frecce { width: 100%; }
+    .frecce #sett-oggi { flex: 1; }
     .griglia2 label:has(#p-persone) select { max-width: 170px; }
   }
 
@@ -523,7 +540,10 @@
        turni, poi «Aggiorna». Ora la data si prende quello che resta della
        prima riga, e «Aggiorna» sale accanto ai turni. */
     .riga-strumenti { gap: 8px; }
-    #giorno { flex: 1 1 auto; min-width: 0; width: auto; }
+    /* Base 0, non «auto»: con la larghezza del suo contenuto la data non ci
+       stava accanto al titolo su 320 pixel, e «Aggiorna» finiva da solo su
+       una riga sua. */
+    #giorno { flex: 1 1 0; min-width: 0; width: auto; }
     /* Il tasto Aggiorna resta in alto, ridotto al suo disegno — serve quando
        un altro prende una prenotazione mentre tu guardi la pagina. (I turni
        non stanno più in questa riga: hanno le loro schede, sotto.) */
@@ -1053,21 +1073,32 @@ async function caricaGiorno() {
         <span class="conteggio">${vivi.length} ${vivi.length === 1 ? 'prenotazione' : 'prenotazioni'}
           · ${persone} ${persone === 1 ? 'persona' : 'persone'}</span>
       </div>
-      ${t.righe.map((r) => `
+      ${t.righe.map((r) => {
+        // Sotto il nome, a tutta larghezza: il locale e l'esperienza, chi l'ha
+        // scritta e com'è messa, i soldi, il numero, le note — una riga per
+        // cosa. Stavano DENTRO la colonna del nome, e sul telefono, accanto al
+        // tavolo e alla matita, a quella colonna restavano 150 pixel:
+        // «Attenzione: uno di noi è celiaco» si leggeva su tre righe (vedi
+        // `.pren`). «admin» scende qui: accanto al nome lo mandava a capo.
+        const prima = [
+          [r.locale_scelto ? `<span class="etichetta-esp">${Turni.iconaLocale(r)} ${sicuro(r.locale_scelto)}</span>` : '',
+            r.esperienza ? `<span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : ''].filter(Boolean).join(' '),
+          r.origine === 'manuale' ? '<span class="conteggio">admin</span>' : '',
+          ETICHETTA[r.stato] ? `<span class="conteggio stato-eti">${ETICHETTA[r.stato]}</span>` : '',
+        ].filter(Boolean).join('<span class="conteggio"> · </span>');
+        const numero = numeroPulito(r.telefono_contatto || r.telefono);
+        const dettagli = [prima,
+          soldiDi(r) ? `<span class="conteggio">${soldiDi(r)}</span>` : '',
+          numero ? `<span class="conteggio">${sicuro(numero)}</span>` : '',
+          r.note ? `<span class="note"><b>Attenzione:</b> ${sicuro(r.note)}</span>` : '',
+        ].filter(Boolean).join('<br>');
+        return `
       <div class="pren ${r.stato === 'annullata' ? 'annullata' : ''}">
         <span class="chi">
           <button type="button" class="chi-tocca" data-cliente="${r.id}"
                   aria-label="Vedi le altre prenotazioni di ${sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || 'questo cliente')}"
             ><b>${sicuro([r.nome, r.cognome].filter(Boolean).join(' ') || '—')}</b></button>
           <span class="quanti">${r.persone} <span class="conteggio">pers.</span></span>
-          ${r.origine === 'manuale' ? '<span class="conteggio"> · admin</span>' : ''}
-          ${r.locale_scelto ? `<br><span class="etichetta-esp">${Turni.iconaLocale(r)} ${sicuro(r.locale_scelto)}</span>` : ''}
-          ${r.esperienza ? `${r.locale_scelto ? ' ' : '<br>'}<span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : ''}
-          ${ETICHETTA[r.stato] ? `<span class="conteggio stato-eti"> · ${ETICHETTA[r.stato]}</span>` : ''}
-          ${soldiDi(r) ? `<br><span class="conteggio">${soldiDi(r)}</span>` : ''}
-          ${numeroPulito(r.telefono_contatto || r.telefono)
-            ? `<br><span class="conteggio">${sicuro(numeroPulito(r.telefono_contatto || r.telefono))}</span>` : ''}
-          ${r.note ? `<br><span class="note"><b>Attenzione:</b> ${sicuro(r.note)}</span>` : ''}
         </span>
         ${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}"
           value="${sicuro(r.tavolo || '')}" maxlength="20" autocomplete="off" placeholder="Tavolo"
@@ -1079,7 +1110,9 @@ async function caricaGiorno() {
                   fill="currentColor"/>
           </svg>
         </button>
-      </div>`).join('')}
+        ${dettagli ? `<span class="dettagli">${dettagli}</span>` : ''}
+      </div>`;
+      }).join('')}
     </div>`;
   }).join('');
   $('#righe').querySelectorAll('[data-apri]').forEach((b) => {

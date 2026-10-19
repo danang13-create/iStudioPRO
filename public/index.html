@@ -826,6 +826,48 @@
   /* La riga che apre un turno: si deve distinguere dalle prenotazioni sotto,
      o l'occhio la legge come una prenotazione senza nome. */
   .riga-turno td { background: var(--sfondo); border-top: 1px solid var(--bordo); }
+  /* La tabella del servizio. Sul telefono sei colonne non ci stanno: i nomi
+     andavano a capo a ogni parola, «REAR Restaurant» si spezzava in tre, e
+     Stato e Modifica restavano fuori dallo schermo, da scoprire scorrendo di
+     lato. Sotto i 600 pixel ogni prenotazione diventa una scheda: in alto il
+     nome con le persone e il tavolo, sotto le note, in fondo lo stato e
+     «Modifica». (Gli stili stavano in linea, e da una media query uno stile
+     in linea non si batte: ora stanno qui.) */
+  .tab-servizio td { padding: 8px; }
+  .tab-servizio .c-pers { font-variant-numeric: tabular-nums; }
+  .tab-servizio .c-note { font-size: .85rem; }
+  @media (max-width: 600px) {
+    .tab-servizio thead { display: none; }
+    .tab-servizio, .tab-servizio tbody, .tab-servizio .riga-turno, .tab-servizio .riga-turno td { display: block; }
+    /* Persone e tavolo una sopra l'altro, a destra: affiancati al nome gli
+       lasciavano 120 pixel su un telefono piccolo, e «🍝 RO bistrot» andava
+       a capo dentro la sua etichetta. */
+    .tab-servizio tr:not(.riga-turno) {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas: "nome pers" "nome tavolo" "note note" "stato modifica";
+      align-items: center; column-gap: 10px; padding: 8px 0;
+    }
+    /* Il filo sotto ogni cella divideva la scheda in pezzi: resta solo
+       quello fra una prenotazione e l'altra. */
+    .tab-servizio td { padding: 3px 0; border-bottom: none; }
+    .tab-servizio td:empty { display: none; }
+    .tab-servizio .c-nome { grid-area: nome; align-self: start; min-width: 0; }
+    .tab-servizio .c-pers { grid-area: pers; justify-self: end; white-space: nowrap; font-weight: 600; }
+    .tab-servizio .c-pers::after { content: ' pers.'; font-weight: 400; color: var(--grigio); }
+    .tab-servizio .c-tavolo { grid-area: tavolo; justify-self: end; align-self: start; }
+    .tab-servizio .c-note { grid-area: note; }
+    .tab-servizio .c-stato { grid-area: stato; min-width: 0; }
+    .tab-servizio .c-stato select { max-width: 100%; }
+    .tab-servizio .c-modifica { grid-area: modifica; justify-self: end; }
+  }
+  /* I tre tasti della settimana stanno insieme, e sul telefono prendono la
+     riga intera: andavano a capo uno per volta, «‹» accanto alle date e
+     «Questa settimana ›» sotto. */
+  .frecce { display: flex; align-items: center; gap: 8px; }
+  @media (max-width: 600px) {
+    .riga-strumenti .frecce { width: 100%; }
+    .frecce #sett-oggi { flex: 1; }
+  }
   .sotto-scheda { display: none; }
   /* La scheda «Esperienze»: una card per esperienza, i giorni come spunte. */
   .esp { border: 1px solid var(--bordo); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
@@ -1742,9 +1784,11 @@
         <h2 style="margin:0">Planning della settimana</h2>
         <span id="sett-periodo" class="conteggio" style="margin:0"></span>
         <span style="flex:1"></span>
-        <button class="btn btn-secondario btn-piccolo" id="sett-indietro" title="Settimana precedente">‹</button>
-        <button class="btn btn-secondario btn-piccolo" id="sett-oggi" title="Torna alla settimana in cui siamo">Questa settimana</button>
-        <button class="btn btn-secondario btn-piccolo" id="sett-avanti" title="Settimana successiva">›</button>
+        <span class="frecce">
+          <button class="btn btn-secondario btn-piccolo" id="sett-indietro" title="Settimana precedente">‹</button>
+          <button class="btn btn-secondario btn-piccolo" id="sett-oggi" title="Torna alla settimana in cui siamo">Questa settimana</button>
+          <button class="btn btn-secondario btn-piccolo" id="sett-avanti" title="Settimana successiva">›</button>
+        </span>
       </div>
       <div id="sett-griglia" class="settimana"></div>
       <p class="conteggio" style="margin:12px 0 0">
@@ -1768,7 +1812,7 @@
              lo aspetta? -->
         <div id="pren-attese" class="conteggio" style="margin:0 0 10px;display:none"></div>
         <div class="scorri">
-          <table style="width:100%;border-collapse:collapse;font-size:.92rem">
+          <table class="tab-servizio" style="width:100%;border-collapse:collapse;font-size:.92rem">
             <thead>
               <tr style="text-align:left;color:var(--grigio);font-size:.78rem;text-transform:uppercase;letter-spacing:.05em">
                 <th style="padding:8px">Nome</th>
@@ -5758,7 +5802,7 @@ async function caricaServizio() {
       </td>
     </tr>` + t.righe.map((r) => `
     <tr style="border-top:1px solid var(--bordo)${r.stato === 'annullata' ? ';opacity:.45' : ''}">
-      <td style="padding:8px"><button type="button" data-cliente="${r.id}"
+      <td class="c-nome"><button type="button" data-cliente="${r.id}"
           title="Vedi le altre prenotazioni di questa persona"
           class="nome-cliente">${
           testoSicuro([r.nome, r.cognome].filter(Boolean).join(' ') || '—')}</button>
@@ -5768,14 +5812,14 @@ async function caricaServizio() {
         <br><span class="conteggio" style="margin:0">${
         r.telefono_contatto ? '📞 ' + numeroPulito(r.telefono_contatto) : numeroPulito(r.telefono)
       }</span></td>
-      <td style="padding:8px;font-variant-numeric:tabular-nums">${r.persone}</td>
-      <td style="padding:8px">${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}"
+      <td class="c-pers">${r.persone}</td>
+      <td class="c-tavolo">${r.stato === 'annullata' ? '' : `<input class="tavolo-campo" data-tavolo="${r.id}"
           value="${testoSicuro(r.tavolo || '')}" maxlength="20" autocomplete="off" placeholder="—"
           title="Il tavolo assegnato a questa prenotazione: si salva da solo"
           aria-label="Tavolo di ${testoSicuro([r.nome, r.cognome].filter(Boolean).join(' ') || 'questo cliente')}">`}</td>
-      <td style="padding:8px;font-size:.85rem;color:${r.note ? 'var(--avviso-testo)' : 'var(--grigio)'}">${
+      <td class="c-note" style="color:${r.note ? 'var(--avviso-testo)' : 'var(--grigio)'}">${
         r.note ? `<b>Attenzione:</b> ${testoSicuro(r.note)}` : ''}</td>
-      <td style="padding:8px">
+      <td class="c-stato">
         <select data-stato="${r.id}" autocomplete="off" style="width:auto;padding:6px 30px 6px 10px"${
           r.stato === 'attesa_pagamento' ? ' disabled' : ''}>
           ${Object.entries(etichetta).map(([v, t]) => `<option value="${v}"${r.stato === v ? ' selected' : ''}>${t}</option>`).join('')}
@@ -5790,7 +5834,7 @@ async function caricaServizio() {
         ${r.pagato_at ? `<br><span class="conteggio" style="margin:4px 0 0;display:block">💳 ${
           euroUI(r.importo_dovuto)} incassati${r.pagata_da === 'stripe' ? ' · Stripe' : ' · segnati in sala'}</span>` : ''}
       </td>
-      <td style="padding:8px"><button class="btn btn-secondario" data-modifica="${r.id}" style="padding:4px 10px">Modifica</button></td>
+      <td class="c-modifica"><button class="btn btn-secondario" data-modifica="${r.id}" style="padding:4px 10px">Modifica</button></td>
     </tr>`).join('');
   }).join('');
   corpo.querySelectorAll('[data-stato]').forEach((s) => {
