@@ -6543,7 +6543,9 @@ app.get('/api/bot/impostazioni', (req, res) => {
   // adesso. Un modulo vuoto direbbe «chiuso tutti i giorni», che è falso.
   res.json({ impostazioni: cfg, personale: db.prepare('SELECT * FROM bot_personale').all(),
              fasce: bot.fasceDi(cfg), fasceSalvate: !!bot.fasceValide(cfg.bot_fasce),
-             esperienze: bot.esperienzeDi(cfg) });
+             // Come le ha scritte il titolare: la scheda le mostra e le risalva
+             // così, anche i giorni che oggi sono chiusi (vedi `esperienzeDi`).
+             esperienze: bot.esperienzeScritte(cfg) });
 });
 
 // Gli indirizzi a cui questo computer risponde davvero. Serve perché la riga
@@ -6753,7 +6755,7 @@ app.post('/api/bot/impostazioni', (req, res) => {
   if (fasceRipulite) ripuliti.bot_fasce = valori.bot_fasce;
   res.json({ ok: true, impostazioni: salvata, ripuliti,
              fasce: bot.fasceDi(salvata), fasceSalvate: !!bot.fasceValide(salvata.bot_fasce),
-             esperienze: bot.esperienzeDi(salvata) });
+             esperienze: bot.esperienzeScritte(salvata) });
 });
 
 // ---------------------------------------------------------------------------
@@ -6980,7 +6982,9 @@ function togliFileMenu(quale) {
 // usa più (caricati e non salvati, sostituiti, esperienza tolta) si buttano
 // al salvataggio successivo.
 function pulisciFileMenuEsperienze(cfg) {
-  const usati = new Set(bot.esperienzeDi(cfg).map((e) => e.menuFile).filter(Boolean));
+  // ⚠️ Scritte, non «come le vede il bot»: un'esperienza che oggi non ha
+  // nessun giorno aperto resta nella scheda, e il suo menu non va buttato.
+  const usati = new Set(bot.esperienzeScritte(cfg).map((e) => e.menuFile).filter(Boolean));
   for (const f of fs.readdirSync(MENU_DIR)) {
     if (bot.FILE_MENU_ESPERIENZA.test(f) && !usati.has(f)) {
       try { fs.unlinkSync(path.join(MENU_DIR, f)); } catch { /* già sparito */ }
@@ -7298,7 +7302,7 @@ const rottaServizio = (req, res) => {
     data, righe, turni, capienza: bot.capienzaDi(db, cfg),
     // I nomi delle esperienze (business lunch, degustazione…), per la tendina
     // del pannello. Vuoto se il locale non ne ha.
-    esperienze: bot.esperienzeDi(cfg).map((e) => e.nome),
+    esperienze: bot.esperienzeScritte(cfg).map((e) => e.nome),
     // Com'è messa la giornata, per turno o per servizio: è quello che si
     // MOSTRA. `turni` resta per le tendine, che hanno bisogno di ogni orario.
     riepilogo: bot.riepilogoDelGiorno(db, cfg, data),

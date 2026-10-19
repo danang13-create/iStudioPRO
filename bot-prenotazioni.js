@@ -890,10 +890,19 @@ const PREDEFINITI = {
   // Un servizio con un turno solo: invece di un elenco di una riga, si chiede
   // se va bene. {fascia} è «dalle 13:00 alle 15:00», o «alle 13:00».
   bot_t_turno_unico: 'Per {data} a {servizio} c’è un solo turno disponibile, {fascia}. ✨\n\nTi va bene? Scrivi SÌ per continuare.',
+  // Il servizio chiesto è chiuso (o pieno) e dell'altro resta un turno solo:
+  // sotto quel turno, la domanda.
+  bot_t_unico_va_bene: 'Ti va bene? Scrivi SÌ per continuare.',
+  // «No» all'unico turno del servizio scelto: altri giorni per quel servizio.
+  bot_t_unico_no: 'Va bene 👍 Ecco altri giorni in cui c’è posto a {servizio}:\n',
+  // …e in fondo, se quel giorno l'altro servizio ha posto, come chiederlo.
+  bot_t_unico_no_altro: 'Se invece {data} ti va bene a {altro}, scrivimi «{altro}».',
   // Il cliente ha chiesto un servizio — «a pranzo» — che quel giorno non c'è,
   // o è pieno. Non è un «non ho capito»: si dice com'è, e si propone l'altro.
   bot_t_servizio_chiuso: 'Per {data} a {servizio} siamo chiusi, ma abbiamo disponibilità in questi orari:\n',
   bot_t_servizio_pieno: 'Per {data} a {servizio} non abbiamo più disponibilità, ma ci sono ancora questi orari:\n',
+  // Il servizio chiesto c'è, ma l'esperienza scelta lì non vale.
+  bot_t_servizio_esperienza: '{esperienza}: per {data} a {servizio} non è disponibile ({quando}), ma ci sono questi orari:\n',
   // L'orario scritto a metà («21», «alle 8»). Deciso dal titolare: se il bot
   // ne sceglie uno vicino lo DICE, sulla stessa risposta, invece di
   // aggiustare in silenzio; se non c'è, lo dice invece di «non ho capito».
@@ -2433,12 +2442,17 @@ function oraNonProposta(db, cfg, dati, testo) {
 }
 
 // I prossimi giorni con almeno un turno libero, per proporre un menu.
+// `opzioni.servizio`: solo i giorni con posto a QUEL servizio. `opzioni.tranne`:
+// i giorni da saltare (quelli appena rifiutati dal cliente).
 function giorniDisponibili(db, cfg, persone, adesso, quanti = 5, opzioni = {}) {
   const trovati = [];
   const massimo = num(cfg.bot_max_giorni, 60);
+  const tranne = new Set(opzioni.tranne || []);
   for (let i = 0; i <= massimo && trovati.length < quanti; i++) {
     const iso = comeData(piuGiorni(adesso, i));
-    if (turniDisponibili(db, cfg, iso, persone, adesso, opzioni).length) trovati.push(iso);
+    if (tranne.has(iso)) continue;
+    const turni = turniDisponibili(db, cfg, iso, persone, adesso, opzioni);
+    if (opzioni.servizio ? turni.some((o) => servizioDellOra(cfg, iso, o) === opzioni.servizio) : turni.length) trovati.push(iso);
   }
   return trovati;
 }
@@ -2991,7 +3005,33 @@ function esperienzeValide(valore) {
   }
   return buone.slice(0, ESPERIENZE_MASSIME);
 }
-function esperienzeDi(cfg) { return esperienzeValide(cfg.bot_esperienze) || []; }
+// Le esperienze COME LE HA SCRITTE il titolare: per la scheda, da mostrare e
+// da risalvare. Il bot invece usa `esperienzeDi`, qui sotto.
+function esperienzeScritte(cfg) { return esperienzeValide(cfg.bot_esperienze) || []; }
+// I servizi aperti, giorno della settimana per giorno, da «Orari e tavoli».
+function serviziAperti(cfg) {
+  const fasce = fasceDi(cfg);
+  const aperti = { pranzo: new Set(), cena: new Set() };
+  for (let g = 0; g < 7; g++) {
+    for (const f of fasce[g] || []) if (aperti[f.servizio]) aperti[f.servizio].add(g);
+  }
+  return aperti;
+}
+// ⚠️ LE ESPERIENZE COME LE VEDE IL BOT: solo i giorni in cui quel servizio è
+// APERTO (19 ottobre 2026). Visto dal titolare: «Alla carta» aveva la D
+// spuntata anche a cena, la domenica sera in «Orari e tavoli» era chiusa, e il
+// bot scriveva «tutti i giorni a cena» e proponeva «Domenica a cena puoi
+// scegliere». I giorni dell'esperienza dicono dove VALE, gli orari dove il
+// locale è APERTO: per il cliente conta dove valgono tutti e due. Quella che
+// non ha più nessun giorno aperto non si propone affatto.
+// ⚠️ Il filtro sta QUI e non nel salvataggio: le spunte del titolare restano
+// com'erano, e se domani riapre la domenica sera tornano a valere da sole.
+function esperienzeDi(cfg) {
+  const aperti = serviziAperti(cfg);
+  return esperienzeScritte(cfg)
+    .map((e) => ({ ...e, pranzo: e.pranzo.filter((g) => aperti.pranzo.has(g)), cena: e.cena.filter((g) => aperti.cena.has(g)) }))
+    .filter((e) => e.pranzo.length || e.cena.length);
+}
 function esperienzaDi(cfg, nome) {
   if (!nome) return null;
   return esperienzeDi(cfg).find((e) => normalizza(e.nome) === normalizza(nome)) || null;
@@ -5577,6 +5617,13 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     }
 
     const persone = interpretaPersone(testo);
+    // ⚠️ Il giorno detto già nel primo messaggio (19 ottobre 2026): «vorrei
+    // prenotare per 2 domenica sera» si perdeva per strada — senza esperienze
+    // il bot richiedeva «quale giorno?», e a chi la domenica sera trovava
+    // chiuso nessuno lo diceva. Ora si tiene, e il passo del giorno dice
+    // com'è: «a cena siamo chiusi, ma…».
+    const giornoDelPrimo = giornoDettoInsieme(testo);
+    const conGiorno = giornoDelPrimo ? { giornoDetto: giornoDelPrimo } : {};
     // «vorrei prenotare» senza numero, oppure un numero già nel primo messaggio
     if (persone === null) {
       // ⚠️ IL GUASTO, visto in una chat vera. «possibile» stava in questo
@@ -5617,9 +5664,9 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       // Con le esperienze la prima domanda è «cosa vuoi mangiare»: il
       // benvenuto senza la domanda delle persone, e sotto l'elenco.
       if (conEsperienze) {
-        return chiediEsperienza({ ...conServizio({}) }, gia ? '' : (giaVisto ? 'bot_t_bentornato_esperienze' : 'bot_t_benvenuto_esperienze'));
+        return chiediEsperienza({ ...conServizio({}), ...conGiorno }, gia ? '' : (giaVisto ? 'bot_t_bentornato_esperienze' : 'bot_t_benvenuto_esperienze'));
       }
-      salvaStato(db, telefono, 'persone', { ...conServizio({}), ...nomeEsperienza({}) });
+      salvaStato(db, telefono, 'persone', { ...conServizio({}), ...nomeEsperienza({}), ...conGiorno });
       // Il benvenuto è il PRIMO messaggio, e vale per chi arriva davvero la
       // prima volta. Chi ha già un tavolo da noi ci ha già parlato: gli si fa
       // la domanda e basta. Chi ci scrisse mesi fa e oggi non ha più niente di
@@ -5635,10 +5682,10 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // Le persone già nel primo messaggio: con le esperienze si tengono da
     // parte, si chiede l'esperienza, e la domanda delle persone non si rifà.
     if (conEsperienze) {
-      return chiediEsperienza({ ...conServizio({}), persone, giornoDetto: giornoDettoInsieme(testo) },
+      return chiediEsperienza({ ...conServizio({}), persone, ...conGiorno },
         gia ? '' : (giaVisto ? 'bot_t_bentornato_esperienze' : 'bot_t_benvenuto_esperienze'));
     }
-    return passoPersone(persone, null, {});
+    return passoPersone(persone, giornoDelPrimo, {});
   }
 
   // ---- L'esperienza: «business lunch», «alla carta», «degustazione» ----
@@ -5787,7 +5834,14 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     if (servizio && !suoi.length) {
       // Chiuso e pieno, di nuovo, sono due notizie diverse.
       const esiste = turniAmmessi(cfg, iso, esperienzaScelta(d), turniDelGiorno(cfg, iso)).some((o) => servizioDellOra(cfg, iso, o) === servizio);
-      prima = di(esiste ? 'bot_t_servizio_pieno' : 'bot_t_servizio_chiuso', { data: dataItaliana(iso), servizio });
+      // ⚠️ Il locale a pranzo c'è, l'esperienza scelta no (la carta, il
+      // martedì, solo a cena): «a pranzo siamo chiusi» era falso, e chi voleva
+      // il business lunch credeva il locale chiuso. Come per i giorni.
+      const e = esperienzaScelta(d);
+      const soloLei = !esiste && e && turniDelGiorno(cfg, iso).some((o) => servizioDellOra(cfg, iso, o) === servizio);
+      prima = soloLei
+        ? di('bot_t_servizio_esperienza', { esperienza: e.nome, data: dataItaliana(iso), servizio, quando: quandoDetto(e) })
+        : di(esiste ? 'bot_t_servizio_pieno' : 'bot_t_servizio_chiuso', { data: dataItaliana(iso), servizio });
       suoi = turni;
       resta = undefined;
     } else if (suoi.length === 1 && numeroDelTurno(cfg, iso, suoi[0])) {
@@ -5802,11 +5856,16 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       }));
       return esito;
     }
-    salvaStato(db, telefono, passo, { ...avanzato(d), data: iso, turni, servizio: resta, unico: undefined });
+    // ⚠️ Chiuso a cena, e a pranzo un turno solo (19 ottobre 2026: la
+    // domenica del titolare). Si chiede se va bene, come per il turno unico:
+    // prima arrivava un elenco di una riga senza domanda, e il «sì» del
+    // cliente finiva in «non ho capito quale orario preferisci».
+    const unoSolo = !resta && servizio && passo !== 'sposta_ora' && suoi.length === 1 && numeroDelTurno(cfg, iso, suoi[0]) ? suoi[0] : undefined;
+    salvaStato(db, telefono, passo, { ...avanzato(d), data: iso, turni, servizio: unoSolo ? servizioDellOra(cfg, iso, unoSolo) : resta, unico: unoSolo });
     const elenco = elencoTurni(suoi, cfg, iso);
     if (!resta && servizio) {
       // Il servizio chiesto è chiuso o pieno: la sua frase, e sotto i turni che restano.
-      risposte.push(`${prima}\n${elenco}`);
+      risposte.push([`${prima}\n${elenco}`, unoSolo ? di('bot_t_unico_va_bene') : ''].filter((x) => String(x).trim()).join('\n\n'));
     } else if (suoi.some((o) => numeroDelTurno(cfg, iso, o))) {
       // ⚠️ Se dalla pagina qualcuno ha tolto {turni}, l'elenco va in fondo:
       // un messaggio di turni senza i turni non si può rispondere.
@@ -5847,9 +5906,17 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   }
 
   // Non vuole nessuno dei turni di quel giorno: si torna ai giorni.
+  // ⚠️ L'esperienza resta (19 ottobre 2026): qui si salvavano solo persone e
+  // servizio, e dopo un «no» il business lunch spariva — riepilogo senza
+  // «🍽️ Business lunch», e i turni della cena proposti a chi l'aveva scelto.
+  // Se aveva scelto il servizio («cena»), i giorni con posto a quello.
   function unAltroGiorno(d) {
-    const giorni = giorniDisponibili(db, cfg, d.persone, adesso, 5, perEsperienza(d));
-    salvaStato(db, telefono, 'giorno', { persone: d.persone, giorni, ...(d.servizio ? { servizio: d.servizio } : {}) });
+    const rifiutati = d.rifiutati || [];
+    const opzioni = { ...perEsperienza(d), tranne: rifiutati.map((r) => r.split(' ')[0]) };
+    const conServ = d.servizio ? giorniDisponibili(db, cfg, d.persone, adesso, 5, { ...opzioni, servizio: d.servizio }) : [];
+    const giorni = conServ.length ? conServ : giorniDisponibili(db, cfg, d.persone, adesso, 5, opzioni);
+    salvaStato(db, telefono, 'giorno', { ...nomeEsperienza(d), persone: d.persone, giorni,
+      ...(conServ.length ? { servizio: d.servizio } : {}), ...(rifiutati.length ? { rifiutati } : {}) });
     risposte.push(`${di('bot_t_giorno')}\n${elencoGiorni(giorni)}`);
     return esito;
   }
@@ -5990,6 +6057,13 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // date non sono piu' numerate, un «1» davanti a un elenco che contiene
     // «1 settembre» vuol dire quel giorno, non la prima riga.
     const iso = interpretaData(testo, adesso, { storti: true });
+    // «Cena», dopo il «no» all'unico turno del pranzo: la cena di QUEL giorno,
+    // che il bot gli ha offerto in fondo all'elenco dei giorni.
+    if (!iso && dati.altroGiorno && servizioDetto(testo) === dati.altroGiorno.servizio) {
+      const { altroGiorno, ...resto } = dati;
+      const turni = turniDisponibili(db, cfg, altroGiorno.data, dati.persone, adesso, perEsperienza(dati));
+      return proponiOrari('ora', { ...resto, servizio: altroGiorno.servizio }, altroGiorno.data, turni, altroGiorno.servizio);
+    }
     if (!iso) {
       return nonCapito('giorno', dati, `${di('bot_t_giorno_no')}\n${elencoGiorni(proposti)}`);
     }
@@ -6006,7 +6080,9 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       azzeraStato(db, telefono);
       return esito;
     }
-    return scegliGiorno(dati, iso);
+    // Ha scelto un giorno: l'offerta «scrivimi cena» valeva per quel messaggio.
+    const { altroGiorno, ...senzaOfferta } = dati;
+    return scegliGiorno(senzaOfferta, iso);
   }
 
   // La risposta a «pranzo o cena?». Chi risponde già con un orario o un turno
@@ -6025,26 +6101,40 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // Un messaggio fa gli è stato detto che il suo orario era pieno, e gli è
     // stata proposta la lista: «sì» vuol dire quello, non un orario.
     if (dati.attesaOra && vuoleLaAttesa()) return mettiInLista({ ...dati, ora: dati.attesaOra });
-    // «Ti va bene il turno unico?» — sì è quello; no, si propone l'altro
-    // servizio o un altro giorno.
+    // «Ti va bene il turno unico?» — sì è quello; no, un altro giorno.
+    // ⚠️ IL GUASTO, visto dal titolare (19 ottobre 2026): «pranzo o cena?» →
+    // «Pranzo» → «c'è un solo turno, ti va bene?» → «No» → i turni della
+    // CENA, senza nemmeno dire «a cena». Il servizio l'aveva scelto lui: «no»
+    // all'unico turno del pranzo vuol dire un altro pranzo, non la cena. Ora
+    // si propongono i giorni con posto a quel servizio (senza quello appena
+    // rifiutato), e in fondo, se quel giorno l'altro servizio ha posto, una
+    // riga per chiederlo con una parola. L'esperienza resta.
     let ora = null;
     if (dati.unico) {
       const si = interpretaSiNo(testo);
       if (si === true) ora = dati.unico;
       if (si === false) {
         const suo = servizioDellOra(cfg, dati.data, dati.unico);
+        const rifiutati = [...new Set([...(dati.rifiutati || []), `${dati.data} ${suo}`])];
         const altro = (dati.turni || []).find((o) => servizioDellOra(cfg, dati.data, o) !== suo);
-        // L'altro servizio, se c'è e non è già stato rifiutato: sennò «no» al
-        // pranzo e «no» alla cena si rimandavano l'un l'altro all'infinito.
-        if (altro && dati.rifiutato !== servizioDellOra(cfg, dati.data, altro)) {
-          return proponiOrari('ora', { ...dati, rifiutato: suo }, dati.data, dati.turni, servizioDellOra(cfg, dati.data, altro));
-        }
-        return unAltroGiorno(dati);
+        const altroServizio = altro ? servizioDellOra(cfg, dati.data, altro) : null;
+        const offrireAltro = altroServizio && !rifiutati.includes(`${dati.data} ${altroServizio}`);
+        // Il servizio scelto da lui (c'è un altro servizio nei turni solo se ha
+        // scelto: sennò il turno unico era l'unico del giorno).
+        const tranne = rifiutati.filter((r) => !altroServizio || r.endsWith(` ${suo}`)).map((r) => r.split(' ')[0]);
+        const conServ = altroServizio
+          ? giorniDisponibili(db, cfg, dati.persone, adesso, 5, { ...perEsperienza(), servizio: suo, tranne }) : [];
+        const giorni = conServ.length ? conServ
+          : giorniDisponibili(db, cfg, dati.persone, adesso, 5, { ...perEsperienza(), tranne: rifiutati.map((r) => r.split(' ')[0]) });
+        salvaStato(db, telefono, 'giorno', { ...nomeEsperienza(), persone: dati.persone, giorni, rifiutati,
+          ...(conServ.length ? { servizio: suo } : {}),
+          ...(offrireAltro ? { altroGiorno: { data: dati.data, servizio: altroServizio } } : {}) });
+        const testa = conServ.length ? di('bot_t_unico_no', { servizio: suo }) : di('bot_t_giorno');
+        const coda = offrireAltro ? di('bot_t_unico_no_altro', { data: dataItaliana(dati.data), altro: altroServizio }) : '';
+        risposte.push([`${testa}\n${elencoGiorni(giorni)}`, coda].filter((x) => String(x).trim()).join('\n\n'));
+        return esito;
       }
     }
-    // «No» davanti ai turni dell'altro servizio, dopo aver rifiutato il primo:
-    // non vuole quel giorno.
-    if (!ora && dati.rifiutato && interpretaSiNo(testo) === false) return unAltroGiorno(dati);
     if (!ora) ora = oraScelta(dati);
     if (!ora) {
       // Prima di dire «non ho capito»: forse ha capito benissimo, e quell'ora
@@ -6057,6 +6147,14 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       if (chiesto) return proponiOrari('ora', dati, dati.data, dati.turni || [], chiesto);
       const nonTrovata = oraSenzaTurno('ora', dati);
       if (nonTrovata) return nonTrovata;
+      // ⚠️ «No» davanti all'elenco dei turni (19 ottobre 2026): nessuno di
+      // quelli gli va. Prima era «non ho capito quale orario preferisci», e
+      // contava come un equivoco. Si propone un altro giorno, senza questo.
+      // Non dopo «vuoi che ti metta in lista?»: lì «no» vuol dire niente
+      // lista, e i turni rimasti di quel giorno valgono ancora.
+      if (!dati.attesaOra && interpretaSiNo(testo) === false) {
+        return unAltroGiorno({ ...dati, rifiutati: [...new Set([...(dati.rifiutati || []), `${dati.data} ${dati.servizio || 'tutto'}`])] });
+      }
       return nonCapito('ora', dati, `${di('bot_t_ora_no')}\n${elencoTurni(turniDaMostrare(dati), cfg, dati.data)}`);
     }
     // Ricontrollo: fra la proposta e la risposta può essersi riempito
@@ -6098,7 +6196,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // Una data è una risposta legittima a «vuoi scegliere un altro giorno?»:
     // si riparte dal passo del giorno con quella stessa frase.
     if (interpretaData(testo, adesso, { storti: true })) {
-      salvaStato(db, telefono, 'giorno', { persone: dati.persone, giorni: [] });
+      salvaStato(db, telefono, 'giorno', { ...nomeEsperienza(dati), persone: dati.persone, giorni: [] });
       return elaboraMessaggio(db, telefono, testo, adesso, contesto);
     }
     if (interpretaSiNo(testo) === false) {
@@ -6593,6 +6691,7 @@ module.exports = {
   dateRaddrizzate, esempioPer, parolaVicina,
   tettoRisposte, risposteDiOggi,
   menuDellEsperienza, esperienzaNominata, FILE_MENU_ESPERIENZA,
+  esperienzeScritte, serviziAperti,
   orariDetti, chiedeGliOrari, valeIlGiorno,
   prenotazioneFutura,
   elencoPrenotazioni,
