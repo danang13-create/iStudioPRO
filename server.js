@@ -5642,10 +5642,11 @@ function composizioneEmail(cfg, p, link) {
     // anche per i modelli già salvati, che usano {locale}. Senza locali resta
     // il nome del locale, come sempre.
     locale: p.locale_scelto || cfg.bot_locale || '',
-    // La riga «Locale» dei modelli (19 ottobre 2026): «RO bistrot», «REAR
-    // Restaurant · Business lunch»; senza locali, l'esperienza da sola — e
-    // allora la riga si chiama «Esperienza». Vuota se non c'è niente.
-    scelta: [p.locale_scelto, p.esperienza].filter(Boolean).join(' · '),
+    // La riga «Locale» dei modelli (19 ottobre 2026): SOLO il locale, «RO
+    // Bistrot» o «REAR Restaurant» — con anche l'esperienza («· Business
+    // lunch da €35») al titolare non piaceva. Senza locali, l'esperienza da
+    // sola — e allora la riga si chiama «Esperienza». Vuota se non c'è niente.
+    scelta: p.locale_scelto || p.esperienza || '',
     scelta_titolo: p.locale_scelto ? 'Locale' : 'Esperienza',
   };
   const oggetto = bot.riempi(cfg.bot_email_oggetto, valori).replace(/\n/g, ' ').trim()
