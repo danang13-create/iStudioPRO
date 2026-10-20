@@ -5333,6 +5333,10 @@ function numeroPulito(valore) {
 // si dice: chi lo toglie per spostarlo deve capire perché ricompare.
 const FRASI_CON_ELENCO = ['bot_t_esperienze', 'bot_t_esperienze_giorno', 'bot_t_esperienza_no', 'bot_t_esperienza_quale', 'bot_t_esperienza_altra'];
 const AVVISO_ELENCO = '⚠️ Qui manca {esperienze}: il bot metterà l\'elenco delle esperienze in fondo alla frase. Scrivilo nel punto dove lo vuoi.';
+// La frase di RICOMINCIA sta sopra la presentazione, che fa la sua domanda: da
+// una riga con «?» in giù il bot non la manda (vedi `primaDellaDomanda` nel
+// motore). Chi l'aveva scritta con la domanda dentro lo deve leggere qui.
+const AVVISO_DOMANDA = '⚠️ Qui c\'è una domanda: dalla riga col «?» in giù il bot non la manda. Dopo questa frase si ripresenta e fa la sua (con più locali, «dove vuoi prenotare?»).';
 const TESTI_BOT = [
   [null, 'Chi scrive per la prima volta'],
   ['bot_t_benvenuto', 'Il primo messaggio', 'Quello che vede chi ti scrive per la prima volta. È il più importante di tutti.'],
@@ -7345,6 +7349,7 @@ async function caricaConfigBot() {
         <textarea id="txt-${chiave}" autocomplete="off" rows="${chiave === 'bot_t_ora_turno' ? 6 : chiave === 'bot_t_benvenuto' ? 4 : 3}"
           class="frase-testo" style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;resize:vertical">${testoSicuro(d.impostazioni[chiave] || '')}</textarea>
         ${FRASI_CON_ELENCO.includes(chiave) ? `<span class="conteggio" data-avviso-elenco="${chiave}" style="display:none;margin:2px 0 0;color:var(--avviso-testo)"></span>` : ''}
+        ${chiave === 'bot_t_ricominciato' ? '<span class="conteggio" data-avviso-domanda style="display:none;margin:2px 0 0;color:var(--avviso-testo)"></span>' : ''}
         <button class="btn btn-secondario" data-ripristina="${chiave}" style="padding:3px 9px;font-size:.78rem;margin-top:4px">Riporta com'era</button>
       </label>`);
   }
@@ -7399,6 +7404,19 @@ async function caricaConfigBot() {
     };
     area.addEventListener('input', aggiorna);
     aggiorna();
+  }
+  {
+    const area = $('#txt-bot_t_ricominciato');
+    const avviso = $('[data-avviso-domanda]');
+    if (area && avviso) {
+      const aggiorna = () => {
+        const domanda = area.value.includes('?');
+        avviso.textContent = domanda ? AVVISO_DOMANDA : '';
+        avviso.style.display = domanda ? 'block' : 'none';
+      };
+      area.addEventListener('input', aggiorna);
+      aggiorna();
+    }
   }
   $('#pren-testi').querySelectorAll('[data-ripristina]').forEach((b) => {
     b.addEventListener('click', async (ev) => {

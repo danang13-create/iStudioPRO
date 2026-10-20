@@ -2577,6 +2577,16 @@ const SEGNAPOSTI_DATI = ['{data}', '{ora}', '{persone}', '{nome}', '{cognome}'];
 // ⚠️ «📝 Note:» da sola, senza niente dopo, sembra un guasto. Una riga che
 // contiene SOLO segnaposto vuoti si toglie tutta. «Solo»: se sulla stessa riga
 // ce n'è anche uno pieno la riga resta, sennò si porterebbe via del testo vero.
+// Le righe di una frase che vengono PRIMA della prima domanda: da quella col
+// punto di domanda in giù (compreso il suo «(esempio: 2)») resta fuori. Serve
+// alla frase di RICOMINCIA, che sta sopra una presentazione con la sua
+// domanda. Se non resta niente, chi la usa mette quella predefinita.
+function primaDellaDomanda(testo) {
+  const righe = String(testo || '').split('\n');
+  const domanda = righe.findIndex((r) => r.includes('?'));
+  return (domanda < 0 ? righe : righe.slice(0, domanda)).join('\n').trim();
+}
+
 function senzaRigheVuote(testo, valori) {
   return String(testo || '').split('\n').filter((riga) => {
     const chiavi = (riga.match(/\{(\w+)\}/g) || []).map((x) => x.slice(1, -1));
@@ -5467,9 +5477,16 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // tavolo che ha già non c'entra: ha scritto RICOMINCIA, sta prenotando.
   // Risponde QUI, prima di tutto il resto: «annulla tutto» è un ricomincia, e
   // più sotto diventerebbe «vuoi cancellare la prenotazione?».
+  // ⚠️ La frase va IN CIMA alla presentazione, che la domanda la fa lei. Fino
+  // al 20 ottobre 2026 la domanda la faceva la frase («…per quante persone?»),
+  // e chi l'aveva personalizzata se l'è tenuta così: il cliente riceveva DUE
+  // domande, le persone e subito sotto «RO bistrot o REAR?» (visto dal
+  // titolare, con uno screenshot, il giorno stesso). Della frase va solo
+  // quello che sta prima della domanda (vedi «primaDellaDomanda»).
   if (/^(ricomincia|ricominciamo|da capo|riparti|annulla tutto)\b/i.test(t)) {
     azzeraStato(db, telefono);
-    return presentati({}, null, di('bot_t_ricominciato'));
+    return presentati({}, null,
+      primaDellaDomanda(di('bot_t_ricominciato')) || riempi(PREDEFINITI.bot_t_ricominciato, valori));
   }
 
   // --- Tetto di risposte ---
