@@ -4354,6 +4354,25 @@ async function mandaElenco(persona, parolaGiorno) {
     bot.elencoPrenotazioni(db, bot.config(db), giorno, adesso));
 }
 
+// I valori delle frasi che partono quando è il LOCALE a muovere qualcosa:
+// annullata, modificata, confermata a mano. Le quattro chiamate — dal
+// WhatsApp della sala, dalla pagina della sala, dalla piattaforma — passano
+// tutte da qui, così non possono dire cose diverse.
+// - {nome} è il solo nome: «Ciao Daniele», non «Ciao Daniele Napoli» (dal
+//   titolare, 20 ottobre 2026). È come in «che bello rivederti».
+// - {scelto} è il locale della prenotazione: con RO WORLD «RO bistrot» o
+//   «REAR Restaurant», con un locale solo il suo nome. Il messaggio di
+//   annullamento firmava «RO World» e basta: chi aveva il bistrot non sapeva
+//   quale delle due gli avevano tolto.
+function valoriPerIlCliente(cfg, p) {
+  return {
+    locale: cfg.bot_locale, assistente: cfg.bot_assistente,
+    nome: String(p.nome || '').trim() || String(p.cognome || '').trim(),
+    scelto: String(p.locale_scelto || '').trim() || cfg.bot_locale,
+    data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
+  };
+}
+
 async function messaggioDelPersonale(persona, testo, msg) {
   const t = String(testo || '').trim();
 
@@ -4593,11 +4612,7 @@ async function messaggioDelPersonale(persona, testo, msg) {
       const p = esito.avvisa;
       const cfg = bot.config(db);
       try {
-        await inviaConRitmo(p.telefono, bot.riempi(cfg.bot_t_manuale, {
-          locale: cfg.bot_locale, assistente: cfg.bot_assistente,
-          nome: [p.nome, p.cognome].filter(Boolean).join(' '),
-          data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
-        }));
+        await inviaConRitmo(p.telefono, bot.riempi(cfg.bot_t_manuale, valoriPerIlCliente(cfg, p)));
         await inviaConRitmo(persona.chat_id || persona.telefono, `✅ Conferma mandata a +${p.telefono}.`);
       } catch (e) {
         // Il motivo vero serve a chi è in sala: «non è su WhatsApp» si risolve
@@ -4624,11 +4639,7 @@ async function messaggioDelPersonale(persona, testo, msg) {
       } else {
         const cfg = bot.config(db);
         try {
-          await inviaConRitmo(destinatario, bot.riempi(cfg.bot_t_annullata_locale, {
-            locale: cfg.bot_locale, assistente: cfg.bot_assistente,
-            nome: [p.nome, p.cognome].filter(Boolean).join(' '),
-            data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
-          }));
+          await inviaConRitmo(destinatario, bot.riempi(cfg.bot_t_annullata_locale, valoriPerIlCliente(cfg, p)));
           await inviaConRitmo(persona.chat_id || persona.telefono, 'Il cliente è stato avvisato.');
         } catch (e) {
           annota('errore', `avviso di annullamento non partito: ${e.message}`);
@@ -8299,11 +8310,7 @@ const rottaModificaPrenotazione = async (req, res) => {
     } else {
       const frase = annullataAdesso ? cfg.bot_t_annullata_locale : cfg.bot_t_modificata;
       try {
-        await inviaAlCliente(dopo, bot.riempi(frase, {
-          locale: cfg.bot_locale, assistente: cfg.bot_assistente,
-          nome: [dopo.nome, dopo.cognome].filter(Boolean).join(' '),
-          data: bot.dataItaliana(dopo.data), ora: dopo.ora, persone: dopo.persone,
-        }));
+        await inviaAlCliente(dopo, bot.riempi(frase, valoriPerIlCliente(cfg, dopo)));
         avvisato = true;
         annota(annullataAdesso ? 'annullata admin' : 'modificata',
           `avvisato il cliente: ${dopo.data} ${dopo.ora}, ${dopo.persone} pers.`);
@@ -8548,11 +8555,7 @@ const rottaNuovaPrenotazione = async (req, res) => {
   let avvisoFallito = '';
   if (b.avvisa && telefono) {
     try {
-      await inviaConRitmo(telefono, bot.riempi(cfg.bot_t_manuale, {
-        locale: cfg.bot_locale, assistente: cfg.bot_assistente,
-        nome: [p.nome, p.cognome].filter(Boolean).join(' '),
-        data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
-      }));
+      await inviaConRitmo(telefono, bot.riempi(cfg.bot_t_manuale, valoriPerIlCliente(cfg, p)));
       avvisato = true;
     } catch (e) {
       avvisoFallito = e.message;

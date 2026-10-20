@@ -563,6 +563,8 @@ const TESTI_SUPERATI = {
   ],
   bot_t_annullata_locale: [
     'Ciao {nome}, ti avvisiamo che la tua prenotazione da {locale} di {data} alle {ora} è stata annullata. Se pensi ci sia un errore, scrivici pure.',
+    // Senza il locale: chi aveva il bistrot non sapeva quale gli avevano tolto (20 ottobre 2026).
+    'Ciao {nome}, \nti avvisiamo che la tua prenotazione di {data} alle {ora} è stata cancellata.\n\n{locale}',
   ],
   bot_t_annulla_niente: [
     'Non trovo prenotazioni future a tuo nome.',
@@ -1032,7 +1034,8 @@ const PREDEFINITI = {
   bot_t_modificata: 'Ciao {nome}, abbiamo aggiornato la tua prenotazione:\n\n📅 {data} \n🕘 {ora} \n👥 {persone}\n\nA presto!\n',
   bot_t_manuale: 'Ciao {nome}! \nTi confermiamo la prenotazione da {locale}:\n\n📅 {data} \n🕘 {ora}  \n👥 {persone}\n\nSe hai un imprevisto scrivi in questa chat.',
   bot_t_annullata: '✅ Prenotazione cancellata.\n\nGrazie per averci avvisato.\nSperiamo di poterti accogliere presto da {locale}. ✨',
-  bot_t_annullata_locale: 'Ciao {nome}, \nti avvisiamo che la tua prenotazione di {data} alle {ora} è stata cancellata.\n\n{locale}',
+  // {scelto}: il locale della prenotazione («RO bistrot»); {locale} firma.
+  bot_t_annullata_locale: 'Ciao {nome}, \nti avvisiamo che la tua prenotazione da {scelto} di {data} alle {ora} è stata cancellata.\n\n{locale}',
   bot_t_annulla_niente: '⚠️ Non trovo alcuna prenotazione associata al tuo nome.\n\nSe pensi che ci sia un errore o hai bisogno di supporto, scrivi OPERATORE e ti metterò in contatto con una persona del nostro team.',
   bot_t_sposta_quale: 'La tua prenotazione è:\n\n📅 {data}\n🕘 {ora}\n👥 {persone}\n\nChe giorno vuoi spostarla?\n',
   bot_t_sposta_conferma: 'Sposto la tua prenotazione a:\n\n📅 {data}\n🕘 {ora}\n👥 {persone}\n\nScrivi SÌ per confermare',
