@@ -465,9 +465,15 @@ const TESTI_SUPERATI = {
     // Senza la riga dell'esperienza.
     'Perfetto! ✨ \nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n📝 Note: {note}\n\nConfermi la prenotazione?\n\nScrivi SÌ per confermare',  ],
   bot_t_benvenuto_esperienze: [
-    '{saluto} ✨ \n\nSono {assistente} l\'assistente virtuale di {locale}\nSarà un piacere aiutarti con la tua prenotazione.\n',  ],
+    '{saluto} ✨ \n\nSono {assistente} l\'assistente virtuale di {locale}\nSarà un piacere aiutarti con la tua prenotazione.\n',
+    // La riga degli orari in un pezzo solo (fino al 20 ottobre 2026).
+    '{saluto} ✨ \n\nSono {assistente} l\'assistente virtuale di {locale}\nSarà un piacere aiutarti con la tua prenotazione.\n\n🕒 Siamo aperti {orari}.\n',  ],
   bot_t_bentornato_esperienze: [
-    'Che bello rivederti, {nome}! ✨\n',  ],
+    'Che bello rivederti, {nome}! ✨\n',
+    'Che bello rivederti, {nome}! ✨\n\n🕒 Siamo aperti {orari}.\n',  ],
+  bot_t_orari: [
+    '🕒 Siamo aperti {orari}.',
+  ],
   bot_t_esperienza_menu: [
     'Vuoi dare un\'occhiata al menu? Scrivi SÌ e te lo mando, oppure NO per andare avanti.',  ],
   bot_t_email: [
@@ -830,8 +836,8 @@ const PREDEFINITI = {
   // Con le esperienze (scheda «Esperienze», almeno due) la prima domanda non
   // è «per quante persone» ma «cosa vuoi mangiare»: il benvenuto si ferma
   // prima della domanda, e sotto arriva l'elenco. Deciso dal titolare.
-  bot_t_benvenuto_esperienze: '{saluto} ✨ \n\nSono {assistente} l\'assistente virtuale di {locale}\nSarà un piacere aiutarti con la tua prenotazione.\n\n🕒 Siamo aperti {orari}.\n',
-  bot_t_bentornato_esperienze: 'Che bello rivederti, {nome}! ✨\n\n🕒 Siamo aperti {orari}.\n',
+  bot_t_benvenuto_esperienze: '{saluto} ✨ \n\nSono {assistente} l\'assistente virtuale di {locale}\nSarà un piacere aiutarti con la tua prenotazione.\n\nSiamo aperti:\n{orari}\n',
+  bot_t_bentornato_esperienze: 'Che bello rivederti, {nome}! ✨\n\nSiamo aperti:\n{orari}\n',
   // {numeri} è «1, 2 o 3»: si sceglie col numero (chiesto dal titolare, 19
   // ottobre 2026). Il nome lo capisce lo stesso, ma «business lunch» può
   // valere per due — vedi `bot_t_esperienza_quale`.
@@ -879,9 +885,9 @@ const PREDEFINITI = {
   bot_t_esperienza_senza_menu: 'Per «{esperienza}» non ho un menu da mandarti: te lo raccontano in sala. 🙂',
   // MENU prima di scegliere, con più esperienze che hanno un menu: quale?
   bot_t_menu_quale_esperienze: 'Quale menu vuoi vedere? ✨\n\n{menu}\n\nScrivimi il nome o il numero.',
-  // Gli orari d'apertura, a parole dalle fasce di «Orari e tavoli»: nel
-  // benvenuto ({orari} vale in ogni frase) e a chi scrive ORARI.
-  bot_t_orari: '🕒 Siamo aperti {orari}.',
+  // Gli orari d'apertura, una riga per servizio dalle fasce di «Orari e
+  // tavoli»: nel benvenuto ({orari} vale in ogni frase) e a chi scrive ORARI.
+  bot_t_orari: 'Siamo aperti:\n{orari}',
   // Un giorno in cui il locale c'è ma quell'esperienza no: non è «chiuso».
   bot_t_esperienza_chiusa: '{esperienza}: per {data} non è disponibile ({quando}).\n\nTi va di scegliere un altro giorno?',
   // ⚠️ Quando il cliente ha fatto una DOMANDA chiara — «è possibile
@@ -2547,8 +2553,26 @@ function giorniDisponibili(db, cfg, persone, adesso, quanti = 5, opzioni = {}) {
 //  I testi
 // ---------------------------------------------------------------------------
 
+// ⚠️ {orari} dal 20 ottobre 2026 sono RIGHE («🍽️ Pranzo: …», «🌙 Cena: …»),
+// non più un pezzo di frase (vedi «orariDetti»). Le frasi personalizzate prima
+// hanno ancora «🕒 Siamo aperti {orari}.»: messe così darebbero «Siamo aperti
+// 🍽️ Pranzo: …» con la cena a capo. Si sistemano qui, al momento di mandarle,
+// e il testo salvato non si tocca (è del ristorante): la frase vecchia diventa
+// «Siamo aperti:» con le righe sotto, e {orari} in mezzo a una riga va a capo.
+// Senza orari la frase che li presenta sparisce tutta: non resta «Siamo
+// aperti:» da solo.
+function orariARighe(testo, valori) {
+  const t = String(testo || '');
+  if (!t.includes('{orari}')) return t;
+  const sistemato = t.replace(/(?:🕒[ \t]*)?Siamo aperti[ \t]*:?[ \t]*\n?[ \t]*\{orari\}\.?/g, 'Siamo aperti:\n{orari}');
+  if (!String((valori && valori.orari) || '').trim()) {
+    return sistemato.replace(/Siamo aperti:\n\{orari\}[^\n]*\n?/g, '').replace(/[^\n]*\{orari\}[^\n]*\n?/g, '');
+  }
+  return sistemato.replace(/([^\s])[ \t]*\{orari\}/g, '$1\n{orari}').replace(/\{orari\}\./g, '{orari}');
+}
+
 function riempi(testo, valori) {
-  const pieno = String(testo || '').replace(/\{(\w+)\}/g, (intero, chiave) => {
+  const pieno = orariARighe(testo, valori).replace(/\{(\w+)\}/g, (intero, chiave) => {
     const v = valori[chiave];
     return v === undefined || v === null ? intero : String(v);
   });
@@ -2574,9 +2598,6 @@ function riempi(testo, valori) {
 // tutta quando il numero non c'è.
 const SEGNAPOSTI_DATI = ['{data}', '{ora}', '{persone}', '{nome}', '{cognome}'];
 
-// ⚠️ «📝 Note:» da sola, senza niente dopo, sembra un guasto. Una riga che
-// contiene SOLO segnaposto vuoti si toglie tutta. «Solo»: se sulla stessa riga
-// ce n'è anche uno pieno la riga resta, sennò si porterebbe via del testo vero.
 // Le righe di una frase che vengono PRIMA della prima domanda: da quella col
 // punto di domanda in giù (compreso il suo «(esempio: 2)») resta fuori. Serve
 // alla frase di RICOMINCIA, che sta sopra una presentazione con la sua
@@ -2587,8 +2608,11 @@ function primaDellaDomanda(testo) {
   return (domanda < 0 ? righe : righe.slice(0, domanda)).join('\n').trim();
 }
 
+// ⚠️ «📝 Note:» da sola, senza niente dopo, sembra un guasto. Una riga che
+// contiene SOLO segnaposto vuoti si toglie tutta. «Solo»: se sulla stessa riga
+// ce n'è anche uno pieno la riga resta, sennò si porterebbe via del testo vero.
 function senzaRigheVuote(testo, valori) {
-  return String(testo || '').split('\n').filter((riga) => {
+  return orariARighe(testo, valori).split('\n').filter((riga) => {
     const chiavi = (riga.match(/\{(\w+)\}/g) || []).map((x) => x.slice(1, -1));
     if (!chiavi.length) return true;
     return chiavi.some((k) => String(valori[k] == null ? '' : valori[k]).trim() !== '');
@@ -3342,11 +3366,16 @@ function valeIlGiorno(e, iso, servizio) {
   const g = new Date(`${iso}T12:00:00`).getDay();
   return (servizio ? [servizio] : SERVIZI).some((s) => (s === 'pranzo' ? e.pranzo : e.cena).includes(g));
 }
-// Gli orari d'apertura a parole, dalle fasce di «Orari e tavoli»: «a pranzo
-// 12:30–14:00 dal lunedì al venerdì e la domenica, a cena 19:30–23:00 dal
-// lunedì al sabato; chiusi il lunedì». I giorni con lo stesso orario stanno
-// insieme; un servizio va dal primo arrivo all'ultima fine. Vuoto se non c'è
-// nessun orario. Chiesto dal titolare: una riga sola, non l'elenco dei turni.
+// Gli orari d'apertura, dalle fasce di «Orari e tavoli». Una riga per servizio,
+// come l'ha scritta il titolare (20 ottobre 2026) — la riga unica di prima, «a
+// pranzo 12:30–15:30 dal lunedì al venerdì e la domenica, a cena …», si
+// leggeva male:
+//   🍽️ Pranzo: 12:30–15:30, dal lunedì al venerdì e la domenica.
+//   🌙 Cena: 19:30–23:00, dal lunedì al sabato.
+//   Chiusi il martedì.            (solo se c'è un giorno senza niente)
+// I giorni con lo stesso orario stanno insieme; un servizio va dal primo
+// arrivo all'ultima fine. Niente elenco dei turni. Vuoto se non c'è nessun
+// orario. «Siamo aperti:» sta nella frase, non qui.
 function orariDetti(cfg) {
   const fasce = fasceDi(cfg);
   const pezzi = [];
@@ -3363,11 +3392,13 @@ function orariDetti(cfg) {
       perOrario.get(chiave).push(g);
     }
     if (!perOrario.size) continue;
-    pezzi.push(`a ${servizio} ${[...perOrario.entries()].map(([orario, giorni]) => `${orario} ${giorniDetti(giorni)}`).join(' e ')}`);
+    const testa = servizio === 'pranzo' ? '🍽️ Pranzo' : '🌙 Cena';
+    pezzi.push(`${testa}: ${[...perOrario.entries()].map(([orario, giorni]) => `${orario}, ${giorniDetti(giorni)}`).join('; ')}.`);
   }
   if (!pezzi.length) return '';
   const chiusi = [0, 1, 2, 3, 4, 5, 6].filter((g) => !(fasce[g] || []).length);
-  return pezzi.join(', ') + (chiusi.length ? `; chiusi ${giorniDetti(chiusi)}` : '');
+  if (chiusi.length) pezzi.push(`Chiusi ${giorniDetti(chiusi)}.`);
+  return pezzi.join('\n');
 }
 // «Che orari fate?», «quando siete aperti?», «a che ora aprite?». Parole
 // intere e precise: «alle 20» o «l'orario delle 21» sono risposte, e non
