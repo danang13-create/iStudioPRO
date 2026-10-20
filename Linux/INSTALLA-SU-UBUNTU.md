@@ -216,6 +216,7 @@ Stanno in `~/iStudio/Linux/`:
 | `bash "Aggiorna adesso.sh"` | Prende subito la versione pubblicata, senza aspettare le 5 |
 | `bash riordina-cartella.sh` | Rimette in vista solo i comandi e la guida (lo fanno già installazione e aggiornamento) |
 | `bash Ferma.sh` | La ferma (riparte da sola se la macchina si riavvia) |
+| `bash "Cambia password.sh"` | Cambia la password della piattaforma (vedi sotto) |
 | `journalctl -u istudio -f` | Il registro dal vivo |
 
 **L'aggiornamento è automatico alle 5 del mattino**, a locale chiuso — mai nel mezzo del
@@ -232,6 +233,36 @@ Se lanciando `Avvia.sh` compare **«Il servizio è cambiato sul disco: lo faccio
 e ti chiede la password del computer, dagliela: è systemd (il programma che tiene accesa
 iStudio) che deve rileggere il file del servizio. Senza, ripeterebbe ogni volta l'avviso
 inglese «The unit file … changed on disk».
+
+### Se il cliente dimentica la password
+
+Ci sono tre strade, e le prime due il cliente le fa da solo:
+
+1. **La ricorda e vuole cambiarla**: Profilo → **Cambia password** (quella di adesso, poi la
+   nuova due volte). Gli altri dispositivi dovranno rientrare.
+2. **L'ha dimenticata**: nella pagina d'accesso preme **«Password dimenticata?»**. Ti arriva
+   un'email (all'indirizzo dell'assistenza) con il nome del locale, il codice installazione e un
+   **codice di sblocco** di otto lettere. **Prima di dettarlo, chiama il locale** e assicurati
+   che la richiesta sia davvero loro: chi ha il codice sceglie la password nuova. Lui preme
+   **«Ho già un codice»**, scrive il codice e la password nuova, ed è dentro. Il codice vale 24
+   ore e cinque tentativi; finché nessuno lo usa vale la password di prima. Se nessuno l'ha
+   chiesto, ignora l'email.
+   L'email parte dalla posta del locale (Impostazioni → Email): se non è configurata, o internet
+   non c'è, la pagina lo dice e mostra il tuo WhatsApp. Allora resta la terza strada.
+3. **La tua, che funziona sempre**: dal Mac `ssh istudio`, poi
+
+   ```bash
+   bash ~/iStudio/Linux/"Cambia password.sh"
+   ```
+
+   Chiede la password nuova due volte (le stesse regole dell'installatore), la scrive in
+   `/etc/istudio.env`, riavvia iStudio e controlla che funzioni. Vince anche su una password
+   scelta dal Profilo, e chi era dentro esce. `sudo` chiede la password di Ubuntu, non quella
+   di iStudio.
+
+> Il file `/etc/istudio.env` si può anche rileggere (`sudo cat /etc/istudio.env`), ma dice solo
+> la password **di partenza**: se il cliente l'ha cambiata dal Profilo, quella vera è nell'archivio
+> di iStudio e non si rilegge da nessuna parte. Per questo la strada è cambiarla, non cercarla.
 
 ---
 

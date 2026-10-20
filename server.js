@@ -100,6 +100,18 @@ db.exec(`
     scade_at INTEGER NOT NULL,
     versione TEXT                    -- con quale versione di iStudio si è entrati
   );
+  -- La password della piattaforma, non in chiaro (vedi «La password sta
+  -- nell'archivio»). Una riga sola.
+  CREATE TABLE IF NOT EXISTS accesso (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    impronta TEXT,                   -- scrypt della password che vale adesso
+    origine TEXT,                    -- scrypt di com'era il file del servizio l'ultima volta
+    cambiata_at TEXT,
+    codice TEXT,                     -- il codice di sblocco chiesto con «Password dimenticata?»
+    codice_scade INTEGER,
+    codice_sbagli INTEGER NOT NULL DEFAULT 0,
+    richiesta_at INTEGER             -- quando è partita l'ultima email all'assistenza
+  );
   CREATE TABLE IF NOT EXISTS optout_requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_nome TEXT NOT NULL,
@@ -1377,6 +1389,121 @@ function scordaSessione(dove, token) {
 // della sala e la piattaforma chiedono di nuovo la password. La pagina della
 // sala non lo fa di soppiatto — lo scrive, e torna al cancello solo quando non
 // sta portando via niente a nessuno (vedi «sessioneFinita» in public-sala).
+
+// ------------------------------------------------------------------
+//  La password sta nell'archivio
+// ------------------------------------------------------------------
+//  Chiesto dal titolare (20 ottobre 2026): cambiarla dal Profilo e, se la si
+//  dimentica, farsi dare un codice dall'assistenza. Finché la password stava
+//  solo in /etc/istudio.env non si poteva né l'uno né l'altro: quel file lo
+//  legge solo root, apposta, e iStudio non ci può scrivere.
+//
+//  Adesso quella che vale sta nella tabella «accesso», e non in chiaro: c'è il
+//  suo scrypt, da cui non si torna indietro. Il file del servizio resta la
+//  password DI PARTENZA, e vince ogni volta che cambia: l'amministratore che
+//  lo riscrive via SSH (a mano o con «Linux/Cambia password.sh») ha sempre
+//  l'ultima parola, anche su una password scelta dal Profilo. Per accorgersi
+//  che è cambiato si tiene lo scrypt di com'era l'ultima volta («origine»),
+//  insieme a ISTUDIO_PASSWORD_SCRITTA, la data che lo script ci scrive
+//  accanto. ⚠️ Senza la data, rimettere nel file la STESSA password di prima
+//  non si vedrebbe: l'amministratore crederebbe di averla rimessa, e al
+//  ristorante continuerebbe a valere quella del Profilo.
+//
+//  Sul Mac ISTUDIO_PASSWORD non c'è e non cambia niente: niente password,
+//  niente pagina d'accesso, niente da reimpostare.
+//
+//  ⚠️ scrypt costa una sessantina di millisecondi, ed è il suo mestiere. Nelle
+//  rotte si usa quello che non ferma il programma: per sessanta millisecondi
+//  il bot non risponderebbe a nessuno, a ogni tentativo.
+function improntaSubito(password, sale = crypto.randomBytes(16).toString('hex')) {
+  return `scrypt:${sale}:${crypto.scryptSync(String(password), sale, 32).toString('hex')}`;
+}
+function improntaDi(password, sale = crypto.randomBytes(16).toString('hex')) {
+  return new Promise((fatto, rotto) => crypto.scrypt(String(password), sale, 32,
+    (e, k) => (e ? rotto(e) : fatto(`scrypt:${sale}:${k.toString('hex')}`))));
+}
+async function stessaImpronta(password, salvata) {
+  const [tipo, sale, h] = String(salvata || '').split(':');
+  if (tipo !== 'scrypt' || !sale || !h) return false;
+  const prova = Buffer.from((await improntaDi(password, sale)).split(':')[2], 'hex');
+  const attesa = Buffer.from(h, 'hex');
+  return prova.length === attesa.length && crypto.timingSafeEqual(prova, attesa);
+}
+
+function prendiPasswordDalFile() {
+  if (!APP_PASSWORD) return;
+  const dalFile = String(APP_PASSWORD).trim();
+  const comeEra = dalFile + '\n' + String(process.env.ISTUDIO_PASSWORD_SCRITTA || '').trim();
+  const riga = db.prepare('SELECT impronta, origine FROM accesso WHERE id = 1').get();
+  if (riga && riga.impronta && riga.origine) {
+    const [, sale] = String(riga.origine).split(':');
+    if (sale && improntaSubito(comeEra, sale) === riga.origine) return;   // il file non è cambiato
+  }
+  db.prepare("INSERT INTO accesso (id, impronta, origine, cambiata_at) VALUES (1, ?, ?, datetime('now','localtime')) "
+    + 'ON CONFLICT(id) DO UPDATE SET impronta = excluded.impronta, origine = excluded.origine, '
+    + 'cambiata_at = excluded.cambiata_at, codice = NULL, codice_scade = NULL, codice_sbagli = 0')
+    .run(improntaSubito(dalFile), improntaSubito(comeEra));
+  // La prima volta è solo il trasloco dal file all'archivio, e non si caccia
+  // nessuno. Le volte dopo vuol dire che l'amministratore l'ha cambiata
+  // apposta: chi era dentro con quella vecchia esce.
+  if (riga && riga.impronta) {
+    db.prepare("DELETE FROM sessioni WHERE dove = 'piattaforma'").run();
+    console.log('La password del file del servizio è cambiata: vale quella, e chi era dentro rientra.');
+  }
+}
+// ⚠️ Prima di rileggere le sessioni: se il file è cambiato, quelle della
+// piattaforma vanno via dall'archivio prima di tornare in memoria.
+try { prendiPasswordDalFile(); } catch (e) { console.error('Password nell\'archivio:', e.message); }
+
+async function passwordGiusta(tentativo) {
+  const t = String(tentativo || '').trim();
+  if (!t || t.length > 200) return false;
+  let salvata = null;
+  try { const r = db.prepare('SELECT impronta FROM accesso WHERE id = 1').get(); salvata = r && r.impronta; } catch {}
+  if (salvata) return stessaImpronta(t, salvata);
+  // Archivio illeggibile: si torna al file, come prima. Meglio entrare con la
+  // password di partenza che restare fuori tutti.
+  const tentata = Buffer.from(t);
+  const attesa = Buffer.from(String(APP_PASSWORD).trim());
+  return tentata.length === attesa.length && crypto.timingSafeEqual(tentata, attesa);
+}
+
+// Le regole di una password nuova, uguali per il Profilo e per il codice di
+// sblocco. Quelle dell'installatore sulle virgolette qui non servono: questa
+// non passa da systemd.
+function passwordNuovaStorta(nuova, ripeti) {
+  const n = String(nuova || '').trim();
+  if (n.length < 8) return 'La password nuova è troppo corta: almeno 8 caratteri.';
+  if (n.length > 200) return 'La password nuova è troppo lunga.';
+  if (String(ripeti || '').trim() !== n) return 'Le due password nuove non coincidono.';
+  return '';
+}
+
+// Chiude tutte le sessioni della piattaforma, tranne quella di chi sta
+// cambiando la password: lui resta dentro, gli altri dispositivi rientrano.
+function chiudiSessioniPiattaforma(tranne = null) {
+  let quante = 0;
+  for (const t of [...sessions.keys()]) {
+    if (t !== tranne) { scordaSessione('piattaforma', t); quante += 1; }
+  }
+  // Per scrupolo anche quelle rimaste solo nell'archivio: se ce ne sono, sono
+  // dispositivi anche loro, e si contano.
+  try {
+    quante += db.prepare("DELETE FROM sessioni WHERE dove = 'piattaforma' AND token <> ?").run(tranne || '').changes;
+  } catch {}
+  return quante;
+}
+
+async function cambiaPassword(nuova, tranne = null) {
+  const impronta = await improntaDi(String(nuova).trim());
+  // Anche il freno delle richieste riparte: ce l'ha fatta chi conosceva la
+  // password o aveva il codice giusto, e se domani la dimentica di nuovo non
+  // deve sentirsi dire «hai già chiesto un codice».
+  db.prepare("UPDATE accesso SET impronta = ?, cambiata_at = datetime('now','localtime'), "
+    + 'codice = NULL, codice_scade = NULL, codice_sbagli = 0, richiesta_at = NULL WHERE id = 1').run(impronta);
+  return chiudiSessioniPiattaforma(tranne);
+}
+
 const VERSIONE_DI_ADESSO = versioneInstallata();
 try {
   db.prepare('DELETE FROM sessioni WHERE scade_at < ?').run(Date.now());
@@ -1401,20 +1528,51 @@ function isAuthed(req) {
   return true;
 }
 
+// La pagina d'accesso, con la strada per chi ha dimenticato la password:
+// «Password dimenticata?» manda la richiesta all'assistenza (vedi sotto),
+// «Ho già un codice» porta dritto al modulo — chi ha chiesto il codice ieri e
+// riceve la telefonata oggi non deve chiederne un altro per arrivarci.
 const loginPage = `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0"><title>iStudio — Accesso</title>\n<link rel="icon" href="/icona.svg" type="image/svg+xml">
-<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-.box{background:#fff;border:1px solid #e0e4e8;border-radius:14px;padding:34px;width:320px;text-align:center}
-h1{font-size:1.3rem;color:#128c7e;margin:0 0 6px}p{color:#667781;font-size:.9rem;margin:0 0 18px}
-input{width:100%;padding:11px;border:1px solid #e0e4e8;border-radius:8px;font-size:1rem;box-sizing:border-box;margin-bottom:12px}
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px;box-sizing:border-box}
+.box{background:#fff;border:1px solid #e0e4e8;border-radius:14px;padding:34px 28px;width:340px;max-width:100%;box-sizing:border-box;text-align:center}
+.box[hidden]{display:none}
+h1{font-size:1.3rem;color:#128c7e;margin:0 0 6px}p{color:#5a6a74;font-size:.9rem;line-height:1.45;margin:0 0 18px}p.ok{color:#1c7c4b}
+input{width:100%;padding:11px;border:1px solid #c9d0d6;border-radius:8px;font-size:1rem;box-sizing:border-box;margin-bottom:12px}
 button{width:100%;padding:11px;background:#128c7e;color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer}
-button:hover{background:#128c7e}.err{color:#ea4335;font-size:.85rem;min-height:1.2em;margin-top:10px}</style></head>
+button:disabled{opacity:.6;cursor:default}
+.altre{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 14px;margin-top:8px}
+button.link{width:auto;background:none;color:#0f7a6d;font-size:.88rem;font-weight:500;padding:8px 4px}
+button.link:hover{text-decoration:underline}
+.err{color:#c5221f;font-size:.85rem;line-height:1.4;min-height:1.2em;margin-top:10px}.err a{color:inherit;font-weight:600}</style></head>
 <body><form class="box" id="f"><h1>iStudio</h1><p>Inserisci la password per accedere</p>
-<input type="password" id="p" placeholder="Password" autofocus>
-<button type="submit">Entra</button><div class="err" id="e"></div></form>
-<script>document.getElementById('f').addEventListener('submit',async(ev)=>{ev.preventDefault();
-const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('p').value})});
-if(r.ok){location.reload();return;}let d={};try{d=await r.json();}catch{}document.getElementById('e').textContent=d.error||'Password errata';});</script></body></html>`;
+<input type="password" id="p" placeholder="Password" autocomplete="current-password" autofocus>
+<button type="submit">Entra</button><div class="err" id="e" role="alert"></div>
+<div class="altre"><button type="button" class="link" id="dim">Password dimenticata?</button>
+<button type="button" class="link" id="ho">Ho già un codice</button></div></form>
+<form class="box" id="r" hidden><h1>Password nuova</h1>
+<p id="rd"></p>
+<input id="c" placeholder="Codice di sblocco" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false">
+<input type="password" id="n1" placeholder="Password nuova (almeno 8)" autocomplete="new-password">
+<input type="password" id="n2" placeholder="Ripeti la password nuova" autocomplete="new-password">
+<button type="submit">Imposta la password</button><div class="err" id="re" role="alert"></div>
+<div class="altre"><button type="button" class="link" id="torna">Torna all'accesso</button></div></form>
+<script>const $=(i)=>document.getElementById(i);
+async function manda(dove,dati){try{const r=await fetch(dove,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(dati)});
+let d={};try{d=await r.json();}catch{}d.ok=r.ok;return d;}catch{return {ok:false,error:'iStudio non risponde: riprova fra poco.'};}}
+function apri(quale,testo,bene){$('f').hidden=quale!=='f';$('r').hidden=quale!=='r';$('e').textContent='';$('re').textContent='';
+if(quale==='r'){$('rd').textContent=testo;$('rd').className=bene?'ok':'';$('c').focus();}else{$('p').focus();}}
+$('f').addEventListener('submit',async(ev)=>{ev.preventDefault();const d=await manda('/api/login',{password:$('p').value});
+if(d.ok){location.reload();return;}$('e').textContent=d.error||'Password errata';});
+$('dim').addEventListener('click',async()=>{const b=$('dim');b.disabled=true;b.textContent='Mando la richiesta…';
+const d=await manda('/api/accesso/dimenticata',{});b.disabled=false;b.textContent='Password dimenticata?';
+if(d.ok){apri('r',d.messaggio,true);return;}const e=$('e');e.textContent=(d.error||'La richiesta non è partita.')+' ';
+if(d.whatsapp){const a=document.createElement('a');a.href='https://wa.me/'+d.whatsapp;a.target='_blank';a.rel='noopener';a.textContent="Scrivi all'assistenza su WhatsApp";e.append(a);}});
+$('ho').addEventListener('click',()=>apri('r',"Scrivi il codice di sblocco che ti ha dato l'assistenza, poi scegli la password nuova."));
+$('torna').addEventListener('click',()=>apri('f'));
+$('r').addEventListener('submit',async(ev)=>{ev.preventDefault();
+const d=await manda('/api/accesso/reimposta',{codice:$('c').value,password:$('n1').value,ripeti:$('n2').value});
+if(d.ok){location.reload();return;}$('re').textContent=d.error||'Non è andata: riprova.';});</script></body></html>`;
 
 // ---------- API ----------
 const app = express();
@@ -1480,16 +1638,224 @@ if (modalitaAbbonamento) {
 // Non è un dato riservato: è il logo.
 app.get('/icona.svg', (req, res) => res.sendFile(path.join(__dirname, 'public', 'comune', 'icona.svg')));
 
-app.post('/api/login', (req, res) => {
-  if (!APP_PASSWORD) return res.json({ ok: true });
-  const tentativo = Buffer.from(String(req.body.password || '').trim());
-  const attesa = Buffer.from(String(APP_PASSWORD).trim());
-  const valida = tentativo.length === attesa.length && crypto.timingSafeEqual(tentativo, attesa);
-  if (!valida) return res.status(401).json({ error: 'Password errata' });
+// ⚠️ Il freno sui tentativi sbagliati, come quello della sala (vedi
+// «attesaSala»). Sul mini-PC la piattaforma risponde a tutta la rete del
+// locale, e senza un freno una password da otto caratteri si prova tutta con
+// uno script. Dopo cinque sbagli da uno stesso indirizzo si aspetta un minuto,
+// poi due, poi quattro, fino a un quarto d'ora. Vale anche per la password di
+// adesso chiesta da «Cambia password»: un browser lasciato aperto al bancone
+// non deve diventare il posto da cui provarle tutte.
+const tentativiAccesso = new Map();
+const ACCESSO_TENTATIVI_LIBERI = 5;
+
+function attesaAccesso(chi) {
+  const r = tentativiAccesso.get(chi);
+  if (!r || r.sbagli < ACCESSO_TENTATIVI_LIBERI) return 0;
+  const minuti = Math.min(2 ** (r.sbagli - ACCESSO_TENTATIVI_LIBERI), 15);
+  return Math.max(0, r.ultimo + minuti * 60 * 1000 - Date.now());
+}
+
+function sbaglioAccesso(chi) {
+  const r = tentativiAccesso.get(chi) || { sbagli: 0, ultimo: 0 };
+  r.sbagli += 1;
+  r.ultimo = Date.now();
+  tentativiAccesso.set(chi, r);
+  if (r.sbagli === ACCESSO_TENTATIVI_LIBERI) {
+    annota('accesso', `cinque password sbagliate da ${chi}: da ora rallento i tentativi`);
+  }
+}
+
+function troppiTentativi(res, resta) {
+  const secondi = Math.ceil(resta / 1000);
+  return res.status(429).json({
+    error: secondi > 60
+      ? `Troppi tentativi: riprova fra ${Math.ceil(secondi / 60)} minuti.`
+      : `Troppi tentativi: riprova fra ${secondi} secondi.`,
+  });
+}
+
+const chiChiede = (req) => String(req.ip || (req.socket && req.socket.remoteAddress) || 'ignoto');
+
+function apriSessione(res) {
   const token = crypto.randomBytes(32).toString('hex');
   ricordaSessione('piattaforma', token, Date.now() + SESSION_TTL);
   res.setHeader('Set-Cookie',
     `istudio_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL / 1000}`);
+  return token;
+}
+
+app.post('/api/login', async (req, res) => {
+  if (!APP_PASSWORD) return res.json({ ok: true });
+  const chi = chiChiede(req);
+  const resta = attesaAccesso(chi);
+  if (resta > 0) return troppiTentativi(res, resta);
+  if (!(await passwordGiusta((req.body && req.body.password) || ''))) {
+    sbaglioAccesso(chi);
+    return res.status(401).json({ error: 'Password errata' });
+  }
+  tentativiAccesso.delete(chi);   // entrata buona: il conto riparte da zero
+  apriSessione(res);
+  res.json({ ok: true });
+});
+
+// ------------------------------------------------------------------
+//  «Password dimenticata?»
+// ------------------------------------------------------------------
+//  Il codice di sblocco va all'ASSISTENZA, non a chi ha premuto il tasto: è
+//  l'amministratore che chiama il locale, si assicura che la richiesta sia
+//  davvero loro e detta il codice. Premere il tasto non cambia niente: la
+//  password di adesso vale finché qualcuno non scrive il codice giusto, quindi
+//  chi lo preme per dispetto non chiude fuori nessuno.
+//
+//  Il codice resta lo STESSO finché vale (24 ore, cinque tentativi): chi chiede
+//  di nuovo riceve di nuovo quello, e l'amministratore che lo sta dettando al
+//  telefono non se lo vede cambiare sotto il naso. Per questo si tiene in
+//  chiaro, ed è ammesso: chi può leggere l'archivio ha già tutto il resto.
+//
+//  Al massimo un'email ogni dieci minuti: chiunque sul Wi-Fi del locale può
+//  premere il tasto, e la casella dell'assistenza non deve riempirsi. Anche
+//  una richiesta che non parte aspetta un minuto prima della prossima: con la
+//  posta configurata male, ogni pressione sarebbe un accesso sbagliato al
+//  server di posta del locale — e Gmail, dopo un po', blocca la casella.
+//
+//  L'email parte dalla posta del locale (Impostazioni → Email): se non c'è, o
+//  internet non c'è, la richiesta non parte e la pagina lo DICE, col numero
+//  dell'assistenza. Resta sempre la strada dell'amministratore:
+//  «Linux/Cambia password.sh» sul mini-PC.
+const SBLOCCO_ORE = 24;
+const SBLOCCO_TENTATIVI = 5;
+const SBLOCCO_OGNI_MINUTI = 10;
+let sbloccoInViaggio = false;
+let sbloccoFallitoAt = 0;
+
+function codiceSbloccoNuovo() {
+  const gruppo = () => Array.from(crypto.randomBytes(4))
+    .map((b) => ALFABETO_CODICE[b % ALFABETO_CODICE.length]).join('');
+  return `${gruppo()}-${gruppo()}`;
+}
+// Detto al telefono e scritto a mano: maiuscole o minuscole, col trattino o
+// senza, con gli spazi — è lo stesso codice.
+const soloCodice = (c) => String(c || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+const alleOre = (ms) => new Date(ms).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+const ilGiorno = (ms) => new Date(ms).toLocaleString('it-IT',
+  { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+
+app.post('/api/accesso/dimenticata', async (req, res) => {
+  if (!APP_PASSWORD) return res.status(400).json({ error: 'Su questo computer iStudio non ha una password.' });
+  const chi = chiChiede(req);
+  const adesso = Date.now();
+  const whatsapp = numeroAssistenza();
+  const riga = db.prepare('SELECT codice, codice_scade, richiesta_at FROM accesso WHERE id = 1').get();
+  if (!riga) {
+    return res.status(500).json({ error: 'La richiesta non può partire: chiama l\'assistenza.', whatsapp });
+  }
+  const valido = Boolean(riga.codice) && Number(riga.codice_scade) > adesso;
+  if (riga.richiesta_at && adesso - riga.richiesta_at < SBLOCCO_OGNI_MINUTI * 60000) {
+    if (valido) {
+      return res.json({ ok: true, messaggio: `La richiesta è già partita alle ${alleOre(riga.richiesta_at)}: `
+        + 'aspetta la chiamata dell\'assistenza col codice di sblocco.' });
+    }
+    const minuti = Math.ceil((riga.richiesta_at + SBLOCCO_OGNI_MINUTI * 60000 - adesso) / 60000);
+    return res.status(429).json({ error: `Hai già chiesto un codice alle ${alleOre(riga.richiesta_at)}: `
+      + `potrai chiederne un altro fra ${minuti} ${minuti === 1 ? 'minuto' : 'minuti'}.` });
+  }
+  if (sbloccoInViaggio) {
+    return res.status(429).json({ error: 'La richiesta sta già partendo: aspetta qualche secondo.' });
+  }
+  if (adesso - sbloccoFallitoAt < 60000) {
+    return res.status(429).json({ error: 'La richiesta di poco fa non è partita: riprova fra un minuto, '
+      + 'oppure chiama l\'assistenza.', whatsapp });
+  }
+  const transporter = buildTransporter();
+  if (!transporter) {
+    sbloccoFallitoAt = adesso;
+    annota('accesso', `chiesta una password nuova da ${chi}, ma la posta del locale non è configurata: non è partito niente`);
+    return res.status(503).json({ error: 'La richiesta non può partire: la posta del locale non è configurata. '
+      + 'Chiama l\'assistenza.', whatsapp });
+  }
+  const codice = valido ? riga.codice : codiceSbloccoNuovo();
+  const scade = valido ? Number(riga.codice_scade) : adesso + SBLOCCO_ORE * 3600000;
+  const dove = emailAssistenza() || EMAIL_AVVISI_DI_FABBRICA;
+  const locale = (botDisponibile() ? String(bot.leggi(db, 'bot_locale') || '').trim() : '')
+    || getSetting('smtp_from_name') || 'iStudio';
+  const installazione = getSetting('abbonamento_codice');
+  const righe = [
+    'Dalla pagina d\'accesso di iStudio hanno chiesto una password nuova.',
+    '',
+    `Locale: ${locale}`,
+    ...(installazione ? [`Codice installazione: ${installazione}`] : []),
+    `Quando: ${ilGiorno(adesso)}`,
+    `Da: ${chi}`,
+    '',
+    `Codice di sblocco: ${codice}`,
+    `Vale fino a ${ilGiorno(scade)}, per ${SBLOCCO_TENTATIVI} tentativi.`,
+    ...(valido ? ['Hanno chiesto di nuovo: il codice è lo stesso dell\'email di prima.'] : []),
+    '',
+    '⚠️ Prima di dettarlo, chiama il locale e assicurati che la richiesta sia davvero loro: '
+      + 'chi ha questo codice sceglie la password nuova.',
+    'Se non l\'ha chiesta nessuno, ignora questa email: il codice scade da solo e la password di adesso resta valida.',
+    '',
+    'Il codice si scrive nella pagina d\'accesso, con «Ho già un codice».',
+  ];
+  sbloccoInViaggio = true;
+  try {
+    await transporter.sendMail({
+      from: getSetting('smtp_user'),
+      to: dove,
+      subject: `🔑 ${locale}: chiedono una password nuova`,
+      text: righe.join('\n'),
+    });
+  } catch (e) {
+    sbloccoFallitoAt = Date.now();
+    annota('errore', `la richiesta di una password nuova non è partita (${e.message})`);
+    return res.status(502).json({ error: 'La richiesta non è partita: il server di posta l\'ha rifiutata. '
+      + 'Chiama l\'assistenza.', whatsapp });
+  } finally {
+    sbloccoInViaggio = false;
+  }
+  db.prepare('UPDATE accesso SET codice = ?, codice_scade = ?, richiesta_at = ?'
+    + (valido ? '' : ', codice_sbagli = 0') + ' WHERE id = 1').run(codice, scade, adesso);
+  annota('accesso', `chiesta una password nuova da ${chi}: il codice di sblocco è andato all'assistenza (${dove})`);
+  res.json({ ok: true, messaggio: 'Abbiamo avvisato l\'assistenza: ti chiameranno per darti un codice di sblocco. '
+    + 'Fino ad allora vale la password di adesso.' });
+});
+
+app.post('/api/accesso/reimposta', async (req, res) => {
+  if (!APP_PASSWORD) return res.status(400).json({ error: 'Su questo computer iStudio non ha una password.' });
+  const chi = chiChiede(req);
+  const { codice, password, ripeti } = req.body || {};
+  const riga = db.prepare('SELECT codice, codice_scade, codice_sbagli FROM accesso WHERE id = 1').get();
+  const togli = () => db.prepare('UPDATE accesso SET codice = NULL, codice_scade = NULL, codice_sbagli = 0 WHERE id = 1').run();
+  if (!riga || !riga.codice) {
+    return res.status(400).json({ error: 'Non c\'è nessun codice in corso: chiedine uno con «Password dimenticata?».' });
+  }
+  if (!(Number(riga.codice_scade) > Date.now())) {
+    togli();
+    return res.status(400).json({ error: 'Il codice è scaduto: chiedine uno nuovo con «Password dimenticata?».' });
+  }
+  // Prima la password nuova: una troppo corta non deve bruciare un tentativo del codice.
+  const storta = passwordNuovaStorta(password, ripeti);
+  if (storta) return res.status(400).json({ error: storta });
+  const scritto = Buffer.from(soloCodice(codice));
+  const giusto = Buffer.from(soloCodice(riga.codice));
+  if (!(scritto.length === giusto.length && crypto.timingSafeEqual(scritto, giusto))) {
+    const sbagli = Number(riga.codice_sbagli || 0) + 1;
+    if (sbagli >= SBLOCCO_TENTATIVI) {
+      togli();
+      annota('accesso', `codice di sblocco sbagliato ${SBLOCCO_TENTATIVI} volte (l'ultima da ${chi}): non vale più`);
+      return res.status(400).json({ error: `Codice sbagliato ${SBLOCCO_TENTATIVI} volte: per sicurezza non vale più. `
+        + 'Chiedine uno nuovo con «Password dimenticata?».' });
+    }
+    db.prepare('UPDATE accesso SET codice_sbagli = ? WHERE id = 1').run(sbagli);
+    const restano = SBLOCCO_TENTATIVI - sbagli;
+    return res.status(400).json({ error: `Codice sbagliato. ${restano === 1 ? 'Resta un tentativo' : `Restano ${restano} tentativi`}.` });
+  }
+  togli();   // subito: un codice serve una volta sola, anche se due arrivano insieme
+  const fuori = await cambiaPassword(password);
+  tentativiAccesso.delete(chi);
+  apriSessione(res);
+  annota('accesso', `password nuova scelta col codice di sblocco, da ${chi}`
+    + (fuori ? `: ${fuori} ${fuori === 1 ? 'dispositivo dovrà' : 'dispositivi dovranno'} rientrare` : ''));
   res.json({ ok: true });
 });
 
@@ -1871,6 +2237,35 @@ app.post('/api/app-logout', (req, res) => {
   if (token) scordaSessione('piattaforma', token);
   res.setHeader('Set-Cookie', 'istudio_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
   res.json({ ok: true });
+});
+
+// «Cambia password» nel Profilo: chi la ricorda la cambia da solo. Si chiede
+// quella di adesso anche se si è già dentro: un browser lasciato aperto al
+// bancone non deve bastare a cambiarla e a chiudere fuori il titolare.
+// 400 e non 401 per la password sbagliata: qui dietro il cancello 401 vuol
+// dire «non sei entrato», e chi ha solo sbagliato a scrivere è entratissimo.
+app.post('/api/accesso/cambia', async (req, res) => {
+  if (!APP_PASSWORD) {
+    return res.status(400).json({ error: 'Su questo computer iStudio non ha una password: non c\'è niente da cambiare.' });
+  }
+  const chi = chiChiede(req);
+  const resta = attesaAccesso(chi);
+  if (resta > 0) return troppiTentativi(res, resta);
+  const { attuale, nuova, ripeti } = req.body || {};
+  if (!(await passwordGiusta(attuale))) {
+    sbaglioAccesso(chi);
+    return res.status(400).json({ error: 'La password di adesso non è giusta.' });
+  }
+  tentativiAccesso.delete(chi);
+  const storta = passwordNuovaStorta(nuova, ripeti);
+  if (storta) return res.status(400).json({ error: storta });
+  if (String(nuova).trim() === String(attuale).trim()) {
+    return res.status(400).json({ error: 'È uguale a quella di adesso: scegline una diversa.' });
+  }
+  const fuori = await cambiaPassword(nuova, getSessionToken(req));
+  annota('accesso', 'password cambiata dal Profilo'
+    + (fuori ? `: ${fuori} ${fuori === 1 ? 'altro dispositivo dovrà' : 'altri dispositivi dovranno'} rientrare` : ''));
+  res.json({ ok: true, fuori });
 });
 
 app.post('/api/logout', async (req, res) => {

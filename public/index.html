@@ -363,6 +363,14 @@
   input[type="checkbox"], input[type="radio"] { width: auto; padding: 0; margin: 0; }
   input:focus, textarea:focus, select:focus { outline: 2px solid var(--verde); border-color: transparent; }
   textarea { min-height: 110px; resize: vertical; }
+  /* Cambia password, nel Profilo: tre campi in colonna, larghi quanto serve. */
+  .pw-titolo { font-size: .95rem; margin: 0 0 10px; }
+  .pw-cambia { display: grid; gap: 10px; max-width: 380px; }
+  .pw-cambia label { margin: 0; }
+  .pw-cambia label input { margin-top: 4px; }
+  .pw-esito { font-size: .9rem; min-height: 1.2em; }
+  .pw-esito.bene { color: var(--ok-testo); }
+  .pw-esito.male { color: var(--male-testo); }
   .griglia { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
   @media (max-width: 600px) { .griglia { grid-template-columns: 1fr; } }
   /* ⚠️ Il verde chiaro del marchio (#25d366) con il testo bianco fa 1,9:1 di
@@ -1321,6 +1329,23 @@
          non c'è nessuna sessione da chiudere. -->
     <div class="card" id="profilo-accesso" style="display:none">
       <h2>Accesso</h2>
+      <!-- Chi la ricorda la cambia da qui. Chi l'ha dimenticata non arriva
+           nemmeno a questa scheda: per lui c'è «Password dimenticata?» nella
+           pagina d'accesso, che chiede un codice all'assistenza. -->
+      <h3 class="pw-titolo">Cambia password</h3>
+      <form id="pw-cambia" class="pw-cambia" autocomplete="on">
+        <label>Password di adesso
+          <input type="password" id="pw-attuale" autocomplete="current-password"></label>
+        <label>Password nuova
+          <input type="password" id="pw-nuova" autocomplete="new-password" placeholder="almeno 8 caratteri"></label>
+        <label>Ripeti la password nuova
+          <input type="password" id="pw-ripeti" autocomplete="new-password"></label>
+        <div><button class="btn" id="btn-pw-cambia" type="submit">Cambia password</button></div>
+        <div id="pw-esito" class="pw-esito" role="status"></div>
+      </form>
+      <p class="conteggio">Gli altri dispositivi dovranno rientrare con la password nuova: resta
+        dentro solo questo. Se la dimentichi, nella pagina d'accesso c'è «Password dimenticata?».</p>
+      <hr style="border:none;border-top:1px solid var(--bordo);margin:18px 0">
       <p class="conteggio" style="margin-top:0">Chiude la sessione su questo browser.
         Per rientrare servirà di nuovo la password. iStudio resta accesa e il bot
         continua a rispondere: esci tu, non il programma.</p>
@@ -3717,6 +3742,36 @@ window.scollegaWhatsApp = async () => {
 $('#btn-esci').addEventListener('click', async () => {
   await fetch('/api/app-logout', { method: 'POST' });
   location.reload();
+});
+
+// Cambia password, dal Profilo (vedi «/api/accesso/cambia» nel server).
+$('#pw-cambia').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const esito = $('#pw-esito'), btn = $('#btn-pw-cambia');
+  esito.textContent = ''; esito.className = 'pw-esito'; btn.disabled = true;
+  try {
+    const r = await fetch('/api/accesso/cambia', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attuale: $('#pw-attuale').value, nuova: $('#pw-nuova').value, ripeti: $('#pw-ripeti').value }),
+    });
+    let d = {};
+    try { d = await r.json(); } catch {}
+    if (r.ok) {
+      const altri = d.fuori === 1 ? ' Un altro dispositivo dovrà rientrare con quella nuova.'
+        : d.fuori > 1 ? ` Altri ${d.fuori} dispositivi dovranno rientrare con quella nuova.` : '';
+      esito.textContent = '✅ Password cambiata.' + altri;
+      esito.classList.add('bene');
+      $('#pw-cambia').reset();
+      toast('Password cambiata');
+    } else {
+      esito.textContent = d.error || 'Non è andata: riprova.';
+      esito.classList.add('male');
+    }
+  } catch {
+    esito.textContent = 'iStudio non risponde: riprova fra poco.';
+    esito.classList.add('male');
+  }
+  btn.disabled = false;
 });
 
 async function aggiornaBadgeEmail() {

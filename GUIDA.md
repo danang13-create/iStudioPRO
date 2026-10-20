@@ -239,6 +239,24 @@ Negli ultimi 7 giorni compare in cima a ogni pagina una fascia gialla che te lo 
 > collegamento WhatsApp restano dove sono, e appena inserisci il seriale nuovo ritrovi tutto
 > come lo avevi lasciato.
 
+### La password (sul mini-PC)
+
+Sul mini-PC iStudio chiede una password per entrare. Sul Mac no: lì la password non c'è.
+
+- **Per cambiarla**: Profilo → **Cambia password**. Scrivi quella di adesso, poi la nuova
+  (almeno 8 caratteri) due volte. Resti dentro tu; gli altri computer, telefoni e tablet
+  dovranno rientrare con quella nuova.
+- **Se l'hai dimenticata**: nella pagina d'accesso premi **«Password dimenticata?»**. La
+  richiesta arriva all'assistenza, che ti chiama e ti detta un **codice di sblocco**. Premi
+  **«Ho già un codice»**, scrivilo (maiuscole o minuscole, col trattino o senza, va bene lo
+  stesso) e scegli la password nuova. Il codice vale 24 ore. Finché non lo usi, continua a valere
+  la password di prima: se qualcuno preme il tasto per scherzo, la tua password non cambia.
+- Dopo **cinque password sbagliate** iStudio aspetta un minuto prima di lasciarti riprovare, poi
+  di più: serve a fermare chi le prova tutte.
+
+> La richiesta parte con la posta del locale (Impostazioni → Email). Se la posta non è
+> configurata, la pagina te lo dice e ti mostra come scrivere all'assistenza su WhatsApp.
+
 ### Impostazioni
 Collegamento WhatsApp (QR code), dati dell'account email, interruttore della Chat, le
 **Impostazioni pause**, il **Backup della rubrica** e la **Cancellazione dati**.

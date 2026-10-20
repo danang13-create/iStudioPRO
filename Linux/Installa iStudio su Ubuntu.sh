@@ -307,8 +307,12 @@ if [ -z "$PROVA" ]; then
   # La password come variabile d'ambiente del servizio, in un file che solo root
   # può leggere. In chiaro nell'unità sarebbe leggibile da chiunque con
   # «systemctl cat».
+  # Accanto, la data in cui è stata scritta: iStudio tiene la password nel suo
+  # archivio (si può cambiare dal Profilo) e la riprende da qui solo quando
+  # questo file cambia. Con la data, anche reinstallare con la STESSA password
+  # di prima è un cambiamento che si vede (vedi «Cambia password.sh»).
   sudo install -m 600 /dev/null /etc/istudio.env
-  printf 'ISTUDIO_PASSWORD=%s\n' "$PW" | sudo tee /etc/istudio.env >/dev/null
+  printf 'ISTUDIO_PASSWORD=%s\nISTUDIO_PASSWORD_SCRITTA=%s\n' "$PW" "$(date +%s)" | sudo tee /etc/istudio.env >/dev/null
   sudo sed -i '/^\[Service\]/a EnvironmentFile=/etc/istudio.env' "$UNITA"
   sudo install -m 644 "$UNITA" /etc/systemd/system/istudio.service
   rm -f "$UNITA"
