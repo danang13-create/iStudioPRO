@@ -615,6 +615,11 @@ const TESTI_SUPERATI = {
   bot_t_troppe: [
     'Per oggi ti ho già risposto parecchie volte. Ti faccio richiamare da una persona del locale.',
   ],
+  // «Eravamo rimasti a quale esperienza preferisci», «a per che giorno», «a
+  // l'orario»: non era italiano (20 ottobre 2026).
+  bot_t_richiamo: [
+    'Sei ancora lì? 🙂\n\nEravamo rimasti a {cosa}: rispondi pure qui e finiamo in un attimo.\n\nSe preferisci ripartire da capo scrivi RICOMINCIA.',
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -1020,7 +1025,7 @@ const PREDEFINITI = {
   // Dal secondo «non ho capito» di fila: non la stessa domanda una terza
   // volta, ma «riscrivilo», con un esempio adatto alla domanda ({esempio}).
   bot_t_riscrivi: 'Scusami, non ho capito bene 🙏 Me lo riscrivi in un altro modo?\n{esempio}',
-  bot_t_richiamo: 'Sei ancora lì? 🙂\n\nEravamo rimasti a {cosa}: rispondi pure qui e finiamo in un attimo.\n\nSe preferisci ripartire da capo scrivi RICOMINCIA.',
+  bot_t_richiamo: 'Sei ancora lì? 🙂\n\nTi stavo chiedendo {cosa}: rispondi pure qui e finiamo in un attimo.\n\nSe preferisci ripartire da capo scrivi RICOMINCIA.',
   // In cima alla presentazione: la domanda la fa il primo messaggio (20 ottobre 2026).
   bot_t_ricominciato: 'Va bene, ricominciamo da capo! 🙂',
   bot_t_annulla_quale: 'Sei sicuro di voler cancellare la prenotazione?\n\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nScrivi SÌ per confermare',
@@ -2571,8 +2576,14 @@ function orariARighe(testo, valori) {
   return sistemato.replace(/([^\s])[ \t]*\{orari\}/g, '$1\n{orari}').replace(/\{orari\}\./g, '{orari}');
 }
 
+// ⚠️ La frase del richiamo personalizzata prima del 20 ottobre 2026 ha ancora
+// «Eravamo rimasti a {cosa}»: con le voci di COSA_MANCA non è italiano («a
+// quale esperienza preferisci», «a l'orario»). Si sistema al momento di
+// mandarla, come gli orari; il testo salvato resta del ristorante.
+const conCosaSistemata = (t) => t.replace(/Eravamo rimasti a \{cosa\}/g, 'Ti stavo chiedendo {cosa}');
+
 function riempi(testo, valori) {
-  const pieno = orariARighe(testo, valori).replace(/\{(\w+)\}/g, (intero, chiave) => {
+  const pieno = conCosaSistemata(orariARighe(testo, valori)).replace(/\{(\w+)\}/g, (intero, chiave) => {
     const v = valori[chiave];
     return v === undefined || v === null ? intero : String(v);
   });
@@ -3661,14 +3672,16 @@ function riapreConUnSaluto(cfg, riga, testo, adesso = new Date()) {
 }
 
 // Cosa manca, detto a parole, per la frase del richiamo. Un «sei ancora lì?»
-// che non dice a cosa costringe a scorrere indietro la chat.
+// che non dice a cosa costringe a scorrere indietro la chat. Ognuna sta dopo
+// «Ti stavo chiedendo …»: «Eravamo rimasti a {cosa}» dava «a quale esperienza
+// preferisci», «a per che giorno», «a l'orario» (20 ottobre 2026).
 const COSA_MANCA = {
   locale: 'dove vuoi prenotare',
   altro_locale_persone: 'per quante persone',
   esperienza: 'quale esperienza preferisci',
   persone: 'per quante persone',
   giorno: 'per che giorno',
-  servizio: 'scegliere tra pranzo e cena',
+  servizio: 'se preferisci pranzo o cena',
   ora: "l'orario",
   nome: 'il nome',
   telefono: 'il numero di telefono',
@@ -3718,7 +3731,7 @@ function daRichiamare(db, cfg, adesso = new Date()) {
     if (conversazioneScaduta(r, adesso)) return false;
     const fermi = minutiFermi(r, adesso);
     return fermi !== null && fermi >= minuti;
-  }).map((r) => ({ ...r, cosa: COSA_MANCA[r.passo] || 'la tua prenotazione' }));
+  }).map((r) => ({ ...r, cosa: COSA_MANCA[r.passo] || 'i dettagli della prenotazione' }));
 }
 
 // Si lascia andare: passo a «inizio» e dati buttati. ⚠️ Passa da «scriviStato»
