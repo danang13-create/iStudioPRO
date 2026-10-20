@@ -543,6 +543,7 @@ const TESTI_SUPERATI = {
     '🙂 Se preferisci, scrivi RICOMINCIA per ripartire da capo con la prenotazione, oppure OPERATORE per parlare con una persona.',
   ],
   bot_t_ricominciato: [
+    'Va bene, ricominciamo da capo!\n\nPer quante persone devo prenotare?\n',
     'Va bene, ricominciamo da capo!\nPer quante persone devo prenotare?',
   ],
   bot_t_annulla_quale: [
@@ -1014,7 +1015,8 @@ const PREDEFINITI = {
   // volta, ma «riscrivilo», con un esempio adatto alla domanda ({esempio}).
   bot_t_riscrivi: 'Scusami, non ho capito bene 🙏 Me lo riscrivi in un altro modo?\n{esempio}',
   bot_t_richiamo: 'Sei ancora lì? 🙂\n\nEravamo rimasti a {cosa}: rispondi pure qui e finiamo in un attimo.\n\nSe preferisci ripartire da capo scrivi RICOMINCIA.',
-  bot_t_ricominciato: 'Va bene, ricominciamo da capo!\n\nPer quante persone devo prenotare?\n',
+  // In cima alla presentazione: la domanda la fa il primo messaggio (20 ottobre 2026).
+  bot_t_ricominciato: 'Va bene, ricominciamo da capo! 🙂',
   bot_t_annulla_quale: 'Sei sicuro di voler cancellare la prenotazione?\n\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nScrivi SÌ per confermare',
   bot_t_modificata: 'Ciao {nome}, abbiamo aggiornato la tua prenotazione:\n\n📅 {data} \n🕘 {ora} \n👥 {persone}\n\nA presto!\n',
   bot_t_manuale: 'Ciao {nome}! \nTi confermiamo la prenotazione da {locale}:\n\n📅 {data} \n🕘 {ora}  \n👥 {persone}\n\nSe hai un imprevisto scrivi in questa chat.',
@@ -5453,14 +5455,21 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     return esito;
   }
 
-  // --- «RICOMINCIA»: una via d'uscita che non chiama nessuno ---
-  // Chi si e' incartato a meta' prenotazione, finora, poteva solo continuare a
-  // sbagliare o chiedere un operatore. Ripartire da capo e' spesso quello che
-  // vuole davvero, e non deve costare il disturbo di una persona.
+  // --- «RICOMINCIA»: si riparte dalla presentazione ---
+  // Chi si è incartato a metà prenotazione poteva solo continuare a sbagliare
+  // o chiedere un operatore: ripartire da capo è spesso quello che vuole, e
+  // non deve costare il disturbo di una persona.
+  // ⚠️ DA CAPO vuol dire da capo (chiesto dal titolare, 20 ottobre 2026): la
+  // presentazione e la prima domanda, come al primo messaggio — con più
+  // locali «RO bistrot o REAR Restaurant?», con le esperienze l'elenco. Prima
+  // si chiedevano subito le persone, e chi ricominciava proprio per passare
+  // dal REAR al bistrot non aveva più la domanda per farlo. Il promemoria del
+  // tavolo che ha già non c'entra: ha scritto RICOMINCIA, sta prenotando.
+  // Risponde QUI, prima di tutto il resto: «annulla tutto» è un ricomincia, e
+  // più sotto diventerebbe «vuoi cancellare la prenotazione?».
   if (/^(ricomincia|ricominciamo|da capo|riparti|annulla tutto)\b/i.test(t)) {
     azzeraStato(db, telefono);
-    risposte.push(di('bot_t_ricominciato'));
-    return esito;
+    return presentati({}, null, di('bot_t_ricominciato'));
   }
 
   // --- Tetto di risposte ---
@@ -6035,27 +6044,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       const sembraPrenotazione = !domandaSuAltro
         && (parlaDiPrenotare || /(vorrei|possibile)/.test(t) || eSalutoStorto(testo));
       if (gia && !sembraPrenotazione) return ricordaIlTavolo(true);
-      // Con le esperienze la prima domanda è «cosa vuoi mangiare»: il
-      // benvenuto senza la domanda delle persone, e sotto l'elenco.
-      // Con più locali la prima domanda è DOVE (vedi «I locali»).
-      if (conLocali) {
-        return chiediLocale({ ...conServizio({}), ...conGiorno }, gia ? '' : (giaVisto ? 'bot_t_bentornato_locali' : 'bot_t_benvenuto_locali'));
-      }
-      if (conEsperienze) {
-        return chiediEsperienza({ ...conServizio({}), ...conGiorno }, gia ? '' : (giaVisto ? 'bot_t_bentornato_esperienze' : 'bot_t_benvenuto_esperienze'));
-      }
-      salvaStato(db, telefono, 'persone', { ...conServizio({}), ...nomeEsperienza({}), ...conGiorno });
-      // Il benvenuto è il PRIMO messaggio, e vale per chi arriva davvero la
-      // prima volta. Chi ha già un tavolo da noi ci ha già parlato: gli si fa
-      // la domanda e basta. Chi ci scrisse mesi fa e oggi non ha più niente di
-      // attivo non si sente ripresentare l'assistente — lo conosce già: gli
-      // si dice «che bello rivederti», col nome (vedi `giaVisto`).
-      // Sotto il benvenuto, l'invito a vedere il menu: solo se il collegamento
-      // c'è e la frase non è stata svuotata. Non a chi ha già un tavolo.
-      const invito = !gia && Object.keys(menuAttivi(cfg)).length && String(cfg.bot_t_menu_invito || '').trim()
-        ? `\n\n${di('bot_t_menu_invito')}` : '';
-      risposte.push(di(gia ? 'bot_t_quante' : (giaVisto ? 'bot_t_bentornato' : 'bot_t_benvenuto')) + invito);
-      return esito;
+      return presentati({ ...conServizio({}), ...conGiorno }, gia);
     }
     // Le persone già nel primo messaggio: con le esperienze si tengono da
     // parte, si chiede l'esperienza, e la domanda delle persone non si rifà.
@@ -6204,6 +6193,32 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // La prima domanda, prima ancora dell'esperienza. `d` porta quello che il
   // cliente ha già detto (persone, giorno, servizio): vale per il locale di
   // sempre, e le persone anche per l'altro.
+  // ---- La presentazione: il primo messaggio, e RICOMINCIA ----
+  // Con le esperienze la prima domanda è «cosa vuoi mangiare»: il benvenuto
+  // senza la domanda delle persone, e sotto l'elenco. Con più locali la prima
+  // domanda è DOVE (vedi «I locali»). Sennò il benvenuto, che chiede le
+  // persone.
+  // Il benvenuto è il PRIMO messaggio, e vale per chi arriva davvero la prima
+  // volta. Chi ha già un tavolo da noi (`gia`) ci ha già parlato: gli si fa la
+  // domanda e basta. Chi ci scrisse mesi fa e oggi non ha più niente di attivo
+  // non si sente ripresentare l'assistente — lo conosce già: gli si dice «che
+  // bello rivederti», col nome (vedi `giaVisto`). Sotto il benvenuto, l'invito
+  // a vedere il menu: solo se il collegamento c'è e la frase non è stata
+  // svuotata. Non a chi ha già un tavolo.
+  // `testa` va in cima a tutto («Va bene, ricominciamo da capo!»).
+  function presentati(d, gia, testa = '') {
+    if (conLocali) {
+      return chiediLocale(d, gia ? '' : (giaVisto ? 'bot_t_bentornato_locali' : 'bot_t_benvenuto_locali'), testa);
+    }
+    if (conEsperienze) {
+      return chiediEsperienza(d, gia ? '' : (giaVisto ? 'bot_t_bentornato_esperienze' : 'bot_t_benvenuto_esperienze'), testa);
+    }
+    salvaStato(db, telefono, 'persone', { ...d, ...nomeEsperienza({}) });
+    const invito = !gia && Object.keys(menuAttivi(cfg)).length && String(cfg.bot_t_menu_invito || '').trim()
+      ? `\n\n${di('bot_t_menu_invito')}` : '';
+    risposte.push([testa, di(gia ? 'bot_t_quante' : (giaVisto ? 'bot_t_bentornato' : 'bot_t_benvenuto')) + invito].filter(Boolean).join('\n\n'));
+    return esito;
+  }
   function chiediLocale(d, benvenuto, testaInPiu = '') {
     const testa = [testaInPiu, benvenuto ? riempi(senzaRigheVuote(cfg[benvenuto], valori), valori).trim() : '']
       .map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
