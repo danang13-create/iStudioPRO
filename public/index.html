@@ -484,6 +484,20 @@
   .dettagli { margin: 16px 0; font-size: .88rem; }
   .dettagli .riga { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--bordo); }
   .dettagli .riga:last-child { border-bottom: none; }
+  /* Chi aspetta una risposta: un riquadro col bordo dell'avviso, perché è
+     una persona che aspetta — non un numero da leggere. */
+  .attese-card { border-color: var(--avviso-bordo); }
+  .attese-card[hidden], #pren-vedi-attese[hidden], .attesa-risposta[hidden] { display: none; }
+  .attesa-riga { padding: 12px 0; border-top: 1px solid var(--bordo); }
+  .attesa-riga:first-child { border-top: none; }
+  .attesa-testa { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+  .attesa-codice { font-size: .75rem; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+                   background: var(--avviso-fondo); color: var(--avviso-testo); border: 1px solid var(--avviso-bordo); }
+  .attesa-testo { margin: 6px 0 8px; white-space: pre-wrap; word-break: break-word; }
+  .attesa-tasti { display: flex; gap: 8px; flex-wrap: wrap; }
+  .attesa-risposta { margin-top: 8px; }
+  .attesa-risposta textarea { width: 100%; min-height: 64px; }
+  .attesa-risposta .attesa-tasti { margin-top: 6px; }
   .dettagli .riga span { color: var(--grigio); }
   .stat-box { background: var(--bianco); border: 1px solid var(--bordo); border-radius: 12px; padding: 18px; cursor: pointer; transition: box-shadow .15s, transform .15s; }
   .stat-box:hover { box-shadow: 0 4px 14px var(--ombra-bassa); transform: translateY(-2px); }
@@ -1737,6 +1751,7 @@
         </label>
         <span id="pren-spia" class="beta-badge" style="background:var(--carta-2);color:var(--grigio);border-color:var(--bordo)"></span>
         <span id="pren-riassunto" class="conteggio" style="margin:0"></span>
+        <button class="btn btn-secondario btn-piccolo" id="pren-vedi-attese" type="button" hidden>Chi sono?</button>
         <span style="flex:1"></span>
         <button class="btn btn-secondario" id="pren-vai-impostazioni">Impostazioni del bot</button>
       </div>
@@ -1764,6 +1779,18 @@
     </nav>
 
     <div id="sotto-riepilogo" class="sotto-scheda attiva">
+    <!-- CHI ASPETTA UNA RISPOSTA — c'è solo quando c'è qualcuno. Il riepilogo
+         diceva «2 in attesa di risposta» e basta: chi fossero, cosa avessero
+         scritto e da quanto si scopriva dal telefono del responsabile (chiesto
+         dal titolare, 20 ottobre 2026). -->
+    <div class="card attese-card" id="attese-card" hidden>
+      <h2 style="margin:0 0 4px">In attesa di una risposta</h2>
+      <p class="conteggio" style="margin:0 0 6px">
+        Il bot li ha passati a una persona. <b>Rispondi</b> da qui (parte dal numero del locale) oppure
+        <b>Azzera</b>: la richiesta si chiude, il bot torna a rispondergli e la prenotazione riparte da capo.
+      </p>
+      <div id="attese-righe"></div>
+    </div>
     <!-- RIEPILOGO — la prima cosa che si vede: tutto a posto o no -->
     <div class="card">
       <div class="riga-strumenti">
@@ -5435,6 +5462,8 @@ async function caricaPrenotazioni() {
   spia.style.borderColor = stato.attivo ? 'var(--ok-bordo)' : 'var(--bordo)';
   const pezzi = [`${stato.prenotazioni} prenotazioni oggi`, `${stato.coperti} coperti`];
   if (stato.inAttesa) pezzi.push(`${stato.inAttesa} in attesa di risposta`);
+  // «Chi sono?» accanto al numero: porta al riquadro con i nomi e i tasti.
+  $('#pren-vedi-attese').hidden = !stato.inAttesa;
   if (stato.nonCapite) pezzi.push(`${stato.nonCapite} frasi non capite`);
   if (!stato.collegato) pezzi.push('⚠️ WhatsApp non collegato');
   $('#pren-riassunto').textContent = pezzi.join(' · ');
@@ -5495,6 +5524,83 @@ document.querySelectorAll('#pren-sotto-nav button').forEach((b) => {
     await caricaSottoScheda(b.dataset.sotto);
   });
 });
+
+// ---- Chi aspetta una risposta ----
+// «Da quanto»: «da 25 min», «da 3 ore», «da 2 giorni».
+function daQuanto(quando) {
+  const d = new Date(String(quando || '').replace(' ', 'T'));
+  if (Number.isNaN(d.getTime())) return '';
+  const min = Math.max(1, Math.round((Date.now() - d.getTime()) / 60000));
+  if (min < 60) return `da ${min} min`;
+  const ore = Math.round(min / 60);
+  if (ore < 24) return `da ${ore} ${ore === 1 ? 'ora' : 'ore'}`;
+  const gg = Math.round(ore / 24);
+  return `da ${gg} ${gg === 1 ? 'giorno' : 'giorni'}`;
+}
+async function caricaAttese() {
+  let d;
+  try { d = await (await fetch('/api/bot/richieste')).json(); } catch { return; }
+  const lista = (d && d.richieste) || [];
+  $('#attese-card').hidden = !lista.length;
+  $('#pren-vedi-attese').hidden = !lista.length;
+  $('#attese-righe').innerHTML = lista.map((r) => {
+    const chi = r.nome || (r.telefono ? numeroPulito(r.telefono) : 'Cliente');
+    const dettagli = [r.nome && r.telefono ? numeroPulito(r.telefono) : '', daQuanto(r.creata_at),
+      r.avvisata ? 'avvisato il responsabile' : 'responsabile non ancora avvisato'].filter(Boolean).join(' · ');
+    return `<div class="attesa-riga" data-codice="${testoSicuro(r.codice)}">
+      <div class="attesa-testa"><span class="attesa-codice">${testoSicuro(r.codice)}</span>
+        <b>${testoSicuro(chi)}</b><span class="conteggio" style="margin:0">${testoSicuro(dettagli)}</span></div>
+      <div class="attesa-testo">${r.testo ? '«' + testoSicuro(r.testo) + '»' : ''}</div>
+      <div class="attesa-tasti">
+        <button class="btn btn-piccolo" type="button" data-rispondi>Rispondi</button>
+        <button class="btn btn-secondario btn-piccolo" type="button" data-azzera>Azzera</button>
+      </div>
+      <div class="attesa-risposta" hidden>
+        <textarea placeholder="Scrivi la risposta per ${testoSicuro(chi)}…" aria-label="Risposta per ${testoSicuro(chi)}"></textarea>
+        <div class="attesa-tasti">
+          <button class="btn btn-piccolo" type="button" data-invia>Invia</button>
+          <button class="btn btn-secondario btn-piccolo" type="button" data-annulla>Annulla</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  for (const riga of $('#attese-righe').querySelectorAll('.attesa-riga')) {
+    const r = lista.find((x) => x.codice === riga.dataset.codice);
+    const chi = r.nome || (r.telefono ? numeroPulito(r.telefono) : 'questo cliente');
+    const box = riga.querySelector('.attesa-risposta');
+    riga.querySelector('[data-rispondi]').addEventListener('click', () => {
+      box.hidden = false;
+      box.querySelector('textarea').focus();
+    });
+    box.querySelector('[data-annulla]').addEventListener('click', () => { box.hidden = true; });
+    box.querySelector('[data-invia]').addEventListener('click', async (e) => {
+      const testo = box.querySelector('textarea').value.trim();
+      if (!testo) { box.querySelector('textarea').focus(); return; }
+      e.target.disabled = true;
+      const risp = await fetch('/api/bot/richieste/rispondi', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codice: r.codice, testo }) });
+      const esito = await risp.json().catch(() => ({}));
+      e.target.disabled = false;
+      if (!risp.ok) { toast(esito.error || 'La risposta non è partita'); return; }
+      toast(`✅ Inviato a ${esito.nome || chi}. Il bot tace su questa conversazione per ${esito.ore} ore.`);
+      caricaRiepilogo();
+    });
+    riga.querySelector('[data-azzera]').addEventListener('click', async () => {
+      if (!confirm(`Azzerare la conversazione con ${chi}?\n\nLa richiesta si chiude, il bot torna a rispondergli e la prenotazione a metà riparte da capo.`)) return;
+      const risp = await fetch('/api/bot/conversazione/sblocca', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chi: r.chiave }) });
+      const esito = await risp.json().catch(() => ({}));
+      if (!risp.ok) { toast(esito.error || 'Non sono riuscito ad azzerarla'); return; }
+      toast(esito.fatto && esito.fatto.length ? `Fatto: ${esito.fatto.join(', ')}.` : 'Non c\'era niente da azzerare.');
+      caricaRiepilogo();
+    });
+  }
+}
+// Dal riassunto in cima o da «Da guardare»: il riepilogo, e il riquadro.
+function vediAttese() {
+  vaiSottoScheda('riepilogo');
+  setTimeout(() => { const c = $('#attese-card'); if (c && !c.hidden) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 150);
+}
 
 function vaiSottoScheda(nome) {
   const b = document.querySelector('#pren-sotto-nav button[data-sotto="' + nome + '"]');
@@ -5567,13 +5673,14 @@ async function caricaRiepilogo() {
   // «Da guardare»: solo le cose che hanno un numero diverso da zero. Un elenco
   // di zeri e' rumore, e insegna a non guardare piu' il riquadro.
   const cose = [];
-  if (stato.inAttesa) cose.push([`${stato.inAttesa} client${stato.inAttesa === 1 ? 'e' : 'i'} in attesa di risposta`, 'diagnostica']);
+  if (stato.inAttesa) cose.push([`${stato.inAttesa} client${stato.inAttesa === 1 ? 'e' : 'i'} in attesa di risposta`, 'attese']);
   if (diag.zittite) cose.push([`${diag.zittite} conversazion${diag.zittite === 1 ? 'e' : 'i'} su cui il bot tace`, 'diagnostica']);
   if (stato.nonCapite) cose.push([`${stato.nonCapite} fras${stato.nonCapite === 1 ? 'e' : 'i'} che il bot non ha capito`, 'frasi']);
   $('#riep-attenzione').innerHTML = cose.length
     ? cose.map(([testo, dove]) => `<div class="riga"><span>${testoSicuro(testo)}</span>
-        <button class="btn btn-secondario btn-piccolo" onclick="vaiSottoScheda('${dove}')">Vedi</button></div>`).join('')
+        <button class="btn btn-secondario btn-piccolo" onclick="${dove === 'attese' ? 'vediAttese()' : `vaiSottoScheda('${dove}')`}">Vedi</button></div>`).join('')
     : '<div class="riga"><span>Niente in sospeso.</span></div>';
+  await caricaAttese();
 
   await caricaSettimana();
 }
@@ -7428,6 +7535,7 @@ $('#pren-oggi').addEventListener('click', () => {
   caricaServizio();
 });
 $('#pren-vai-impostazioni').addEventListener('click', () => vaiSottoScheda('impostazioni'));
+$('#pren-vedi-attese').addEventListener('click', vediAttese);
 // Il pulsante c'era ma non era collegato a niente: sembrava aggiornare e
 // invece restava tutto fermo, che e' peggio che non averlo.
 $('#riep-aggiorna').addEventListener('click', () => caricaSottoScheda('riepilogo'));

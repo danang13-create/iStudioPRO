@@ -4584,6 +4584,13 @@ if (botDisponibile()) {
       for (const chiave of chiaviStessaConversazione(a, telefono)) {
         bot.zittisci(db, chiave, ore, new Date());
       }
+      // ⚠️ E la richiesta di quel cliente non è più «in attesa»: qualcuno gli
+      // ha risposto. Prima restava aperta per sempre — il riepilogo diceva «2 in
+      // attesa di risposta» per clienti già serviti dal telefono del locale, e
+      // l'unico modo di farlo scendere era rispondere di nuovo col codice
+      // (visto dal titolare, 20 ottobre 2026).
+      // In un suo «try»: se si inceppasse, l'annuncio qui sotto deve partire lo stesso.
+      try { segnaRisposte(chiaviStessaConversazione(a, telefono), msg.body, 'a mano, dal telefono del locale'); } catch (e) { console.error('Bot:', e.message); }
       annota('presa in carico', `hai risposto a mano: il bot tace per ${ore} ore su ${telefono ? '+' + telefono : a}`);
       // E al cliente si dice che adesso gli risponde una persona — una volta.
       await annunciaLaPersona(a, telefono, ore);
@@ -6235,6 +6242,64 @@ app.post('/api/bot/conversazione/sblocca', async (req, res) => {
   const nome = prima.identita.nome || chi;
   if (fatto.length) annota('sbloccata', `${nome}: ${fatto.join(', ')}`);
   res.json({ ok: true, fatto, dopo: diagnosiConversazione(chi) });
+});
+
+// ---- Chi aspetta una risposta da una persona ----
+// Chiesto dal titolare (20 ottobre 2026): il riepilogo diceva «2 in attesa di
+// risposta» e basta — chi fossero, cosa avessero scritto e da quanto si
+// scopriva solo dal telefono del responsabile. Qui l'elenco, per rispondere
+// subito dalla piattaforma o per azzerare (che è «sblocca», qui sopra).
+function segnaRisposte(chiavi, testo, da) {
+  const lista = [...new Set(chiavi)].filter(Boolean);
+  if (!lista.length) return 0;
+  const segni = lista.map(() => '?').join(',');
+  return db.prepare("UPDATE bot_richieste SET stato = 'risposta', risposta = ?, risposta_at = datetime('now','localtime'), risposta_da = ? "
+    + `WHERE stato = 'in_attesa' AND (chat_id IN (${segni}) OR telefono IN (${segni}))`)
+    .run(String(testo || '').slice(0, 500), da, ...lista, ...lista).changes;
+}
+function richiesteInAttesa() {
+  return db.prepare("SELECT * FROM bot_richieste WHERE stato = 'in_attesa' ORDER BY id").all().map((r) => {
+    const chiave = r.chat_id || r.telefono;
+    const chi = identitaPerChiave(chiave);
+    return {
+      codice: r.codice, chiave,
+      nome: r.nome || chi.nome || '',
+      telefono: chi.telefono || '',
+      testo: r.testo || '',
+      creata_at: r.creata_at || '',
+      avvisata: !!r.avvisata_at,
+    };
+  });
+}
+app.get('/api/bot/richieste', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  res.json({ richieste: richiesteInAttesa(), silenzioOre: bot.num(bot.leggi(db, 'bot_silenzio_ore'), 6) });
+});
+// Rispondere dalla piattaforma: parte dal numero del locale, come la risposta
+// col codice da WhatsApp. Prima, una volta, «ti risponde una persona» (la
+// stessa frase di quando si risponde a mano); poi la risposta. Il bot tace su
+// quella conversazione per le ore di silenzio: ci sta pensando una persona.
+app.post('/api/bot/richieste/rispondi', async (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const codice = String((req.body && req.body.codice) || '').trim().toUpperCase();
+  const testo = String((req.body && req.body.testo) || '').trim();
+  if (!codice || !testo) return res.status(400).json({ error: 'Scrivi la risposta.' });
+  if (state.status !== 'connesso') return res.status(409).json({ error: 'WhatsApp non è collegato: la risposta non partirebbe.' });
+  const rich = db.prepare("SELECT * FROM bot_richieste WHERE codice = ? AND stato != 'chiusa' ORDER BY id DESC LIMIT 1").get(codice);
+  if (!rich) return res.status(404).json({ error: `Non c'è più nessuna richiesta aperta col codice ${codice}.` });
+  const chiave = rich.chat_id || rich.telefono;
+  const ore = bot.num(bot.leggi(db, 'bot_silenzio_ore'), 6);
+  try {
+    await annunciaLaPersona(chiave, rich.telefono, ore);
+    await rispondiConRitmo(chiave, testo);
+  } catch (e) {
+    return res.status(500).json({ error: 'La risposta non è partita: ' + e.message });
+  }
+  segnaRisposte(chiaviStessaConversazione(rich.chat_id, rich.telefono), testo, 'dalla piattaforma');
+  for (const k of chiaviStessaConversazione(rich.chat_id, rich.telefono)) bot.zittisci(db, k, ore, new Date());
+  const nome = rich.nome || identitaPerChiave(chiave).nome || chiave;
+  annota('risposto dalla piattaforma', `${codice} (${nome}): il bot tace per ${ore} ore`);
+  res.json({ ok: true, nome, ore });
 });
 
 // Ridà la parola al bot su UNA conversazione, invece che su tutte come fa
