@@ -1193,9 +1193,23 @@ function interpretaPersone(testo) {
   }
   if (/\buna\s+person[ae]\b/.test(t)) return 1;
   for (const [parola, valore] of Object.entries(NUMERI_A_PAROLE)) {
+    if (parola === 'sei' && !seiComeNumero(t)) continue;
     if (new RegExp(`(^|\\W)${parola}(\\W|$)`).test(t)) return valore;
   }
   return null;
+}
+
+// ⚠️ «Sei» è anche il verbo. «Ci sei?», «sei ancora lì?» erano sei persone
+// (visto il 23 ottobre 2026, nella raffica di `prova-carico.js`): al passo
+// delle persone il bot passava a «Quale giorno desideri prenotare?» per sei, e
+// come primo messaggio cominciava una prenotazione. Vale come numero solo da
+// solo, o detto come persone: «sei persone», «siamo in sei», «per sei», «sei
+// o sette».
+function seiComeNumero(t) {
+  const x = t.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  return x === 'sei'
+    || /\bsei\s+(?:persone|persona|pers|pax|coperti|adulti|ospiti|posti|o|oppure)\b/.test(x)
+    || /\b(?:siamo|saremo|in|per|tavolo da|tavolo per)\s+sei\b/.test(x);
 }
 
 const GIORNI_SETTIMANA = {
