@@ -5452,6 +5452,7 @@ const TESTI_BOT = [
   ['bot_t_ora_niente', 'Ha scritto un orario che non c\'è', 'Quando scrive «21» e non c\'è nessun turno alle 21: lo si dice e si rimette l\'elenco, senza contarlo come equivoco.'],
   ['bot_t_ora_quale', 'Ha scritto un\'ora con due turni', 'Quando scrive «21» e alle 21 ci sono due turni (per esempio 21:15 e 21:45): si chiede l\'orario preciso, mostrando solo quei due.'],
   ['bot_t_ora_cambiata', 'Dopo la nota, ha scritto un altro orario', 'Quando risponde alla nota qui sopra con un altro orario («20:30»): il bot lo prende e lo conferma in una riga, prima di ripetere la domanda. <b>{ora}</b> è l\'orario preso col turno.'],
+  ['bot_t_giorno_cambiato', 'All\'orario, ha scritto un altro giorno', 'Quando alla domanda dell\'orario scrive un altro giorno con un orario che quel giorno c\'è («venerdì alle 21:15»): il bot li prende e lo dice in una riga, prima della domanda dopo. Senza orario, o con uno che quel giorno non c\'è, il bot propone i turni di quel giorno. <b>{data}</b> è il giorno, <b>{ora}</b> l\'orario col turno.'],
   ['bot_t_ora_no', 'Non ha capito l\'orario', ''],
   ['bot_t_ora_piena', 'Ha chiesto un orario pieno', 'Quando il cliente chiede un orario che il locale fa, ma che è già al completo. Sotto arrivano da soli gli orari ancora liberi.'],
   ['bot_t_ora_tardi', 'Ha chiesto un orario troppo vicino', 'Quando l\'orario chiesto è già passato o è troppo a ridosso, secondo il preavviso che hai impostato.'],

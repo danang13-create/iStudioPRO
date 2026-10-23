@@ -1015,6 +1015,8 @@ const PREDEFINITI = {
   bot_t_ora_niente: 'Alle {scritto} non abbiamo un turno. Questi sono quelli disponibili:\n',
   bot_t_ora_quale: 'Alle {scritto} abbiamo più di un turno: scrivimi l’orario preciso.\n',
   bot_t_ora_cambiata: '👍 Ho segnato le {ora}.',
+  // Alla domanda dell'orario, un altro giorno con un orario che quel giorno c'è.
+  bot_t_giorno_cambiato: '👍 Ho segnato {data} alle {ora}.',
   bot_t_ora_no: 'Non sono riuscita a capire quale orario preferisci!\n\nPuoi indicarmi direttamente l’orario (esempio: 21:30)\n',
   // Un orario che il locale fa davvero, ma pieno (o troppo vicino), non è una
   // risposta incomprensibile: è un no, e va detto per quello che è.
@@ -1407,18 +1409,48 @@ function interpretaGiorni(testo, adesso) {
   return [...date].sort();
 }
 
+// ⚠️ L'ORARIO IN UNA FRASE CON ALTRI NUMERI. Visto in una chat vera (23
+// ottobre 2026): alla domanda dell'orario il cliente scrive «22 ottobre ore
+// 20:30», e il bot prendeva il PRIMO numero — il 22, il giorno — e segnava le
+// 22:30 («Alle 22 non abbiamo un turno: ho segnato le 22:30»). Due volte di
+// fila, perché il cliente riscriveva la stessa frase. Prima di cercare l'ora
+// si tolgono le date («22 ottobre», «22/10», «il 10», «giovedì 10») e le
+// persone («4 persone», «siamo in 3»); fra i numeri che restano vale quello
+// dopo «ore»/«alle», poi quello coi minuti, poi il primo.
+const PAROLE_DELL_ORA = '(?:ore|alle|h|per le|verso le|dopo le|prima delle|dalle)';
+function senzaDateNePersone(t) {
+  return dateRaddrizzate(t)
+    .replace(new RegExp(`\\b\\d{1,2}\\s+(?:di\\s+)?(?:${NOMI_MESI.join('|')})\\b`, 'g'), ' ')
+    .replace(/\b\d{1,2}\s*\/\s*\d{1,2}(?:\s*\/\s*\d{2,4})?\b/g, ' ')
+    // «giovedì 10», «il 10»: il giorno resta, il numero no. Non «il 2° turno».
+    .replace(/\b(lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica|il|giorno|del)\s+\d{1,2}\b(?!\s*(?:[:.,]\s*\d|[°º]|turno))/g, '$1 ')
+    .replace(/\b\d{1,2}\s*(?:persone|persona|pers|pax|coperti|adulti|bambini|ospiti|posti)\b/g, ' ')
+    .replace(/\b(?:siamo|saremo)\s+(?:in\s+)?\d{1,2}\b(?!\s*[:.,]\s*\d)/g, ' ')
+    .replace(/\bin\s+\d{1,2}\b(?!\s*[:.,]\s*\d)/g, ' ');
+}
+// { ore, minuti, conMinuti } dell'orario scritto nel testo, o null.
+function oraNelTesto(testo) {
+  const t = senzaDateNePersone(normalizza(testo));
+  // La virgola vale solo attaccata («20,30»): in «per 2, 20:30» il «2, 20»
+  // sarebbero le 2:20.
+  const m = t.match(new RegExp(`\\b${PAROLE_DELL_ORA}\\s*(\\d{1,2})(?:(?:\\s*[:.]\\s*|,|\\s*)(\\d{2}))?\\b`))
+    || t.match(/\b(\d{1,2})(?:\s*[:.]\s*|,)(\d{2})\b/)
+    || t.match(/\b(\d{1,2})(?:\s*[:.]\s*|,|\s*)(\d{2})?\b/);
+  if (!m) return null;
+  const ore = +m[1];
+  const minuti = m[2] ? +m[2] : 0;
+  if (ore > 23 || minuti > 59) return null;
+  return { ore, minuti, conMinuti: !!m[2] };
+}
+
 // Un orario: 21:30 · 21.30 · 2130 · 21
 // L'orario come l'ha SCRITTO il cliente: «21» → { scritto: '21', ore: 21 },
 // «21.15» → { scritto: '21:15', ore: 21, minuti: 15 }. null se non c'è un orario.
 function oraScritta(testo) {
-  const t = normalizza(testo);
-  const m = t.match(/\b(\d{1,2})\s*(?::|\.|,)?\s*(\d{2})?\b/);
-  if (!m) return null;
-  const ore = +m[1];
-  const min = m[2] ? +m[2] : 0;
-  if (ore > 23 || min > 59) return null;
-  return { ore, minuti: min, conMinuti: !!m[2],
-           scritto: m[2] ? `${String(ore).padStart(2, '0')}:${String(min).padStart(2, '0')}` : String(ore) };
+  const o = oraNelTesto(testo);
+  if (!o) return null;
+  return { ...o,
+           scritto: o.conMinuti ? `${String(o.ore).padStart(2, '0')}:${String(o.minuti).padStart(2, '0')}` : String(o.ore) };
 }
 
 function interpretaOra(testo, turni) {
@@ -1428,11 +1460,10 @@ function interpretaOra(testo, turni) {
   // Anche qui niente scorciatoia sul numero di riga: gli orari non sono piu'
   // numerati, e leggere «2» come «la seconda riga» significava confermare un
   // turno che il cliente non aveva chiesto, in silenzio. Meglio richiedere.
-  const m = t.match(/\b(\d{1,2})\s*(?::|\.|,)?\s*(\d{2})?\b/);
-  if (!m) return null;
-  const ore = +m[1];
-  const min = m[2] ? +m[2] : 0;
-  if (ore > 23 || min > 59) return null;
+  // Le date e le persone della frase non sono l'ora (vedi «oraNelTesto»).
+  const o = oraNelTesto(t);
+  if (!o) return null;
+  const { ore, minuti: min } = o;
   const scritto = `${String(ore).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
   if (turni.includes(scritto)) return scritto;
   // Ha scritto un orario che non è un turno: se ce n'è UNO solo che comincia con
@@ -1441,7 +1472,7 @@ function interpretaOra(testo, turni) {
   if (vicini.length === 1) return vicini[0];
   // «alle 8» vuol dire le 20:00: in italiano l'ora di cena si dice quasi sempre
   // così. Vale solo se UN turno solo corrisponde, come sopra: mai indovinare.
-  if (ore >= 1 && ore <= 11 && !m[2]) {
+  if (ore >= 1 && ore <= 11 && !o.conMinuti) {
     const pomeriggio = turni.filter((x) => x.startsWith(String(ore + 12).padStart(2, '0') + ':'));
     if (pomeriggio.length === 1) return pomeriggio[0];
   }
@@ -6735,6 +6766,29 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     return interpretaData(t, adesso);
   }
 
+  // Il giorno scritto alla domanda dell'orario, tolta l'ora: in «22 ottobre
+  // ore 20.30» il «20.30» sembrerebbe una data. Lì anche «il 10» è un giorno
+  // del mese. «Giovedì alle 20:30» mentre si prenota giovedì 10 è QUEL giovedì,
+  // non il primo che viene.
+  function giornoDettoAllOra(x) {
+    const senza = normalizza(x)
+      .replace(new RegExp(`\\b${PAROLE_DELL_ORA}\\s*\\d{1,2}(?:\\s*[:.,]?\\s*\\d{2})?\\b`, 'g'), ' ')
+      .replace(/\b\d{1,2}\s*[:.,]\s*\d{2}\b/g, ' ');
+    const il = senza.match(/\b(?:il|giorno)\s+(\d{1,2})\b(?!\s*(?:[°º]|turno))/);
+    const giorno = giornoDettoInsieme(senza) || (il ? interpretaData(il[1], adesso) : null);
+    const settimana = (iso) => { const [a, m, g] = iso.split('-').map(Number); return new Date(a, m - 1, g).getDay(); };
+    if (giorno && dati.data && !/\d|\b(oggi|domani|dopodomani)\b/.test(senza) && settimana(giorno) === settimana(dati.data)) return dati.data;
+    return giorno;
+  }
+  // Le persone scritte alla domanda dell'orario: solo se dette come persone
+  // («4 persone», «siamo in 3», «sabato in 4»). Un numero da solo, lì, è l'ora.
+  function personeDetteAllOra(x) {
+    const parole = Object.keys(NUMERI_A_PAROLE).join('|');
+    const m = normalizza(x).match(new RegExp(`\\b(?:siamo\\s+|saremo\\s+)?(?:in\\s+|siamo\\s+|saremo\\s+)(\\d{1,2}|${parole})\\b(?!\\s*[:.,]\\s*\\d)`
+      + `|\\b(\\d{1,2}|${parole})\\s*(?:persone|pax|coperti)\\b`));
+    return m ? interpretaPersone(m[1] || m[2]) : null;
+  }
+
   // Il servizio detto adesso, o quello detto prima nella stessa conversazione.
   // «Siamo in 4, a cena» arriva quando si chiedono le persone, e serve due
   // passi dopo, quando si propongono gli orari.
@@ -7053,6 +7107,40 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
         const coda = offrireAltro ? di('bot_t_unico_no_altro', { data: dataItaliana(dati.data), altro: altroServizio }) : '';
         risposte.push([`${testa}\n${elencoGiorni(giorni)}`, coda].filter((x) => String(x).trim()).join('\n\n'));
         return esito;
+      }
+    }
+    // ⚠️ Un altro giorno o altre persone, scritti alla domanda dell'orario
+    // (23 ottobre 2026): «giovedì 10 settembre», «meglio venerdì», «siamo in
+    // 4». Prima ogni numero diventava un'ora («Alle 4 non abbiamo un turno»),
+    // e un giorno a parole un «non ho capito». Si riparte da quel giorno, con
+    // quelle persone: i suoi turni, o pieno/chiuso con le alternative. Il
+    // giorno già scelto, ripetuto insieme all'ora («22 ottobre ore 20:30»),
+    // non cambia niente: lì conta l'ora.
+    if (!ora && !ordinaleDi(testo)) {
+      const giornoNuovo = giornoDettoAllOra(testo);
+      const personeNuove = personeDetteAllOra(testo);
+      const cambiaGiorno = !!giornoNuovo && giornoNuovo !== dati.data;
+      if (cambiaGiorno || (personeNuove && personeNuove !== dati.persone)) {
+        const { data, turni, unico, attesaOra, rifiutati, ...resto } = avanzato(dati);
+        const iso = cambiaGiorno ? giornoNuovo : dati.data;
+        if (personeNuove && personeNuove !== dati.persone) return passoPersone(personeNuove, iso, resto);
+        if (oltreLOrizzonte(iso, adesso)) {
+          risposte.push(di('bot_t_troppo_lontano', { data: `${dataItaliana(iso)} ${iso.slice(0, 4)}` }));
+          esito.passaAUmano = true;
+          azzeraStato(db, telefono);
+          return esito;
+        }
+        // Con un orario che quel giorno c'è proprio («venerdì alle 21:15») si
+        // prende, e lo si dice. Sennò i turni di quel giorno.
+        const liberi = turniDisponibili(db, cfg, iso, resto.persone, adesso, perEsperienza(resto));
+        const letta = oraScritta(testo);
+        const esatta = letta && liberi.find((o) => o === `${String(letta.ore).padStart(2, '0')}:${String(letta.minuti).padStart(2, '0')}`);
+        if (!esatta) return scegliGiorno(resto, iso);
+        const prima = risposte.length;
+        const r = dopoLOra({ ...resto, data: iso, turni: liberi, ora: esatta });
+        const detto = di('bot_t_giorno_cambiato', { data: dataItaliana(iso), ora: oraColTurno(cfg, iso, esatta) });
+        if (risposte.length > prima && detto.trim()) risposte[prima] = `${detto}\n\n${risposte[prima]}`;
+        return r;
       }
     }
     if (!ora) ora = oraScelta(dati);
