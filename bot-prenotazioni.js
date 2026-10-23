@@ -1065,6 +1065,9 @@ const PREDEFINITI = {
   bot_t_richiamo: 'Sei ancora lì? 🙂\n\nTi stavo chiedendo {cosa}: rispondi pure qui e finiamo in un attimo.\n\nSe preferisci ripartire da capo scrivi RICOMINCIA.',
   // In cima alla presentazione: la domanda la fa il primo messaggio (20 ottobre 2026).
   bot_t_ricominciato: 'Va bene, ricominciamo da capo! 🙂',
+  // «Torna indietro»: in cima alla domanda di prima, riscritta com'era.
+  bot_t_indietro: 'Va bene, torniamo indietro 🙂',
+  bot_t_indietro_inizio: 'Siamo già alla prima domanda 🙂',
   bot_t_annulla_quale: 'Sei sicuro di voler cancellare la prenotazione?\n\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nScrivi SÌ per confermare',
   bot_t_modificata: 'Ciao {nome}, abbiamo aggiornato la tua prenotazione:\n\n📅 {data} \n🕘 {ora} \n👥 {persone}\n\nA presto!\n',
   bot_t_manuale: 'Ciao {nome}! \nTi confermiamo la prenotazione da {locale}:\n\n📅 {data} \n🕘 {ora}  \n👥 {persone}\n\nSe hai un imprevisto scrivi in questa chat.',
@@ -3791,7 +3794,7 @@ const PASSI_DA_RICHIAMARE = Object.keys(COSA_MANCA);
 // «purtroppo»). «Lascia stare il business lunch, prendo la carta» non è una
 // rinuncia: è una correzione, e se ne occupa il passo. «Niente» da solo
 // neanche: alla domanda delle allergie vuol dire «nessuna».
-const CORTESIE_DELLA_RINUNCIA = /\b(no|grazie|mille|ciao|ok|okay|va bene|allora|scusa|scusate|scusami|comunque|per ora|per adesso|alla fine|purtroppo|magari|buona giornata|buona serata|arrivederci|a presto|guarda|senti|ehm|davvero|sorry)\b/g;
+const CORTESIE_DELLA_RINUNCIA = /\b(no|grazie|mille|ciao|ok|okay|va bene|allora|scusa|scusate|scusami|comunque|per ora|per adesso|alla fine|purtroppo|magari|buona giornata|buona serata|arrivederci|a presto|guarda|senti|ehm|davvero|sorry|per favore|perfavore|per piacere|please)\b/g;
 const RINUNCIA = new RegExp('^(?:'
   + 'non (?:voglio|vogliamo|vorrei|vorremmo|devo|dobbiamo|desidero|desideriamo) (?:piu )?(?:prenotare(?: piu)?|prenotarlo|prenotarla|fare la prenotazione|piu)'
   + '|non (?:prenoto|prenotiamo|prenotare|prenotate)(?: piu)?'
@@ -3806,6 +3809,28 @@ function vuoleRinunciare(testo) {
   const t = normalizza(testo).replace(/[^a-z\s]/g, ' ').replace(CORTESIE_DELLA_RINUNCIA, ' ').replace(/\s+/g, ' ').trim();
   return !!t && RINUNCIA.test(t);
 }
+// «Voglio cambiare il menu», «un altro menu», «cambio esperienza»: dopo aver
+// scelto, il cliente ci ripensa (dal titolare, 23 ottobre 2026). Si torna
+// all'elenco delle esperienze, tenendo le persone. Solo il messaggio intero,
+// come per la rinuncia: «cambio esperienza, prendo la carta» lo prende già il
+// passo, che riconosce il nome.
+const PAROLE_DEL_CAMBIO = /\b(?:voglio|vorrei|volevo|posso|possiamo|preferisco|preferirei|vorremmo|vogliamo|ho|abbiamo|cambiare|cambio|cambia|cambiamo|scegliere|sceglierne|prendere|sbagliato|il|la|l|un|una|di|altro|altra|diverso|diversa|menu|esperienza|formula|proposta)\b/g;
+function vuoleCambiareEsperienza(testo) {
+  const t = normalizza(testo).replace(/[^a-z\s]/g, ' ').replace(CORTESIE_DELLA_RINUNCIA, ' ').replace(/\s+/g, ' ').trim();
+  if (!/\b(?:menu|esperienza|formula|proposta)\b/.test(t)) return false;
+  // Altre parole («il menu di pesce», «la carta dei vini») e non è solo un cambio.
+  if (t.replace(PAROLE_DEL_CAMBIO, ' ').trim()) return false;
+  // E serve il cambio: «il menu» da solo è la richiesta del menu (MENU).
+  return /\b(?:cambiare|cambio|cambia|cambiamo|altro|altra|diverso|diversa|sbagliato)\b/.test(t);
+}
+// «Torna indietro», «indietro», «ho sbagliato»: la domanda di prima (vedi
+// «elaboraMessaggio», che tiene la storia dei passi).
+const INDIETRO = /^(?:(?:torna|tornare|torniamo|tornate|vai|andiamo|torno|possiamo tornare|posso tornare|voglio tornare|vorrei tornare) )?(?:indietro|al passo (?:precedente|prima)|alla domanda (?:precedente|di prima)|un passo indietro|passo precedente)$|^(?:ho|abbiamo) sbagliato(?: (?:risposta|scelta|giorno|data|orario|ora|numero|nome))?$/;
+function vuoleTornareIndietro(testo) {
+  const t = normalizza(testo).replace(/[^a-z\s]/g, ' ').replace(CORTESIE_DELLA_RINUNCIA, ' ').replace(/\s+/g, ' ').trim();
+  return !!t && INDIETRO.test(t);
+}
+
 // I passi di una prenotazione NUOVA in corso: lì una rinuncia chiude tutto.
 // Fuori (nessuna conversazione aperta, chi ha già un tavolo, lo spostamento)
 // «non voglio più» può voler dire altro, e se ne occupano quei rami.
@@ -5453,19 +5478,104 @@ function elencoPrenotazioni(db, cfg, iso, adesso = new Date()) {
 // ⚠️ NON «dentro una prenotazione non si conta»: passare a una persona non
 // zittisce il bot, e un giro a vuoto fatto di «ciao», MENU o domande frequenti
 // dentro un passo non finirebbe mai.
-function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {}) {
-  const passoPrima = statoDi(db, telefono, adesso).passo;
-  const contoPrima = risposteDiOggi(db, telefono, adesso);
-  const esito = rispondiAlMessaggio(db, telefono, testo, adesso, contesto);
-  // ⚠️ Una frase che finisce con un a capo, attaccata a un pezzo che comincia
-  // con una riga vuota («📖 Se vuoi dare prima un'occhiata al menu…», «Se
-  // preferisci, scrivi RICOMINCIA…»), lasciava su WhatsApp DUE righe vuote di
-  // fila. Trovato facendo girare migliaia di conversazioni a caso (19 ottobre
-  // 2026). Si sistema qui, all'uscita, una volta per tutte le frasi — comprese
-  // quelle riscritte dai locali.
+// ---- «Torna indietro»: la storia dei passi ----
+// Dal titolare (23 ottobre 2026): chi sceglie un menu e ci ripensa scrive
+// «torna indietro», e deve ritrovarsi alla domanda di prima. Ogni passo di una
+// prenotazione si ricorda la DOMANDA con cui è cominciato (il messaggio del
+// bot, così com'era) e i passi prima di lui, con i loro dati: tornare indietro
+// è rimettere quelli e riscrivere quella domanda. Si fa qui, attorno a
+// `rispondiAlMessaggio`, perché è l'unico punto che vede il passo di prima e
+// quello di dopo: dentro, gli stati si scrivono da cinquanta posti diversi.
+const MAX_STORIA = 8;
+const senzaStoria = (d) => { const { storia, domanda, ...resto } = d || {}; return resto; };
+// Le risposte di chi ha ripreso DA CAPO (RICOMINCIA, un saluto dopo un po'):
+// la storia di prima è di una prenotazione buttata, e «torna indietro» non deve
+// riportarci dentro. Accanto, la frase messa in cima («Va bene, ricominciamo da
+// capo!»): non è la domanda, e tornando lì non va ripetuta. A parte, per non
+// cambiare la forma dell'esito.
+const DA_CAPO = new WeakMap();
+
+function ricordaLaDomanda(db, telefono, prima, esito, adesso) {
+  const dopo = statoDi(db, telefono, adesso);
+  if (!PASSI_DELLA_PRENOTAZIONE.has(dopo.passo)) return;
+  const pd = prima.dati || {};
+  let detta = [...(esito.risposte || [])].reverse().find((r) => typeof r === 'string' && r.trim()) || '';
+  const testa = DA_CAPO.get(esito);
+  const pulita = senzaRigheDiTroppo({ risposte: [testa || ''] }).risposte[0];
+  if (pulita && detta.startsWith(pulita)) detta = detta.slice(pulita.length).trim();
+  let storia; let domanda;
+  const { tentativi: t1, ...datiPrima } = senzaStoria(pd);
+  const { tentativi: t2, ...datiDopo } = senzaStoria(dopo.dati);
+  if (!PASSI_DELLA_PRENOTAZIONE.has(prima.passo) || testa !== undefined) {
+    storia = []; domanda = detta;                       // la prenotazione comincia adesso
+  } else if (!Array.isArray(pd.storia)) {
+    // ⚠️ Cominciata prima del 23 ottobre 2026, senza storia: dei passi di
+    // prima non si sa niente, e una storia cominciata a metà direbbe «siamo
+    // già alla prima domanda» a chi è al terzo passo. Resta senza, fino in
+    // fondo a quella prenotazione (vedi «tornaIndietro»).
+    return;
+  } else if (dopo.passo === prima.passo) {
+    // Stesso passo. «Non ho capito», una domanda frequente, il MENU: non sono la
+    // domanda, e resta quella di prima. Ma se sono cambiati i dati («venerdì»
+    // al posto di «giovedì», alla domanda dell'ora) la domanda è quella nuova:
+    // la vecchia avrebbe gli orari dell'altro giorno.
+    storia = pd.storia || [];
+    domanda = JSON.stringify(datiPrima) === JSON.stringify(datiDopo) ? (pd.domanda || '') : detta;
+  } else {
+    storia = [...(pd.storia || []), { passo: prima.passo, dati: senzaStoria(pd), domanda: pd.domanda || '' }].slice(-MAX_STORIA);
+    domanda = detta;
+  }
+  scriviStato(db, telefono, dopo.passo, { ...senzaStoria(dopo.dati), storia, domanda }, adesso);
+}
+
+function tornaIndietro(db, telefono, prima, adesso) {
+  const cfg = config(db);
+  const valori = { locale: cfg.bot_locale || 'noi' };
+  const esito = { risposte: [], passaAUmano: false, prenotazione: null, annullata: null, spostata: null, attesa: null };
+  const pd = prima.dati || {};
+  const storia = pd.storia || [];
+  const domandaDi = (passo, testo) => String(testo || '').trim()
+    || `Ti stavo chiedendo ${COSA_MANCA[passo] || 'i dettagli della prenotazione'}.`;
+  // Senza storia (vedi «ricordaLaDomanda»): non si sa dove tornare, e lo si dice.
+  if (!Array.isArray(pd.storia)) {
+    esito.risposte.push(`${domandaDi(prima.passo, '')} Se preferisci ripartire da capo, scrivi RICOMINCIA.`);
+    return esito;
+  }
+  if (!storia.length) {
+    esito.risposte.push(`${riempi(cfg.bot_t_indietro_inizio, valori)}\n\n${domandaDi(prima.passo, pd.domanda)}`.trim());
+    return esito;
+  }
+  const torna = storia[storia.length - 1];
+  scriviStato(db, telefono, torna.passo, { ...torna.dati, storia: storia.slice(0, -1), domanda: torna.domanda }, adesso);
+  esito.risposte.push(`${riempi(cfg.bot_t_indietro, valori)}\n\n${domandaDi(torna.passo, torna.domanda)}`.trim());
+  return esito;
+}
+
+// ⚠️ Una frase che finisce con un a capo, attaccata a un pezzo che comincia
+// con una riga vuota («📖 Se vuoi dare prima un'occhiata al menu…», «Se
+// preferisci, scrivi RICOMINCIA…»), lasciava su WhatsApp DUE righe vuote di
+// fila. Trovato facendo girare migliaia di conversazioni a caso (19 ottobre
+// 2026). Si sistema all'uscita, una volta per tutte le frasi — comprese
+// quelle riscritte dai locali.
+function senzaRigheDiTroppo(esito) {
   if (Array.isArray(esito.risposte)) {
     esito.risposte = esito.risposte.map((r) => (typeof r === 'string' ? r.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim() : r));
   }
+  return esito;
+}
+
+function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {}) {
+  const prima = statoDi(db, telefono, adesso);
+  const passoPrima = prima.passo;
+  // «Torna indietro» prima di tutto: dentro il passo una parola come
+  // «indietro» non vuol dire niente, e diventerebbe «non ho capito».
+  if (PASSI_DELLA_PRENOTAZIONE.has(passoPrima) && vuoleTornareIndietro(testo)) {
+    return senzaRigheDiTroppo(tornaIndietro(db, telefono, prima, adesso));
+  }
+  const contoPrima = risposteDiOggi(db, telefono, adesso);
+  const esito = senzaRigheDiTroppo(rispondiAlMessaggio(db, telefono, testo, adesso, contesto));
+  // Dopo la pulizia: la domanda si ricorda com'è partita.
+  ricordaLaDomanda(db, telefono, prima, esito, adesso);
   if (esito.prenotazione || esito.daPagare) {
     rimettiIlConto(db, telefono, adesso, 0);
   } else {
@@ -5496,6 +5606,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   if (riapreConUnSaluto(cfg, stato, testo, adesso)) {
     scriviStato(db, telefono, 'inizio', {}, adesso);
     stato = { ...stato, passo: 'inizio', dati: {} };
+    DA_CAPO.set(esito, '');
   }
   const dati = stato.dati || {};
   // ⚠️ Chi torna non deve ridire come si chiama. Si guarda UNA volta per
@@ -5671,8 +5782,9 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // quello che sta prima della domanda (vedi «primaDellaDomanda»).
   if (/^(ricomincia|ricominciamo|da capo|riparti|annulla tutto)\b/i.test(t)) {
     azzeraStato(db, telefono);
-    return presentati({}, null,
-      primaDellaDomanda(di('bot_t_ricominciato')) || riempi(PREDEFINITI.bot_t_ricominciato, valori));
+    const testa = primaDellaDomanda(di('bot_t_ricominciato')) || riempi(PREDEFINITI.bot_t_ricominciato, valori);
+    DA_CAPO.set(esito, testa);
+    return presentati({}, null, testa);
   }
 
   // --- «Non voglio più prenotare» (vedi «vuoleRinunciare») ---
@@ -5680,6 +5792,14 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     azzeraStato(db, telefono);
     risposte.push(di('bot_t_rinuncia'));
     return esito;
+  }
+
+  // --- «Voglio cambiare il menu» (vedi «vuoleCambiareEsperienza») ---
+  // Solo dove un'esperienza c'è da scegliere o è stata scelta: dal bistrot,
+  // che non ne ha, la frase non porta all'elenco del REAR.
+  if (conEsperienze && PASSI_DELLA_PRENOTAZIONE.has(stato.passo) && (dati.esperienza || stato.passo === 'esperienza')
+    && vuoleCambiareEsperienza(testo)) {
+    return sceltaDaCapo(dati.persone ? { persone: dati.persone } : {});
   }
 
   // --- Tetto di risposte ---
@@ -7516,6 +7636,7 @@ module.exports = {
   conversazioneScaduta, giorniAncoraBuoni,
   riapreConUnSaluto, daRichiamare, segnaRichiamata, daLasciareAndare, lasciaAndare,
   minutiFermi, PASSI_CHE_RIAPRONO, COSA_MANCA, eSimulatore, orariDellEsperienza, nomeConTitolo, rinominaPersona, vuoleRinunciare,
+  vuoleCambiareEsperienza, vuoleTornareIndietro,
   prenotazioniDellaPersona, schedaPersona, elencoPersone,
   reportPrenotazioni, giorniFra, NOMI_SETTIMANA,
   interpretaGiorni,
