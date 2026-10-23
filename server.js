@@ -6945,6 +6945,29 @@ const rottaSchedaCliente = (req, res) => {
 };
 app.get('/api/bot/cliente', rottaSchedaCliente);
 
+// «Modifica» il nome dalla scheda del cliente (vedi «rinominaPersona»): su
+// tutte le sue prenotazioni, sulla lista d'attesa e — se c'è — in rubrica,
+// così anche le newsletter partono col nome giusto. Solo la piattaforma: il
+// tablet della sala sta sul bancone, e un nome cambiato da chi passa
+// cambierebbe come il bot saluta quel cliente.
+app.post('/api/bot/cliente/nome', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const b = req.body || {};
+  const id = Number(b.id);
+  if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Manca il cliente da correggere.' });
+  const scheda = bot.schedaPersona(db, id, new Date());
+  if (!scheda) return res.status(404).json({ error: 'Prenotazione inesistente' });
+  const esito = bot.rinominaPersona(db, id, b.nome, b.cognome);
+  if (!esito) return res.status(404).json({ error: 'Prenotazione inesistente' });
+  if (esito.errore) return res.status(400).json({ error: esito.errore });
+  const inRubrica = contattoInRubrica(scheda.telefono, scheda.email);
+  if (inRubrica) db.prepare('UPDATE contacts SET nome = ?, cognome = ? WHERE id = ?').run(esito.nome, esito.cognome, inRubrica.id);
+  const dopo = [esito.cognome, esito.nome].filter(Boolean).join(' ');
+  annota('clienti', `nome corretto: «${esito.prima}» → «${dopo}», su ${esito.prenotazioni} `
+    + `${esito.prenotazioni === 1 ? 'prenotazione' : 'prenotazioni'}${inRubrica ? ' e in rubrica' : ''}`);
+  res.json({ ok: true, nome: esito.nome, cognome: esito.cognome, prenotazioni: esito.prenotazioni, rubrica: !!inRubrica });
+});
+
 // TUTTI i clienti che hanno prenotato, con scritto se sono già in rubrica.
 // È l'elenco da cui il locale li mette in rubrica uno per uno, per gli invii
 // WhatsApp e la newsletter. Chi ha chiesto di non ricevere più messaggi arriva

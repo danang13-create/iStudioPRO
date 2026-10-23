@@ -767,6 +767,16 @@
      solo un colore — una parola. */
   .cli-segno { margin-left: 6px; font-size: .76rem; font-weight: 600; color: var(--grigio); }
   .cli-azioni { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .cli-testa { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .cli-testa h2 { min-width: 0; overflow-wrap: anywhere; }
+  .cli-testa .btn { flex: none; }
+  .cli-nome-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0 12px; }
+  .cli-nome-form[hidden] { display: none; }
+  .cli-nome-form label { margin: 0; }
+  .cli-nome-form label input { margin-top: 4px; }
+  .cli-nome-tasti, .cli-nome-form p { grid-column: 1 / -1; }
+  .cli-nome-tasti { display: flex; gap: 8px; }
+  @media (max-width: 480px) { .cli-nome-form { grid-template-columns: 1fr; } }
   .cli-numeri { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin-bottom: 14px; }
   .cli-numero { background: var(--carta-2); border-radius: 10px; padding: 10px 12px; }
   .cli-numero b { display: block; font-size: 1.3rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
@@ -2798,7 +2808,23 @@
          rispondere a una domanda sola: chi è questo che ha appena prenotato? -->
     <div id="cliente-pannello" class="velo" style="display:none;z-index:85">
       <div class="card pannello-scorrevole" style="width:560px;max-width:100%;margin:0">
-        <h2 style="font-size:1.05rem;margin:0 0 2px" id="cli-nome">Cliente</h2>
+        <!-- «Modifica»: chi ha scritto male il suo nome se lo portava dietro per
+             sempre, perché il bot lo riconosce dal numero. Solo qui, sulla
+             piattaforma: la scheda in sala non ce l'ha. -->
+        <div class="cli-testa">
+          <h2 style="font-size:1.05rem;margin:0 0 2px" id="cli-nome">Cliente</h2>
+          <button type="button" class="btn btn-secondario btn-piccolo" id="cli-modifica" hidden>✏️ Modifica</button>
+        </div>
+        <form id="cli-nome-form" class="cli-nome-form" hidden>
+          <label>Nome<input id="cli-nome-nuovo" autocomplete="off" maxlength="60"></label>
+          <label>Cognome<input id="cli-cognome-nuovo" autocomplete="off" maxlength="60"></label>
+          <div class="cli-nome-tasti">
+            <button class="btn btn-piccolo" type="submit" id="cli-nome-salva">Salva</button>
+            <button class="btn btn-secondario btn-piccolo" type="button" id="cli-nome-annulla">Annulla</button>
+          </div>
+          <p class="conteggio" style="margin:0">Vale per tutte le sue prenotazioni, per la rubrica e per come lo chiama
+            il bot. Un titolo (Don, Ing., Dott. e simili) va nel nome, davanti: «Don Franco», «Ing. Muto».</p>
+        </form>
         <div class="conteggio" style="margin:0 0 10px" id="cli-recapiti"></div>
         <!-- La rubrica sta qui, sulla persona: è il gesto che trasforma una
              serata in un cliente a cui poter scrivere. -->
@@ -6886,6 +6912,8 @@ async function apriScheda(id) {
   schedaId = id;
   schedaDati = null;
   $('#cli-nome').textContent = 'Un momento…';
+  $('#cli-modifica').hidden = true;
+  $('#cli-nome-form').hidden = true;
   for (const k of ['#cli-recapiti', '#cli-azioni', '#cli-numeri', '#cli-note', '#cli-richieste', '#cli-righe']) $(k).innerHTML = '';
   storicoTutto = false;
   let d;
@@ -6895,6 +6923,7 @@ async function apriScheda(id) {
   schedaDati = d;
 
   $('#cli-nome').textContent = d.nome || '—';
+  $('#cli-modifica').hidden = false;
   $('#cli-recapiti').textContent = [numeroPulito(d.telefono), d.email].filter(Boolean).join(' · ') || 'Nessun recapito';
   disegnaAzioniScheda(d);
 
@@ -7201,6 +7230,41 @@ function segnoDi(r, inArrivo) {
 
 $('#pagina-ricarica').addEventListener('click', () => location.reload());
 $('#cli-chiudi').addEventListener('click', () => { $('#cliente-pannello').style.display = 'none'; });
+
+// «Modifica» il nome (vedi «/api/bot/cliente/nome» nel server).
+$('#cli-modifica').addEventListener('click', () => {
+  if (!schedaDati) return;
+  $('#cli-nome-nuovo').value = schedaDati.nomeProprio || '';
+  $('#cli-cognome-nuovo').value = schedaDati.cognome || '';
+  $('#cli-modifica').hidden = true;
+  $('#cli-nome-form').hidden = false;
+  $('#cli-nome-nuovo').focus();
+});
+$('#cli-nome-annulla').addEventListener('click', () => {
+  $('#cli-nome-form').hidden = true;
+  $('#cli-modifica').hidden = false;
+});
+$('#cli-nome-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const tasto = $('#cli-nome-salva');
+  tasto.disabled = true;
+  try {
+    const r = await fetch('/api/bot/cliente/nome', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: schedaId, nome: $('#cli-nome-nuovo').value, cognome: $('#cli-cognome-nuovo').value }),
+    });
+    let d = {};
+    try { d = await r.json(); } catch {}
+    if (!r.ok || d.error) { toast(d.error || 'Non sono riuscito a correggere il nome.'); return; }
+    toast(`Nome corretto su ${d.prenotazioni} ${d.prenotazioni === 1 ? 'prenotazione' : 'prenotazioni'}${d.rubrica ? ' e in rubrica' : ''}`);
+    await apriScheda(schedaId);
+    // Dietro la scheda: l'elenco dei clienti e il servizio del giorno.
+    caricaElencoClienti();
+    if (typeof caricaServizio === 'function') caricaServizio();
+  } catch {
+    toast('Non sono riuscito a correggere il nome: iStudio non risponde.');
+  } finally { tasto.disabled = false; }
+});
 // Si chiude in tutti i modi che uno prova: il tasto, il velo, e anche Escape.
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && $('#cliente-pannello').style.display === 'flex') $('#cliente-pannello').style.display = 'none';

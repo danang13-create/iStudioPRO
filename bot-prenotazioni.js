@@ -374,6 +374,26 @@ function preparaDatabase(db) {
     scrivi(db, 'bot_menu_esperienze_collegati', 'true');
   }
 
+  // I titoli scritti prima del 23 ottobre 2026 (vedi «nomeConTitolo»): nome
+  // «Don.» e cognome «Franco» diventano «Don Franco», nome «Ing.» e cognome
+  // «Muto» diventano «Ing. Muto». Messi insieme dicono la stessa cosa di
+  // prima: cambia solo che il saluto non è più «Don.!». Si guarda a ogni
+  // avvio, e dalla seconda volta non trova più niente. La rubrica no: è del
+  // locale, la si corregge dalla scheda del cliente.
+  {
+    const chiavi = Object.keys(TITOLI);
+    const dove = `lower(replace(replace(trim(nome), '.', ''), ' ', '')) IN (${chiavi.map(() => '?').join(',')}) `
+      + "AND trim(COALESCE(cognome, '')) <> ''";
+    for (const tabella of ['prenotazioni', 'bot_attese']) {
+      const righe = db.prepare(`SELECT id, nome, cognome FROM ${tabella} WHERE ${dove}`).all(...chiavi);
+      if (!righe.length) continue;
+      const scrivi = db.prepare(`UPDATE ${tabella} SET nome = ?, cognome = ? WHERE id = ?`);
+      db.transaction(() => {
+        for (const r of righe) { const g = nomeConTitolo(r.nome, r.cognome); scrivi.run(g.nome, g.cognome, r.id); }
+      })();
+    }
+  }
+
   // Le prenotazioni prese PRIMA che il numero si salvasse da solo hanno il
   // recapito vuoto anche quando la chat lo conteneva. Si riempie qui, una
   // volta, così la sala trova il telefono anche sui tavoli di ieri — sennò la
@@ -1592,12 +1612,37 @@ function ripulisciNome(testo) {
   return t;
 }
 
+// I titoli: «Don Franco», «Ing. Muto», «Dott.ssa Bianchi». Un titolo non è un
+// nome: diviso come gli altri diventava nome «Don.» e cognome «Franco», e il
+// bot avrebbe salutato «Che bello rivederti, Don.!» (dai clienti veri di RO
+// WORLD, 23 ottobre 2026). Il titolo resta attaccato a quello che segue, tutto
+// nel nome, scritto per bene: così il saluto, la sala («Ing. Muto», non «Muto
+// Ing.») e la rubrica dicono la stessa cosa.
+const TITOLI = {
+  don: 'Don', dott: 'Dott.', dottssa: 'Dott.ssa', dottor: 'Dottor', dottore: 'Dottore', dottoressa: 'Dottoressa',
+  dr: 'Dr.', ing: 'Ing.', avv: 'Avv.', prof: 'Prof.', profssa: 'Prof.ssa', professor: 'Professor',
+  professore: 'Professore', professoressa: 'Professoressa', sig: 'Sig.', sigra: 'Sig.ra', signor: 'Signor',
+  signora: 'Signora', arch: 'Arch.', geom: 'Geom.', rag: 'Rag.', mons: 'Mons.', padre: 'Padre', suor: 'Suor',
+  cav: 'Cav.', comm: 'Comm.',
+};
+const chiaveTitolo = (parola) => String(parola || '').toLowerCase().replace(/[.\s]/g, '');
+function nomeConTitolo(nome, cognome) {
+  const n = String(nome || '').trim().replace(/\s+/g, ' ');
+  const c = String(cognome || '').trim().replace(/\s+/g, ' ');
+  const [primo, ...resto] = n.split(' ');
+  const titolo = TITOLI[chiaveTitolo(primo)];
+  const dopo = [...resto, c].filter(Boolean).join(' ');
+  // «Don» da solo non ha niente a cui attaccarsi: resta com'è.
+  if (!titolo || !dopo) return { nome: n, cognome: c };
+  return { nome: `${titolo} ${dopo}`, cognome: '' };
+}
+
 function dividiNome(testo) {
   const pulito = ripulisciNome(testo).slice(0, 80);
   if (!pulito) return { nome: '', cognome: '' };
   const pezzi = pulito.split(' ');
   if (pezzi.length === 1) return { nome: pezzi[0], cognome: '' };
-  return { nome: pezzi[0], cognome: pezzi.slice(1).join(' ') };
+  return nomeConTitolo(pezzi[0], pezzi.slice(1).join(' '));
 }
 
 // Un numero di telefono scritto da una persona: con o senza prefisso, con
@@ -4384,6 +4429,33 @@ function prenotazioniDellaPersona(db, id, massimo = 200) {
   return righe;
 }
 
+// «Modifica» nella scheda del cliente (23 ottobre 2026): chi ha scritto male
+// il suo nome se lo portava dietro per sempre, perché il bot lo riconosce dal
+// numero e prende il nome dall'ultima prenotazione. Si corregge su TUTTE le sue
+// sere — le stesse righe della scheda, quelle in cui è lui a cenare — e sulla
+// lista d'attesa delle stesse chat: da lì in poi il saluto, il riepilogo, i
+// promemoria e la sala dicono il nome giusto. Le prenotazioni che ha fatto
+// per un'altra persona non sono sue, e non si toccano (la scheda non le ha).
+// Il nome passa dai titoli come quello scritto dal cliente.
+function rinominaPersona(db, id, nome, cognome) {
+  const righe = prenotazioniDellaPersona(db, id, 100000);
+  if (!righe || !righe.length) return null;
+  const pulito = (x) => String(x || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const giusto = nomeConTitolo(pulito(nome), pulito(cognome));
+  if (!giusto.nome && !giusto.cognome) return { errore: 'Scrivi almeno il nome.' };
+  const prima = nomeInSala(righe[0]);
+  const chiavi = [...new Set(righe.flatMap((r) => chiaviStoriche(r)))];
+  db.transaction(() => {
+    const scrivi = db.prepare('UPDATE prenotazioni SET nome = ?, cognome = ? WHERE id = ?');
+    for (const r of righe) scrivi.run(giusto.nome, giusto.cognome, r.id);
+    if (chiavi.length) {
+      db.prepare(`UPDATE bot_attese SET nome = ?, cognome = ? WHERE telefono IN (${chiavi.map(() => '?').join(',')})`)
+        .run(giusto.nome, giusto.cognome, ...chiavi);
+    }
+  })();
+  return { ...giusto, prima, prenotazioni: righe.length };
+}
+
 // La scheda: chi è, e cosa si vede a colpo d'occhio.
 function schedaPersona(db, id, adesso = new Date()) {
   const righe = prenotazioniDellaPersona(db, id);
@@ -4580,7 +4652,7 @@ function ultimoNomeDi(db, chiave, numero = '') {
     `SELECT nome, cognome FROM prenotazioni WHERE ${dovePersona(chiavi)} AND per_altri = 0 `
     + "AND TRIM(COALESCE(nome, '')) <> '' ORDER BY id DESC LIMIT 1"
   ).get(...chiavi, ...chiavi);
-  if (r) return { nome: String(r.nome || '').trim(), cognome: String(r.cognome || '').trim() };
+  if (r) return nomeConTitolo(String(r.nome || '').trim(), String(r.cognome || '').trim());
   // Poi: qualcuno ha prenotato lasciando QUESTO numero come contatto. Chi
   // scrive adesso è la persona nominata su quella prenotazione — la madre,
   // dal suo telefono — e va riconosciuta con il suo nome. Si escludono le
@@ -4590,7 +4662,7 @@ function ultimoNomeDi(db, chiave, numero = '') {
     + `AND chat_id NOT IN (${seg}) AND telefono NOT IN (${seg}) `
     + "AND TRIM(COALESCE(nome, '')) <> '' ORDER BY id DESC LIMIT 1"
   ).get(...chiavi, ...chiavi, ...chiavi);
-  if (c) return { nome: String(c.nome || '').trim(), cognome: String(c.cognome || '').trim() };
+  if (c) return nomeConTitolo(String(c.nome || '').trim(), String(c.cognome || '').trim());
   // Ripiego: la rubrica del locale, dove il nome l'ha scritto il ristorante.
   // ⚠️ Si guarda prima se la tabella c'è: il motore del bot gira anche su
   // archivi senza le tabelle della piattaforma (è il caso delle prove), e una
@@ -4605,7 +4677,7 @@ function ultimoNomeDi(db, chiave, numero = '') {
     const t = db.prepare(
       `SELECT nome, cognome FROM contacts WHERE telefono IN (${segnaposti}) `
       + "AND TRIM(COALESCE(nome, '')) <> '' ORDER BY id DESC LIMIT 1").get(...numeri);
-    if (t) return { nome: String(t.nome || '').trim(), cognome: String(t.cognome || '').trim() };
+    if (t) return nomeConTitolo(String(t.nome || '').trim(), String(t.cognome || '').trim());
   } catch (e) {
     // Un ripiego che non riesce non deve portarsi via la conversazione: si
     // torna a chiedere il nome, che è come funzionava prima.
@@ -7393,7 +7465,7 @@ module.exports = {
   eSoloDaccordo,
   conversazioneScaduta, giorniAncoraBuoni,
   riapreConUnSaluto, daRichiamare, segnaRichiamata, daLasciareAndare, lasciaAndare,
-  minutiFermi, PASSI_CHE_RIAPRONO, COSA_MANCA, eSimulatore, orariDellEsperienza,
+  minutiFermi, PASSI_CHE_RIAPRONO, COSA_MANCA, eSimulatore, orariDellEsperienza, nomeConTitolo, rinominaPersona,
   prenotazioniDellaPersona, schedaPersona, elencoPersone,
   reportPrenotazioni, giorniFra, NOMI_SETTIMANA,
   interpretaGiorni,
