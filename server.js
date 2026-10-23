@@ -3551,6 +3551,22 @@ function personaCheScrive(telefono, chatId) {
   return perNumero || null;
 }
 
+// Lo staff che il bot non deve mai rispondere (Chi avvisare → «Il bot non
+// risponde a»). Si riconosce come il personale: dall'indirizzo della chat, o
+// dal numero — e allora l'indirizzo si impara, per le volte in cui WhatsApp
+// il numero non lo passa.
+function esclusoDalBot(telefono, chatId) {
+  if (!botDisponibile()) return null;
+  const elenco = db.prepare('SELECT * FROM bot_esclusi').all();
+  const perIndirizzo = elenco.find((e) => e.chat_id && e.chat_id === chatId);
+  if (perIndirizzo) return perIndirizzo;
+  const perNumero = elenco.find((e) => telefono && normalizePhone(e.telefono) === telefono);
+  if (perNumero && chatId && perNumero.chat_id !== chatId) {
+    db.prepare('UPDATE bot_esclusi SET chat_id = ? WHERE id = ?').run(chatId, perNumero.id);
+  }
+  return perNumero || null;
+}
+
 // Riconoscere i propri messaggi. Serve alla PRESA IN CARICO: un messaggio
 // uscito dal numero del locale che il bot non ha mandato lui vuol dire che una
 // persona sta rispondendo a mano, e allora il bot deve tacere.
@@ -4881,6 +4897,16 @@ if (botDisponibile()) {
         await messaggioDelPersonale(persona, testo, msg);
         return;
       }
+
+      // ⚠️ Lo staff della lista «Il bot non risponde a» (23 ottobre 2026):
+      // camerieri, cuochi, chi consegna, che scrivono al numero del locale per
+      // lavoro. Un «Buonasera! Per quante persone?» a chi chiede a che ora
+      // attaccare è il bot che fa una figura pessima davanti ai suoi. Silenzio
+      // vero: niente risposta, niente conversazione, niente richiesta al
+      // responsabile. Il messaggio si legge a mano, sul telefono del locale.
+      // Dopo il personale: chi riceve gli avvisi tiene i suoi comandi.
+      const escluso = esclusoDalBot(telefono, chatId);
+      if (escluso) return annota('ignorato', `${escluso.nome || '+' + telefono}: è nella lista «il bot non risponde» — «${anteprima}»`);
 
       // Conversazione in mano a una persona. Il bot non risponde — giusto —
       // ma i messaggi NON devono cadere nel vuoto: finora il cliente scriveva
@@ -6575,6 +6601,20 @@ function diagnosiConversazione(chi) {
     });
   }
 
+  // Nella lista dello staff a cui il bot non risponde: è lì il perché, e
+  // «Sblocca» non lo toglie. Senza questa riga si vedeva «non risulta
+  // nessuna conversazione» e basta.
+  const escluso = db.prepare('SELECT * FROM bot_esclusi').all().find((e) => chiavi.includes(e.chat_id)
+    || chiavi.some((k) => normalizePhone(String(k).replace(/@.*$/, '')) === normalizePhone(e.telefono))
+    || (numero && normalizePhone(e.telefono) === numero));
+  if (escluso) {
+    blocchi.push({
+      tipo: 'escluso',
+      testo: `È nello staff a cui il bot non risponde, come ${escluso.nome}. «Sblocca» non lo cambia: `
+        + 'si toglie da Chi avvisare → «Il bot non risponde a».',
+    });
+  }
+
   const aMeta = righe.find((r) => r.passo && r.passo !== 'inizio');
   return {
     trovata: righe.length > 0 || !!attesa,
@@ -7063,6 +7103,7 @@ app.get('/api/bot/impostazioni', (req, res) => {
   // ricavate dai turni di prima, cioè gli orari che il bot propone davvero
   // adesso. Un modulo vuoto direbbe «chiuso tutti i giorni», che è falso.
   res.json({ impostazioni: cfg, personale: db.prepare('SELECT * FROM bot_personale').all(),
+             esclusi: db.prepare('SELECT id, nome, telefono, chat_id FROM bot_esclusi ORDER BY nome COLLATE NOCASE, id').all(),
              fasce: bot.fasceDi(cfg), fasceSalvate: !!bot.fasceValide(cfg.bot_fasce),
              // Come le ha scritte il titolare: la scheda le mostra e le risalva
              // così, anche i giorni che oggi sono chiusi (vedi `esperienzeDi`).
@@ -8692,6 +8733,33 @@ app.patch('/api/bot/personale/:id', (req, res) => {
 app.delete('/api/bot/personale/:id', (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   db.prepare('DELETE FROM bot_personale WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ---- «Il bot non risponde a» (vedi «esclusoDalBot») ----
+app.post('/api/bot/esclusi', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const b = req.body || {};
+  const nome = String(b.nome || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const tel = normalizePhone(String(b.telefono || ''));
+  if (!nome || !String(b.telefono || '').trim()) return res.status(400).json({ error: 'Servono nome e numero.' });
+  if (!tel || tel.length < 8) return res.status(400).json({ error: 'Questo non sembra un numero di telefono.' });
+  if (state.me && tel === normalizePhone(state.me)) {
+    return res.status(400).json({ error: 'Questo è il numero del locale.' });
+  }
+  const gia = db.prepare('SELECT nome, telefono FROM bot_esclusi').all().find((e) => normalizePhone(e.telefono) === tel);
+  if (gia) return res.status(400).json({ error: `È già nella lista, come ${gia.nome}.` });
+  db.prepare('INSERT INTO bot_esclusi (nome, telefono) VALUES (?, ?)').run(nome, tel);
+  annota('esclusi', `${nome} (+${tel}): da ora il bot non gli risponde`);
+  res.json({ ok: true });
+});
+
+app.delete('/api/bot/esclusi/:id', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const e = db.prepare('SELECT * FROM bot_esclusi WHERE id = ?').get(req.params.id);
+  if (!e) return res.status(404).json({ error: 'Non è nella lista.' });
+  db.prepare('DELETE FROM bot_esclusi WHERE id = ?').run(e.id);
+  annota('esclusi', `${e.nome} (+${e.telefono}): tolto dalla lista, il bot torna a rispondergli`);
   res.json({ ok: true });
 });
 

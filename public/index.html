@@ -768,6 +768,11 @@
   .cli-segno { margin-left: 6px; font-size: .76rem; font-weight: 600; color: var(--grigio); }
   .cli-azioni { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
   .cli-testa { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .escluso { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--bordo); }
+  .escluso > div { flex: 1; min-width: 0; }
+  .esclusi-aggiungi { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .esclusi-aggiungi input { flex: 1 1 160px; width: auto; min-width: 0; }
+  .esclusi-aggiungi .btn { flex: none; }
   .cli-testa h2 { min-width: 0; overflow-wrap: anywhere; }
   .cli-testa .btn { flex: none; }
   .cli-nome-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0 12px; }
@@ -2691,6 +2696,25 @@
           </label>
         </div>
         <button class="btn" id="pers-aggiungi" style="margin-top:14px">Aggiungi</button>
+      </div>
+
+      <!-- «Il bot non risponde a» (23 ottobre 2026): lo staff che scrive al
+           numero del locale per lavoro. Una lista a parte da «Chi riceve gli
+           avvisi»: questi non ricevono niente e non hanno comandi. -->
+      <div class="card">
+        <h2 style="font-size:1rem;margin:0 0 4px">Il bot non risponde a</h2>
+        <p class="conteggio" style="margin:0 0 12px">
+          Lo staff che scrive al numero del locale per lavoro: camerieri, cuochi, chi consegna. Quando
+          scrivono il bot <b>non risponde</b> — niente «per quante persone?», niente avvisi al
+          responsabile. I loro messaggi si leggono a mano, sul telefono del locale o nella scheda Chat. Chi è già fra
+          quelli che ricevono gli avvisi non serve metterlo qui.
+        </p>
+        <div id="pren-esclusi"></div>
+        <div class="esclusi-aggiungi">
+          <input id="escl-nome" placeholder="Nome" autocomplete="off" maxlength="60">
+          <input id="escl-tel" placeholder="Numero WhatsApp" autocomplete="off" inputmode="tel">
+          <button class="btn" id="escl-aggiungi" type="button">Aggiungi</button>
+        </div>
       </div>
 
       <!-- I comandi stanno in fondo: sono da consultare, non da fare. -->
@@ -5904,6 +5928,7 @@ const NOMI_BLOCCO = {
   tetto: '🛑 Ha finito le risposte di oggi',
   stop: '✋ Ha chiesto di non ricevere più messaggi',
   richiesta: '👤 È in mano a una persona',
+  escluso: '🙅 Il bot non gli risponde',
 };
 
 async function guardaConversazione(chi) {
@@ -7497,6 +7522,26 @@ async function caricaConfigBot() {
     });
   });
 
+  // «Il bot non risponde a»: lo staff che scrive al locale per lavoro.
+  const esclusi = d.esclusi || [];
+  $('#pren-esclusi').innerHTML = esclusi.length ? esclusi.map((e) => `
+    <div class="escluso">
+      <div><b>${testoSicuro(e.nome)}</b><br>
+        <span class="conteggio" style="margin:0;font-variant-numeric:tabular-nums">${numeroPulito(e.telefono)}</span></div>
+      <button class="btn btn-secondario btn-piccolo" data-togli-escluso="${e.id}" data-nome="${testoSicuro(e.nome)}"
+        style="flex:none;color:var(--male-testo)">Togli</button>
+    </div>`).join('')
+    : '<p class="vuoto" style="margin:0">Nessuno: il bot risponde a tutti, tranne a chi riceve gli avvisi.</p>';
+  $('#pren-esclusi').querySelectorAll('[data-togli-escluso]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      if (!confirm(`Togliere ${b.dataset.nome} dalla lista? Da quel momento, se scrive, il bot gli risponde come a un cliente.`)) return;
+      const r = await fetch('/api/bot/esclusi/' + b.dataset.togliEscluso, { method: 'DELETE' });
+      if (!r.ok) { let e = {}; try { e = await r.json(); } catch {} toast(e.error || 'Non sono riuscito a toglierlo'); return; }
+      toast(`${b.dataset.nome} tolto: il bot torna a rispondergli`);
+      caricaConfigBot();
+    });
+  });
+
   personaleCaricato = d.personale;
   $('#pren-personale').innerHTML = d.personale.length ? d.personale.map((p) => `
     <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--bordo);flex-wrap:wrap">
@@ -8674,6 +8719,20 @@ $('#pren-sim-azzera').addEventListener('click', async () => {
   $('#pren-sim').innerHTML = '<p class="vuoto" style="margin:auto">Scrivi il primo messaggio, per esempio «vorrei prenotare un tavolo».</p>';
   caricaServizio();
 });
+$('#escl-aggiungi').addEventListener('click', async () => {
+  const nome = $('#escl-nome').value.trim();
+  const r = await fetch('/api/bot/esclusi', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nome, telefono: $('#escl-tel').value }),
+  });
+  let d = {};
+  try { d = await r.json(); } catch {}
+  if (!r.ok) { toast(d.error || 'Non riesco ad aggiungerlo'); return; }
+  $('#escl-nome').value = ''; $('#escl-tel').value = '';
+  toast(`Da ora il bot non risponde a ${nome}`);
+  caricaConfigBot();
+});
+
 $('#pers-aggiungi').addEventListener('click', async () => {
   const r = await fetch('/api/bot/personale', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -106,6 +106,19 @@ function preparaDatabase(db) {
       appello INTEGER NOT NULL DEFAULT 1
     );
 
+    -- Chi scrive al numero del locale PER LAVORO e a cui il bot non deve mai
+    -- rispondere (Chi avvisare → «Il bot non risponde a», 23 ottobre 2026):
+    -- camerieri, cuochi, chi consegna. chat_id si impara la prima volta che
+    -- scrive col numero, come per il personale: con gli indirizzi @lid il
+    -- numero può non arrivare.
+    CREATE TABLE IF NOT EXISTS bot_esclusi (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL DEFAULT '',
+      telefono TEXT NOT NULL,
+      chat_id TEXT NOT NULL DEFAULT '',
+      creato_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+
     -- Le conversazioni passate a una persona, con il codice per rispondere.
     CREATE TABLE IF NOT EXISTS bot_richieste (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
