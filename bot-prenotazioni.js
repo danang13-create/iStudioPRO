@@ -3781,6 +3781,36 @@ const COSA_MANCA = {
 };
 const PASSI_DA_RICHIAMARE = Object.keys(COSA_MANCA);
 
+// «Non voglio più prenotare», «lascia stare», «ho cambiato idea»: il cliente
+// RINUNCIA. Visto in una chat vera (23 ottobre 2026): dopo il menu, «Non
+// voglio più prenotare» passava per un «no» all'esperienza scelta e il bot
+// riproponeva l'elenco; e la conversazione restava aperta, quindi più tardi
+// sarebbe partito anche «Sei ancora lì?». Si chiude: «OK! Non ho prenotato
+// niente», passo «inizio» — che il richiamo non guarda.
+// ⚠️ Solo se il messaggio è QUELLO, tolte le cortesie («no grazie», «ok»,
+// «purtroppo»). «Lascia stare il business lunch, prendo la carta» non è una
+// rinuncia: è una correzione, e se ne occupa il passo. «Niente» da solo
+// neanche: alla domanda delle allergie vuol dire «nessuna».
+const CORTESIE_DELLA_RINUNCIA = /\b(no|grazie|mille|ciao|ok|okay|va bene|allora|scusa|scusate|scusami|comunque|per ora|per adesso|alla fine|purtroppo|magari|buona giornata|buona serata|arrivederci|a presto|guarda|senti|ehm|davvero|sorry)\b/g;
+const RINUNCIA = new RegExp('^(?:'
+  + 'non (?:voglio|vogliamo|vorrei|vorremmo|devo|dobbiamo|desidero|desideriamo) (?:piu )?(?:prenotare(?: piu)?|prenotarlo|prenotarla|fare la prenotazione|piu)'
+  + '|non (?:prenoto|prenotiamo|prenotare|prenotate)(?: piu)?'
+  + '|non (?:mi|ci) (?:serve|interessa)(?: piu)?(?: prenotare)?'
+  + '|non (?:e|serve) piu(?: (?:necessario|il caso))?'
+  + '|non (?:posso|possiamo) piu(?: venire)?|non (?:posso|possiamo) venire piu'
+  + '|lascia(?:mo|te)? (?:perdere|stare)'
+  + '|(?:ho|abbiamo) cambiato idea|ci (?:ho|abbiamo) ripensato|(?:ho|abbiamo) deciso di non prenotare'
+  + '|(?:niente|nessuna) prenotazione'
+  + ')$');
+function vuoleRinunciare(testo) {
+  const t = normalizza(testo).replace(/[^a-z\s]/g, ' ').replace(CORTESIE_DELLA_RINUNCIA, ' ').replace(/\s+/g, ' ').trim();
+  return !!t && RINUNCIA.test(t);
+}
+// I passi di una prenotazione NUOVA in corso: lì una rinuncia chiude tutto.
+// Fuori (nessuna conversazione aperta, chi ha già un tavolo, lo spostamento)
+// «non voglio più» può voler dire altro, e se ne occupano quei rami.
+const PASSI_DELLA_PRENOTAZIONE = new Set([...PASSI_DA_RICHIAMARE, 'conferma', 'email']);
+
 // Il simulatore della piattaforma usa numeri finti che cominciano per 000:
 // non sono su WhatsApp, e niente di automatico deve provare a scrivergli.
 function eSimulatore(telefono) {
@@ -5645,6 +5675,13 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       primaDellaDomanda(di('bot_t_ricominciato')) || riempi(PREDEFINITI.bot_t_ricominciato, valori));
   }
 
+  // --- «Non voglio più prenotare» (vedi «vuoleRinunciare») ---
+  if (PASSI_DELLA_PRENOTAZIONE.has(stato.passo) && vuoleRinunciare(testo)) {
+    azzeraStato(db, telefono);
+    risposte.push(di('bot_t_rinuncia'));
+    return esito;
+  }
+
   // --- Tetto di risposte ---
   // Si conta qui ogni messaggio; quello che fa avanzare la prenotazione viene
   // restituito dopo, in `elaboraMessaggio` (vedi lì il perché).
@@ -7478,7 +7515,7 @@ module.exports = {
   eSoloDaccordo,
   conversazioneScaduta, giorniAncoraBuoni,
   riapreConUnSaluto, daRichiamare, segnaRichiamata, daLasciareAndare, lasciaAndare,
-  minutiFermi, PASSI_CHE_RIAPRONO, COSA_MANCA, eSimulatore, orariDellEsperienza, nomeConTitolo, rinominaPersona,
+  minutiFermi, PASSI_CHE_RIAPRONO, COSA_MANCA, eSimulatore, orariDellEsperienza, nomeConTitolo, rinominaPersona, vuoleRinunciare,
   prenotazioniDellaPersona, schedaPersona, elencoPersone,
   reportPrenotazioni, giorniFra, NOMI_SETTIMANA,
   interpretaGiorni,

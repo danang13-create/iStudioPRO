@@ -5489,7 +5489,7 @@ const TESTI_BOT = [
   ['bot_t_pagamento_scaduto', 'Tempo per pagare scaduto', 'Il posto è tornato libero. La riga «non ti è stato addebitato niente» sembra ovvia ma non lo è: senza, qualcuno telefona preoccupato.'],
   [null, 'Confermata — o lasciata a metà'],
   ['bot_t_conferma', 'Prenotazione confermata', ''],
-  ['bot_t_rinuncia', 'Il cliente ha rinunciato mentre prenotava', 'Quando dice NO al riepilogo: non è stata segnata nessuna prenotazione.'],
+  ['bot_t_rinuncia', 'Il cliente ha rinunciato mentre prenotava', 'Quando dice NO al riepilogo, o a metà scrive che non vuole più prenotare («non voglio più prenotare», «lascia stare», «ho cambiato idea»): non è stata segnata nessuna prenotazione, e il bot non torna a cercarlo con «Sei ancora lì?».'],
   ['bot_t_lasciato', 'Ci ha ripensato: non si tocca niente', '⚠️ Quando dice NO a «la sposto?» o a «la annullo?». La sua prenotazione È ANCORA VIVA: qui non si deve scrivere che è stata cancellata, o il cliente non si presenta e il tavolo resta vuoto.'],
   ['bot_t_ricominciamo', 'Quando ridomanda la stessa cosa', 'Va in fondo alla domanda ripetuta: dice al cliente come uscirne invece di lasciarlo davanti a un muro. Lascia vuoto per ripetere solo la domanda.'],
   ['bot_t_riscrivi', 'Quando non capisce per la seconda volta', 'Dalla seconda risposta non capita di fila, al posto della stessa domanda; sotto va la frase qui sopra. <b>{esempio}</b> è un esempio adatto alla domanda: per il giorno «Per esempio «sabato» oppure «15 ottobre».», per l\'orario uno dei turni proposti. Togli la riga se non lo vuoi; svuota la frase per ripetere la domanda. Quante volte prima di passare a una persona: «Quando la conversazione si ferma a metà», nella scheda «Dopo la prenotazione».'],
