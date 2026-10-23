@@ -1184,7 +1184,13 @@ function interpretaPersone(testo) {
   // ⚠️ «No, business lunch da 45 euro» diventava «per 45 persone preferisco
   // farti parlare con il locale» (19 ottobre 2026). Un prezzo non è un
   // numero di persone: «45 euro», «45€», «€45», «45,50 €» si tolgono prima.
-  const t = normalizza(testo).replace(/€\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:€|euro\b|eur\b)/g, ' ').trim();
+  const t = normalizza(testo).replace(/€\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:€|euro\b|eur\b)/g, ' ')
+    // ⚠️ Nemmeno un orario (23 ottobre 2026, da una chat vera): «20.30»,
+    // scritto da chi aveva un tavolo subito dopo il promemoria, erano venti
+    // persone e una prenotazione nuova. Via «20.30», «20:30», «alle 20».
+    .replace(/\b\d{1,2}\s*[:.]\s*\d{2}\b/g, ' ')
+    .replace(new RegExp(`\\b${PAROLE_DELL_ORA}\\s*\\d{1,2}\\b`, 'g'), ' ')
+    .trim();
   if (!t) return null;
   const cifre = t.match(/\b(\d{1,2})\b/);
   if (cifre) {
@@ -1465,6 +1471,22 @@ function oraScritta(testo) {
   if (!o) return null;
   return { ...o,
            scritto: o.conMinuti ? `${String(o.ore).padStart(2, '0')}:${String(o.minuti).padStart(2, '0')}` : String(o.ore) };
+}
+
+// Un messaggio che dice un orario e basta: «20.30», «alle 20:30», «facciamo
+// alle 21?», «possiamo arrivare alle 20.30». Serve un orario vero — coi
+// minuti o dopo «alle»/«ore»: «20» da solo può essere anche venti persone —
+// e, tolte l'ora e le parole di contorno, non deve restare niente. Un giorno
+// («domani alle 20.30») resta, e allora non è solo un orario.
+const CONTORNO_DELL_ORA = /\b(?:ok|okay|va bene|grazie|si|allora|facciamo|meglio|magari|possiamo|posso|si puo|puo|fare|arrivare|venire|arriviamo|arrivo|arriveremo|veniamo|verremo|anticipare|anticipiamo|posticipare|posticipiamo|invece|piuttosto|anzi|no|perfetto|ma|se|ci|e|possibile|ciao|buongiorno|buonasera|scusa|scusate|scusi|per favore|per cortesia|verso|circa)\b/g;
+function soloUnOrario(testo) {
+  const t = normalizza(testo);
+  const conMinuti = /\b\d{1,2}\s*[:.]\s*\d{2}\b/;
+  const dopoParola = new RegExp(`\\b${PAROLE_DELL_ORA}\\s*\\d{1,2}(?:(?:\\s*[:.]\\s*|,)\\d{2})?\\b`, 'g');
+  if (!conMinuti.test(t) && !dopoParola.test(t)) return false;
+  const resto = t.replace(dopoParola, ' ').replace(/\b\d{1,2}\s*[:.]\s*\d{2}\b/g, ' ')
+    .replace(/[^a-z\s]/g, ' ').replace(CONTORNO_DELL_ORA, ' ').replace(/\s+/g, ' ').trim();
+  return !resto;
 }
 
 function interpretaOra(testo, turni) {
@@ -6330,7 +6352,8 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
         esito.passaAUmano = true;
         return esito;
       }
-      salvaStato(db, telefono, 'inizio', { tentativi });
+      // `ricordato`: il messaggio dopo è una risposta al ricordino (vedi sotto).
+      salvaStato(db, telefono, 'inizio', { tentativi, ricordato: true });
       const tutte = prenotazioniFuture(db, telefono, adesso, 5, contesto.numero);
       const nome = [gia.nome, gia.cognome].filter(Boolean).join(' ');
       // Con più tavoli si dicono TUTTI. Mostrarne uno solo faceva credere che
@@ -6373,8 +6396,44 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     if (gia && (eSalutoStorto(testo) || /(prenotaz|tavolo|conferm|quando|ricord|ho prenotato)/.test(t))) {
       return ricordaIlTavolo();
     }
+    // ⚠️ Dopo il promemoria (23 ottobre 2026, da una chat vera): «Grazie» →
+    // 😊, poi «20.30». Il bot leggeva venti persone e cominciava una
+    // prenotazione NUOVA («RO bistrot o REAR?»), e più tardi lo avrebbe
+    // richiamato con «Sei ancora lì?». Chi ha un tavolo e scrive solo un
+    // orario vuole il suo tavolo a quell'ora, quel giorno: glielo si propone,
+    // e decide lui (SÌ). L'ora che ha già è un «ci siamo»: un cenno e basta.
+    if (gia && soloUnOrario(testo)) {
+      const tutte = prenotazioniFuture(db, telefono, adesso, 5, contesto.numero);
+      if (tutte.length === 1 && !gia.fuori_sala) {
+        const opzioni = { escludiId: gia.id, senzaPreavviso: true, ...perEsperienza({ esperienza: gia.esperienza }) };
+        const liberi = turniDisponibili(db, cfg, gia.data, gia.persone, adesso, opzioni);
+        const ora = interpretaOra(testo, liberi.includes(gia.ora) ? liberi : [...liberi, gia.ora].sort());
+        if (ora === gia.ora) {
+          salvaStato(db, telefono, 'inizio', { tentativi: 0 });
+          risposte.push(di('bot_t_daccordo'));
+          return esito;
+        }
+        if (ora) {
+          return chiediConfermaSposta({ id: gia.id, persone: gia.persone, data: gia.data,
+            ...(gia.esperienza ? { esperienza: gia.esperienza } : {}) }, ora);
+        }
+      }
+      return ricordaIlTavolo();
+    }
 
     const persone = personeDette(testo);
+    // ⚠️ Chi ha già un tavolo e scrive un numero e basta («4», «siamo in 6»),
+    // senza che gli si sia chiesto niente — dopo il promemoria, dopo un
+    // «grazie» — non sta per forza prenotando un altro tavolo: può voler
+    // cambiare il suo. Gli si mostra il suo, con le parole per cambiarlo. Uno
+    // NUOVO si comincia se lo dice («vorrei prenotare», «un altro tavolo»,
+    // NUOVA), o se il numero risponde al ricordino appena mandato: le frasi di
+    // prima dicevano «se vuoi un altro tavolo, dimmi per quante persone», e chi
+    // le ha ancora deve poter rispondere così.
+    if (gia && persone !== null && !dati.ricordato
+        && !/(prenot|tavolo|posto|coperti|disponibil|vorrei|possibile|nuov|altr)/.test(t)) {
+      return ricordaIlTavolo(true);
+    }
     // ⚠️ Il giorno detto già nel primo messaggio (19 ottobre 2026): «vorrei
     // prenotare per 2 domenica sera» si perdeva per strada — senza esperienze
     // il bot richiedeva «quale giorno?», e a chi la domenica sera trovava

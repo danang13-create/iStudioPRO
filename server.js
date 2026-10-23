@@ -8315,6 +8315,10 @@ const rottaModificaPrenotazione = async (req, res) => {
     }
   }
 
+  // I titoli scritti a mano, come per una prenotazione nuova (vedi lì).
+  if (typeof b.nome === 'string' || typeof b.cognome === 'string') {
+    Object.assign(nuovi, bot.nomeConTitolo(nuovi.nome, nuovi.cognome));
+  }
   db.prepare('UPDATE prenotazioni SET data = ?, ora = ?, persone = ?, nome = ?, cognome = ?, '
     + 'note = ?, telefono_contatto = ?, email = ?, tavolo = ?, esperienza = ?, stato = ? WHERE id = ?')
     .run(nuovi.data, nuovi.ora, nuovi.persone, nuovi.nome, nuovi.cognome,
@@ -8599,10 +8603,15 @@ const rottaNuovaPrenotazione = async (req, res) => {
   // Il locale: quello scelto, o — se il titolare li ha nominati — quello di sempre.
   const principale = bot.localiDi(cfg).principale;
   const localeScelto = altro ? altro.nome : (principale ? principale.nome : '');
+  // ⚠️ «AVV.» nel nome e «Esposito» nel cognome, scritti a mano (23 ottobre
+  // 2026): il promemoria diceva «Ciao AVV.!». Il bot i titoli li sistemava
+  // già (vedi «nomeConTitolo»), la pagina no — e la correzione all'avvio
+  // arrivava solo alla riaccensione dopo, a promemoria partito.
+  const nomeGiusto = bot.nomeConTitolo(String(b.nome || '').slice(0, 60), String(b.cognome || '').slice(0, 60));
   const info = db.prepare('INSERT INTO prenotazioni (telefono, nome, cognome, data, ora, persone, note, '
     + 'telefono_contatto, email, tavolo, esperienza, origine, locale_scelto, fuori_sala) '
     + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(telefono, String(b.nome || '').slice(0, 60), String(b.cognome || '').slice(0, 60),
+    .run(telefono, nomeGiusto.nome, nomeGiusto.cognome,
          data, ora, persone, String(b.note || '').slice(0, 200), telefono, email,
          tavolo, esperienza, 'manuale', localeScelto, altro ? 1 : 0);
   const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(info.lastInsertRowid);
