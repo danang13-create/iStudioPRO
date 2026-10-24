@@ -3613,6 +3613,30 @@ function tipoChat(id) {
   return 'sconosciuto';
 }
 
+// Il tipo del MESSAGGIO, non solo della chat da cui dice di venire. ⚠️ Nei
+// gruppi il bot non scrive mai (24 ottobre 2026, dal titolare): si guardano
+// tutti gli indirizzi che il messaggio porta — mittente, destinatario e la
+// chat dentro l'identificativo — e basta che uno sia un gruppo, uno stato o
+// un canale. Un cambio di formato di WhatsApp che spostasse il gruppo da un
+// campo all'altro non deve bastare a farlo parlare lì dentro.
+function tipoDelMessaggio(msg) {
+  const indirizzo = (x) => String((x && typeof x === 'object' ? x._serialized : x) || '');
+  const tutti = [msg && msg.from, msg && msg.to, msg && msg.id && msg.id.remote].map(indirizzo);
+  for (const t of ['gruppo', 'stato', 'canale']) if (tutti.some((x) => tipoChat(x) === t)) return t;
+  return tipoChat(indirizzo(msg && msg.from));
+}
+
+// L'ultimo lucchetto: il bot non scrive in un gruppo, uno stato o un canale,
+// qualunque strada abbia preso il messaggio. La chat della piattaforma passa
+// da un'altra parte (`inviaNellaChatAperta`): lì scrive una persona.
+function nonInUnGruppo(chatId) {
+  const tipo = tipoChat(chatId);
+  if (tipo === 'gruppo' || tipo === 'stato' || tipo === 'canale') {
+    annota('ignorato', `non scrivo in un ${tipo} (${chatId})`);
+    throw new Error(`il bot non scrive in un ${tipo}`);
+  }
+}
+
 // Il numero leggibile del mittente, quando si riesce a saperlo. Con gli
 // indirizzi `@lid` il numero non sta nell'indirizzo: WhatsApp lo mette (a
 // volte) in un campo a parte. Se non c'è, meglio tenersi l'indirizzo che
@@ -3838,6 +3862,7 @@ async function imparaNumero(msg, chatId) {
 // `@lid`: cercare di risalire al numero e poi ricomporre l'indirizzo fallisce
 // proprio nei casi nuovi.
 async function inviaAChat(chatId, testo) {
+  nonInUnGruppo(chatId);
   if (state.status !== 'connesso') throw new Error('WhatsApp non collegato');
   return inCoda(async () => {
     segnaCheStoInviando(chatId, testo);
@@ -3870,6 +3895,7 @@ let ultimoInvioChat = 0;
 // Se il file non c'è più (cancellato a mano), si manda la didascalia da sola e
 // si scrive nel registro: il cliente non deve restare senza risposta.
 async function mandaAllegatoMenu(chatId, a) {
+  nonInUnGruppo(chatId);
   const percorso = path.join(MENU_DIR, path.basename(String(a.file || '')));
   if (!a.file || !fs.existsSync(percorso)) {
     annota('errore', `il file del menu ${a.quale} (${a.file || '?'}) non c'è più: mandato solo il testo`);
@@ -4838,7 +4864,16 @@ if (botDisponibile()) {
       // chi scrive. Serve alla Chat per «Aggiungi in rubrica», ed è
       // indipendente dal bot — non c'è motivo di perdere questa informazione
       // solo perché il bot è spento.
-      if (tipoChat(da) === 'privata' && !msg.fromMe) await imparaNumero(msg, da);
+      // ⚠️ Il tipo si guarda PER PRIMO. Nei gruppi il bot non scrive mai,
+      // nemmeno l'avviso dell'abbonamento scaduto: stava qui sotto, prima di
+      // questo controllo, e a uno del personale che scriveva in un gruppo il
+      // bot rispondeva lì, davanti a tutti (trovato il 24 ottobre 2026,
+      // cercando perché il titolare lo chiedeva). L'indirizzo viene stampato
+      // nel registro: quando WhatsApp cambierà di nuovo formato — e succederà
+      // — si vedrà subito quale, invece di indovinare perché il bot tace.
+      const tipo = tipoDelMessaggio(msg);
+      if (tipo === 'privata' && !msg.fromMe) await imparaNumero(msg, da);
+      if (tipo !== 'privata') return annota('ignorato', `non è una chat singola (${tipo}: ${da})`);
 
       if (!botAcceso()) {
         // ⚠️ Il silenzio verso i clienti è voluto, quello verso il locale no:
@@ -4849,11 +4884,6 @@ if (botDisponibile()) {
           abbonamentoAttivo() ? `bot spento — «${anteprima}»` : `abbonamento scaduto — «${anteprima}»`);
       }
       if (state.status !== 'connesso') return annota('ignorato', 'WhatsApp non collegato');
-      // Solo conversazioni fra due persone. L'indirizzo viene stampato nel
-      // registro: quando WhatsApp cambierà di nuovo formato — e succederà —
-      // si vedrà subito quale, invece di indovinare perché il bot tace.
-      const tipo = tipoChat(da);
-      if (tipo !== 'privata') return annota('ignorato', `non è una chat singola (${tipo}: ${da})`);
       if (msg.fromMe || msg.isStatus) return annota('ignorato', 'messaggio mio');
       const testo = typeof msg.body === 'string' ? msg.body : '';
       if (!testo.trim()) return annota('ignorato', 'niente testo (foto, vocale o adesivo)');
