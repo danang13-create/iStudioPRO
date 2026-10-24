@@ -7765,10 +7765,8 @@ app.post('/api/bot/testi/importa', (req, res) => {
 //   prima della serata (deciso dal titolare; vedi `daAssegnare`). Ma si
 //   controlla che un tavolo per quel gruppo ci sia, contando anche i «solo
 //   sala»: se non c'è, lo si dice prima.
-// - `forza`: la persona ha già letto l'avviso «il tavolo è già di …» e ha
-//   detto di sì; `oltre`: ha letto «non c'è un tavolo per …» e ha detto di sì.
-//   Il secondo è solo della piattaforma (vedi `oltre` nelle rotte).
-function tavoloPerLaSala(cfg, { data, ora, persone, tavolo, forza, oltre, escludiId, preferito }) {
+// - `forza`: la persona ha già letto l'avviso e ha detto di sì.
+function tavoloPerLaSala(cfg, { data, ora, persone, tavolo, forza, escludiId, preferito }) {
   if (tavolo) {
     const chi = bot.chiTieneIlTavolo(db, cfg, data, ora, tavolo, escludiId);
     if (chi && !forza) {
@@ -7781,7 +7779,7 @@ function tavoloPerLaSala(cfg, { data, ora, persone, tavolo, forza, oltre, esclud
     return { tavolo };
   }
   const t = bot.trovaTavolo(db, cfg, data, ora, persone, { ancheSala: true, escludiId, preferito });
-  if (t || oltre) return { tavolo: '' };
+  if (t || forza) return { tavolo: '' };
   // Liberi ci sono, ma solo più grandi del gruppo (sotto il loro minimo): lo
   // si dice così, e si dice come fare — la sala può sempre scegliere a mano.
   const grandi = bot.tavoliLiberi(db, cfg, data, ora, { ancheSala: true, escludiId })
@@ -7983,8 +7981,7 @@ const rottaServizio = (req, res) => {
                sconosciuti: a.sconosciuti.map((r) => ({ id: r.id, tavolo: r.tavolo, nome: bot.nomeInSala(r) })) };
     })() : null,
     // I tavoli del locale, per chi in sala ne sceglie uno, e il più grande:
-    // oltre quello la tendina delle persone non va (in sala; la piattaforma
-    // continua, segnando «oltre i posti liberi»).
+    // oltre quello la tendina delle persone segna «oltre i posti».
     // Dal più piccolo al più grande (chiesto dal titolare): è l'ordine in
     // cui si cerca un tavolo per un gruppo, lo stesso del bot.
     tavoli: [...tavoli].sort((x, y) => x.posti - y.posti || bot.minimoDi(x) - bot.minimoDi(y) || x.ordine - y.ordine || x.id - y.id)
@@ -8260,8 +8257,6 @@ function controllaPrenotazione(nuovi, opzioni = {}) {
 const rottaModificaPrenotazione = async (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const b = req.body || {};
-  // Oltre i posti liberi: solo dalla piattaforma (vedi `rottaNuovaPrenotazione`).
-  const oltre = !!b.forza && !req.dallaSala;
   const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Prenotazione inesistente' });
   const cfg = bot.config(db);
@@ -8334,7 +8329,7 @@ const rottaModificaPrenotazione = async (req, res) => {
     }
     const altro = bot.altroLocaleDi(cfg, p.locale_scelto);
     const cresce = nuovi.persone > p.persone || (!bot.STATI_VIVI.includes(p.stato) && bot.STATI_VIVI.includes(nuovi.stato));
-    if (altro && cresce && bot.STATI_VIVI.includes(nuovi.stato) && !oltre) {
+    if (altro && cresce && bot.STATI_VIVI.includes(nuovi.stato) && !b.forza) {
       const posti = bot.postiAltroLocale(db, altro, p.id);
       if (nuovi.persone > posti) {
         return res.status(409).json({ error: `Per ${altro.nome} ${quantoPosto(posti, nuovi.persone)}.`, liberi: posti });
@@ -8377,10 +8372,10 @@ const rottaModificaPrenotazione = async (req, res) => {
   const riaperta = !bot.STATI_VIVI.includes(p.stato) && bot.STATI_VIVI.includes(nuovi.stato);
   const tavoloScritto = b.tavolo !== undefined && bot.chiaveTavolo(nuovi.tavolo) !== bot.chiaveTavolo(p.tavolo);
   if (conTavoli && tavoloScritto && nuovi.tavolo) {
-    const esito = tavoloPerLaSala(cfg, { ...nuovi, forza: b.forza, oltre, escludiId: p.id });
+    const esito = tavoloPerLaSala(cfg, { ...nuovi, forza: b.forza, escludiId: p.id });
     if (esito.errore) return res.status(409).json(esito.errore);
   } else if (conTavoli && !tavoloScritto && (cambiata || riaperta)) {
-    const esito = tavoloPerLaSala(cfg, { ...nuovi, tavolo: '', forza: b.forza, oltre: oltre || !cambiata,
+    const esito = tavoloPerLaSala(cfg, { ...nuovi, tavolo: '', forza: b.forza || !cambiata,
       escludiId: p.id, preferito: p.tavolo });
     if (esito.errore) return res.status(409).json(esito.errore);
     // Il tavolo che l'operatore aveva assegnato resta, se all'ora nuova è
@@ -8395,7 +8390,7 @@ const rottaModificaPrenotazione = async (req, res) => {
     const occupatiAltrui = bot.copertiOccupati(db, cfg, nuovi.data, nuovi.ora)
       - (p.data === nuovi.data && p.ora === nuovi.ora && bot.STATI_VIVI.includes(p.stato) ? p.persone : 0);
     const capienza = bot.num(cfg.bot_coperti_turno, 0) - bot.num(cfg.bot_coperti_liberi, 0);
-    if (!oltre && occupatiAltrui + nuovi.persone > capienza) {
+    if (!b.forza && occupatiAltrui + nuovi.persone > capienza) {
       return res.status(409).json({
         error: `Per ${bot.dataItaliana(nuovi.data)} alle ${nuovi.ora} ${quantoPosto(capienza - occupatiAltrui, nuovi.persone)}.`,
         liberi: capienza - occupatiAltrui,
@@ -8632,15 +8627,14 @@ app.post('/api/bot/prenotazioni/:id/pagata', async (req, res) => {
 // Una prenotazione presa al telefono o di persona. Il locale non vive solo di
 // WhatsApp, e una pagina che mostra meta' delle prenotazioni non la guarda
 // nessuno — a quel punto tornano tutti al quaderno.
+// ⚠️ `forza` (dopo «La prendo lo stesso?») passa oltre i posti liberi, dalla
+// piattaforma e dalla sala. Dal titolare (24 ottobre 2026), dopo averla
+// tenuta per poche ore solo alla piattaforma: «possiamo farlo anche lato sala,
+// ma limitare chi prenota dal bot?». Il bot non passa da qui: i suoi limiti
+// (i posti liberi, «Massimo persone via bot») restano.
 const rottaNuovaPrenotazione = async (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const b = req.body || {};
-  // ⚠️ Oltre i posti liberi? Dal titolare (24 ottobre 2026): «chi prenota
-  // tramite bot resta invariato, ma l'admin può inserire oltre i posti». Solo
-  // dalla piattaforma, e solo dopo «La prendo lo stesso?» (`forza`). Dalla
-  // porta della sala no, nemmeno con `forza` nella richiesta: lì `forza` vale
-  // per «il tavolo è già di un altro», e basta. Il bot non passa da qui.
-  const oltre = !!b.forza && !req.dallaSala;
   const cfg = bot.config(db);
   const data = String(b.data || '');
   const ora = String(b.ora || '');
@@ -8663,17 +8657,17 @@ const rottaNuovaPrenotazione = async (req, res) => {
       return res.status(400).json({ error: `${altro.nome} è solo il ${bot.dataItaliana(altro.data)} alle ${altro.da}.` });
     }
     const posti = bot.postiAltroLocale(db, altro);
-    if (!oltre && persone > posti) {
+    if (!b.forza && persone > posti) {
       return res.status(409).json({ error: `Per ${altro.nome} ${quantoPosto(posti, persone)}.`, liberi: posti });
     }
   } else if (bot.usaTavoli(db)) {
-    const esito = tavoloPerLaSala(cfg, { data, ora, persone, tavolo, forza: b.forza, oltre });
+    const esito = tavoloPerLaSala(cfg, { data, ora, persone, tavolo, forza: b.forza });
     if (esito.errore) return res.status(409).json(esito.errore);
     tavolo = esito.tavolo;
   } else {
     const capienza = bot.num(cfg.bot_coperti_turno, 0) - bot.num(cfg.bot_coperti_liberi, 0);
     const occupati = bot.copertiOccupati(db, cfg, data, ora);
-    if (!oltre && occupati + persone > capienza) {
+    if (!b.forza && occupati + persone > capienza) {
       return res.status(409).json({
         error: `Per ${bot.dataItaliana(data)} alle ${ora} ${quantoPosto(capienza - occupati, persone)}.`,
         liberi: capienza - occupati,
@@ -8987,10 +8981,6 @@ function salaAutenticato(req) {
 const sala = express();
 sala.use(express.json({ limit: '1mb' }));
 sala.use(corpoRotto);
-// Le rotte delle prenotazioni sono le stesse delle due porte: così sanno da
-// quale arriva la richiesta. Dalla sala non si va oltre i posti liberi (vedi
-// `oltre` in `rottaNuovaPrenotazione`), e non basta scriverlo nella richiesta.
-sala.use((req, res, next) => { req.dallaSala = true; next(); });
 
 // L'interruttore vale per TUTTO, compreso l'accesso: spenta, questa porta non
 // risponde niente. È l'unico modo per cui «spenta» vuol dire davvero spenta.

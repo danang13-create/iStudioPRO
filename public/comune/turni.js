@@ -100,12 +100,11 @@ window.Turni = (function () {
   // fatto, e aprire una finestra non deve cambiarlo in silenzio.
   //
   // ⚠️ Dal titolare (24 ottobre 2026): «chi prenota tramite bot resta
-  // invariato, ma l'admin può inserire oltre i posti». Con `oltre` (SOLO la
-  // piattaforma) dopo i liberi la tendina continua, ogni voce segnata «oltre i
-  // posti», e al salvataggio la piattaforma chiede «La prendo lo
-  // stesso?». Qui la voce si usa davvero: non è il rumore di prima. La sala e
-  // il bot restano ai posti liberi, e il server dalla porta della sala non
-  // lascia sforare (vedi `req.dallaSala` in server.js).
+  // invariato, ma l'admin può inserire oltre i posti», e poche ore dopo
+  // «anche lato sala». Con `oltre` (la piattaforma e la sala) dopo i liberi la
+  // tendina continua, ogni voce segnata «oltre i posti», e al salvataggio la
+  // pagina chiede «La prendo lo stesso?». Qui la voce si usa davvero: non è il
+  // rumore di prima. Il bot non usa questa tendina: i suoi limiti restano.
   async function riempiPersone(select, data, quanteAdesso, ora, opzioni = {}) {
     const el = typeof select === 'string' ? document.querySelector(select) : select;
     if (!el) return;

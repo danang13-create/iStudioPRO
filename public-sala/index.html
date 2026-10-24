@@ -1043,9 +1043,10 @@ function usaLocaleNelPannello(p) {
   $('#p-data').value = a.data;
   $('#p-ora').innerHTML = `<option value="${sicuro(a.da)}">${sicuro(a.da)}–${sicuro(a.a)}</option>`;
   const attuale = p ? p.persone : (+$('#p-persone').value || 0);
-  const fino = Math.max(a.posti + (p ? p.persone : 0), attuale, 1);
-  $('#p-persone').innerHTML = ['<option value="">Quante persone…</option>',
-    ...Array.from({ length: fino }, (_, i) => `<option value="${i + 1}"${i + 1 === attuale ? ' selected' : ''}>${i + 1}</option>`)].join('');
+  // Anche qui si può andare oltre i suoi posti, come in piattaforma (vedi
+  // `vociPersone` in comune/turni.js).
+  $('#p-persone').innerHTML = Turni.vociPersone(Math.max(a.posti + (p ? p.persone : 0), 0), attuale,
+    { oltre: true, massimo: a.coperti });
   return true;
 }
 let righeDelGiorno = [];
@@ -1250,7 +1251,7 @@ function apri(p) {
   // ce ne stanno, e «12» battuto al posto di «2» è un tavolo che non esiste,
   // scoperto la sera quando arrivano in due.
   // I posti liberi dipendono dal TURNO, non dal giorno: si passa anche l'ora.
-  Turni.riempiPersone('#p-persone', $('#p-data').value, p ? p.persone : '', p ? p.ora : '');
+  Turni.riempiPersone('#p-persone', $('#p-data').value, p ? p.persone : '', p ? p.ora : '', { oltre: true });
   // Il numero della chat non è un numero da mostrare: con gli indirizzi «@lid»
   // WhatsApp non lo passa affatto.
   $('#p-telefono').value = p ? (p.telefono_contatto || (String(p.telefono).includes('@') ? '' : p.telefono)) : '';
@@ -1633,7 +1634,7 @@ async function salva() {
   try { return await salvaDavvero(); } finally { tasto.disabled = false; }
 }
 
-async function salvaDavvero() {
+async function salvaDavvero(forza) {
   const corpo = {
     data: $('#p-data').value, ora: $('#p-ora').value.trim(),
     persone: $('#p-persone').value, nome: $('#p-nome').value.trim(),
@@ -1644,6 +1645,7 @@ async function salvaDavvero() {
     tavolo: $('#p-tavolo').value.trim(),
     telefono: $('#p-telefono').value.trim(), email: $('#p-email').value.trim(),
     avvisa: $('#p-avvisa').checked,
+    ...(forza ? { forza: true } : {}),
   };
   // ⚠️ Lo stato si manda solo se da qui lo si può DAVVERO cambiare. Una
   // prenotazione in attesa di pagamento ha la tendina bloccata: mandandolo lo
@@ -1662,8 +1664,9 @@ async function salvaDavvero() {
   // di chi è la colpa, e che NON è stata registrata — e lasciare il pannello
   // aperto, con dentro tutto quello che è stato battuto.
   let d;
+  let r;
   try {
-    const r = await fetch(idAperto ? '/api/bot/prenotazioni/' + idAperto : '/api/bot/prenotazioni', {
+    r = await fetch(idAperto ? '/api/bot/prenotazioni/' + idAperto : '/api/bot/prenotazioni', {
       method: idAperto ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(corpo),
@@ -1675,6 +1678,9 @@ async function salvaDavvero() {
     $('#p-errore').style.display = '';
     return;
   }
+  // Oltre i posti liberi (o su un tavolo già di un altro): lo si dice, e
+  // decide chi è in sala — come in piattaforma. Dal titolare, 24 ottobre 2026.
+  if (r.status === 409 && !forza && confirm(`${d.error}\n\nLa prendo lo stesso?`)) return salvaDavvero(true);
   if (d.error) {
     $('#p-errore').textContent = d.error;
     $('#p-errore').style.display = '';
@@ -1713,7 +1719,7 @@ $('#giorno').addEventListener('change', () => { idVisti = null; caricaGiorno(); 
 $('#p-locale').addEventListener('change', () => {
   if (usaLocaleNelPannello(null)) return;
   Turni.riempi('#p-ora', $('#p-data').value, '');
-  Turni.riempiPersone('#p-persone', $('#p-data').value, $('#p-persone').value, '');
+  Turni.riempiPersone('#p-persone', $('#p-data').value, $('#p-persone').value, '', { oltre: true });
 });
 // Cambiando giorno cambiano i turni: pranzo, cena, giorni di chiusura.
 $('#p-data').addEventListener('change', () => {
@@ -1721,13 +1727,13 @@ $('#p-data').addEventListener('change', () => {
   // ⚠️ Qui si passa '' e non l'ora del campo: «Turni.riempi» è asincrona, e un
   // istante dopo il campo contiene ancora l'ora VECCHIA. I posti liberi
   // risulterebbero quelli di un turno che non è più scelto.
-  Turni.riempiPersone('#p-persone', $('#p-data').value, $('#p-persone').value, '');
+  Turni.riempiPersone('#p-persone', $('#p-data').value, $('#p-persone').value, '', { oltre: true });
 });
 // ⚠️ E cambiando ORA cambiano i posti liberi: senza questa riga la tendina
 // delle persone restava ferma sui numeri del turno di prima, e diceva «6» su
 // un'ora dove ne restavano due. Il numero c'era, e non veniva riletto.
 $('#p-ora').addEventListener('change', () => {
-  Turni.riempiPersone('#p-persone', $('#p-data').value, $('#p-persone').value, $('#p-ora').value);
+  Turni.riempiPersone('#p-persone', $('#p-data').value, $('#p-persone').value, $('#p-ora').value, { oltre: true });
 });
 $('#aggiorna').addEventListener('click', () => { caricaGiorno(); Planning.carica(opzioniPlanning()); });
 $('#nuova').addEventListener('click', () => apri(null));

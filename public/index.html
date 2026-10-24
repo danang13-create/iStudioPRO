@@ -6258,8 +6258,8 @@ function usaLocaleNelPannello(p) {
   $('#pann-data').value = a.data;
   $('#pann-ora').innerHTML = `<option value="${testoSicuro(a.da)}">${testoSicuro(a.da)}–${testoSicuro(a.a)}</option>`;
   const attuale = p ? p.persone : (+$('#pann-persone').value || 0);
-  // Anche qui si può andare oltre i suoi posti: è la piattaforma (vedi
-  // `vociPersone` in comune/turni.js).
+  // Anche qui si può andare oltre i suoi posti (vedi `vociPersone` in
+  // comune/turni.js).
   $('#pann-persone').innerHTML = Turni.vociPersone(Math.max(a.posti + (p ? p.persone : 0), 0), attuale,
     { oltre: true, massimo: a.coperti });
   return true;
