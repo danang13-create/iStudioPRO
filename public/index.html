@@ -6851,7 +6851,8 @@ function disegnaReport(d, prima = null) {
   const kpi = [
     ['Prenotazioni', t.prenotazioni, '', conf(t.prenotazioni, 'prenotazioni')],
     ['Coperti', t.coperti, t.prenotazioni ? `${t.mediaCoperti} a tavolo` : '', conf(t.coperti, 'coperti')],
-    ['Riempimento', d.riempimento.quota + '%', `su ${d.riempimento.possibili} coperti in ${d.riempimento.aperti} giorni aperti`,
+    ['Riempimento', d.riempimento.quota + '%', `su ${d.riempimento.possibili} coperti in ${d.riempimento.aperti} giorni aperti`
+      + (d.perLocale && d.perLocale.length ? ` · solo ${d.perLocale[0].nome}` : ''),
       conf(d.riempimento.quota, 'riempimento', 'punti')],
     ['Annullate', t.annullate, t.annullate ? `${t.copertiPersi} coperti persi · ${perc(t.annullate, t.prenotazioni + t.annullate)}%` : '',
       conf(t.annullate, 'annullate', 'inverso')],
@@ -6878,25 +6879,60 @@ function disegnaReport(d, prima = null) {
   // La risposta scritta a parole, prima dei grafici: chi apre il report vuole
   // sapere questo, e un grafico glielo fa dedurre invece di dirglielo.
   const frasi = [];
+  // La quota sui coperti della SALA: l'orario è suo, il bistrot ha i suoi.
   if (d.turnoTop) frasi.push(`L'orario che riempie di più è <b>le ${testoSicuro(d.turnoTop.ora)}</b>,
-    con ${d.turnoTop.coperti} coperti (${perc(d.turnoTop.coperti, t.coperti)}% del totale).`);
+    con ${d.turnoTop.coperti} coperti (${perc(d.turnoTop.coperti, t.copertiSala ?? t.coperti)}% del totale).`);
   if (d.giornoTop) frasi.push(`La serata più forte è <b>${testoSicuro(d.giornoTop.nome)}</b>,
     con ${d.giornoTop.coperti} coperti.`);
+  // (24 ottobre 2026) Quello che fa il bot, e quando la gente si decide.
+  if (d.origine.bot) frasi.push(`Il bot ne ha prese <b>${d.origine.bot}</b> da solo (${perc(d.origine.bot, t.prenotazioni)}%).`);
+  const notte = (d.quandoScrivono || [])[0];
+  if (notte && notte.prenotazioni) frasi.push(`${notte.prenotazioni === 1 ? 'Una è arrivata' : `<b>${notte.prenotazioni}</b> sono arrivate`}
+    di notte, fra mezzanotte e le 8.`);
+  const anticipate = d.anticipo || [];
+  const conAnticipo = anticipate.reduce((n, x) => n + x.prenotazioni, 0);
+  if (conAnticipo) frasi.push(`Il <b>${perc(anticipate[0].prenotazioni + anticipate[1].prenotazioni, conAnticipo)}%</b>
+    prenota lo stesso giorno o il giorno prima.`);
   html += `<p style="margin:18px 0 0;font-size:.95rem;line-height:1.55">${frasi.join(' ')}</p>`;
 
+  // Con un altro locale (il bistrot) l'orario e la serata sono della sala: il
+  // bistrot ha i suoi posti e la sua riga più sotto, in «I locali».
+  const soloSala = d.perLocale && d.perLocale.length
+    ? ` Solo ${testoSicuro(d.perLocale[0].nome)}: gli altri locali sono in fondo.` : '';
   html += '<div class="rep-griglia">';
   html += riquadro('Coperti per orario', barre(d.perTurno.map((x) => ({
     nome: x.ora, valore: x.coperti, extra: `${x.prenotazioni} pren.`,
-  }))), 'Quale turno porta più gente.');
+  }))), 'Quale turno porta più gente.' + soloSala);
 
   html += riquadro('Coperti per giorno della settimana', barre(d.perGiornoSettimana.map((x) => ({
     nome: x.nome, valore: x.coperti, extra: x.prenotazioni ? `${x.prenotazioni} pren.` : '',
-  }))), 'Quale serata tira, e quale no.');
+  }))), 'Quale serata tira, e quale no.' + soloSala);
+
+  // Pranzo e cena: solo se ci sono tutti e due, sennò è una barra piena e basta.
+  const s = d.perServizio;
+  if (s && s.pranzo.coperti && s.cena.coperti) {
+    html += riquadro('Pranzo e cena', quotaDoppia(s.pranzo.coperti, s.cena.coperti, 'coperti a pranzo', 'a cena'),
+      `Quale servizio porta più gente: ${s.pranzo.prenotazioni} prenotazioni a pranzo, ${s.cena.prenotazioni} a cena.`);
+  }
+  if (d.perEsperienza && d.perEsperienza.length) {
+    html += riquadro('Coperti per esperienza', barre(d.perEsperienza.map((x) => ({
+      nome: x.nome || 'senza esperienza', valore: x.coperti, extra: `${x.prenotazioni} pren.`,
+    }))), 'Quanto vale ognuna.');
+  }
 
   html += riquadro('Quanto sono grandi i tavoli', barre(d.perDimensione.map((x) => ({
     nome: x.etichetta + (x.etichetta === '1' ? ' persona' : ' persone'),
     valore: x.prenotazioni, extra: x.coperti ? `${x.coperti} coperti` : '',
   })), 'prenotazioni'), 'Per sapere come apparecchiare.');
+
+  if (d.anticipo && d.anticipo.some((x) => x.prenotazioni)) {
+    html += riquadro('Quanto prima prenotano', barre(d.anticipo.map((x) => ({ nome: x.etichetta, valore: x.prenotazioni })), 'prenotazioni'),
+      'Dal giorno in cui hanno scritto al giorno del tavolo: dice quando serve il promemoria.');
+  }
+  if (d.quandoScrivono && d.quandoScrivono.some((x) => x.prenotazioni)) {
+    html += riquadro('A che ora scrivono al bot', barre(d.quandoScrivono.map((x) => ({ nome: x.etichetta, valore: x.prenotazioni })), 'prenotazioni'),
+      'Le prenotazioni prese dal bot, per l\'ora in cui sono arrivate.');
+  }
 
   html += riquadro('Chi le prende',
     quotaDoppia(d.origine.bot, d.origine.manuale, 'dal bot', 'segnate a mano'),
@@ -6904,6 +6940,14 @@ function disegnaReport(d, prima = null) {
     + riquadro('Clienti nuovi e di ritorno',
       quotaDoppia(d.clienti.diRitorno, d.clienti.nuovi, 'già stati qui', 'nuovi'),
       'Se il locale sta crescendo o sta girando sugli stessi.');
+  if (d.fedeli && d.fedeli.length) {
+    html += riquadro('I clienti più presenti', tabellaFedeli(d.fedeli), 'Chi è venuto più volte in questo periodo.');
+  }
+  if (d.perLocale && d.perLocale.length) {
+    html += riquadro('I locali', barre(d.perLocale.map((x) => ({
+      nome: x.nome, valore: x.coperti, extra: x.posti ? `su ${x.posti} posti` : `${x.prenotazioni} pren.`,
+    }))), 'Ognuno coi suoi coperti; gli altri locali anche sui loro posti.');
+  }
   html += '</div>';
 
   html += riquadro(`Andamento nel tempo`, serieNelTempo(d.serie),
@@ -6911,6 +6955,12 @@ function disegnaReport(d, prima = null) {
       : d.serie.passo === 'settimana' ? 'Coperti settimana per settimana — il periodo è troppo lungo per i singoli giorni.'
       : 'Coperti mese per mese.');
   return html;
+}
+
+// I clienti più presenti: una tabella corta, coi nomi — sono loro i numeri.
+function tabellaFedeli(voci) {
+  return `<table class="rep-tabella"><thead><tr><th>Cliente</th><th class="n">Prenotazioni</th><th class="n">Coperti</th></tr></thead>
+    <tbody>${voci.map((v) => `<tr><td>${testoSicuro(v.nome)}</td><td class="n">${v.prenotazioni}</td><td class="n">${v.coperti}</td></tr>`).join('')}</tbody></table>`;
 }
 
 // La serie nel tempo: colonne, e sotto un tasto per vedere gli stessi numeri

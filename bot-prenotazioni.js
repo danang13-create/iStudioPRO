@@ -4997,11 +4997,19 @@ function reportPrenotazioni(db, cfg, dal, al) {
     return m;
   };
 
-  const perTurno = [...somma(vive, (r) => r.ora).entries()]
+  // ⚠️ Gli altri locali (il bistrot del 25 ottobre) hanno i loro posti e il
+  // loro orario: nei conti della SALA non entrano (24 ottobre 2026). Prima i
+  // sessanta coperti del bistrot alzavano il riempimento — calcolato sui posti
+  // della sala — e gonfiavano le 12:30 di un turno che la sala non aveva. Nei
+  // totali ci sono tutti; il bistrot ha la sua riga in `perLocale`.
+  const inSala = vive.filter((r) => !r.fuori_sala);
+  const copertiSala = inSala.reduce((n, r) => n + r.persone, 0);
+
+  const perTurno = [...somma(inSala, (r) => r.ora).entries()]
     .map(([ora, v]) => ({ ora, ...v }))
     .sort((a, b) => (a.ora < b.ora ? -1 : 1));
 
-  const perSettimana = somma(vive, (r) => new Date(r.data + 'T12:00:00').getDay());
+  const perSettimana = somma(inSala, (r) => new Date(r.data + 'T12:00:00').getDay());
   const perGiornoSettimana = NOMI_SETTIMANA.map((nome, i) => ({
     giorno: i, nome, ...(perSettimana.get(i) || { prenotazioni: 0, coperti: 0 }),
   }));
@@ -5066,11 +5074,84 @@ function reportPrenotazioni(db, cfg, dal, al) {
   const piuAlto = (elenco) => elenco.reduce(
     (max, x) => (!max || x.coperti > max.coperti ? x : max), null);
 
+  // ---- Quello che il report non diceva (24 ottobre 2026) ----
+  // Pranzo e cena: due servizi con la loro sala e il loro personale.
+  const perServizio = { pranzo: { prenotazioni: 0, coperti: 0 }, cena: { prenotazioni: 0, coperti: 0 } };
+  for (const r of inSala) {
+    const s = servizioDellOra(cfg, r.data, r.ora) === 'pranzo' ? 'pranzo' : 'cena';
+    perServizio[s].prenotazioni += 1;
+    perServizio[s].coperti += r.persone;
+  }
+  // Le esperienze: quanto vale il business lunch, quanto il degustazione. Vuoto
+  // se nessuna prenotazione ne ha una — allora la sezione non c'è.
+  const conEsperienza = vive.some((r) => String(r.esperienza || '').trim());
+  const perEsperienza = conEsperienza
+    ? [...somma(vive.filter((r) => !r.fuori_sala), (r) => String(r.esperienza || '').trim() || '').entries()]
+      .map(([nome, v]) => ({ nome, ...v }))
+      .sort((a, b) => (!a.nome) - (!b.nome) || b.coperti - a.coperti)
+    : [];
+  // Quanto prima prenotano: se tutti scrivono il giorno stesso, il promemoria
+  // del giorno prima non serve a niente, e la sala si decide all'ultimo.
+  const ANTICIPI = [
+    { etichetta: 'stesso giorno', dentro: (g) => g <= 0 },
+    { etichetta: 'giorno prima', dentro: (g) => g === 1 },
+    { etichetta: '2–6 giorni prima', dentro: (g) => g >= 2 && g <= 6 },
+    { etichetta: '7+ giorni prima', dentro: (g) => g >= 7 },
+  ];
+  const anticipoDi = (r) => {
+    const quando = String(r.creata_at || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(quando) ? giorniFra(quando, r.data) - 1 : null;
+  };
+  const conAnticipo = vive.map(anticipoDi).filter((g) => g !== null);
+  const anticipo = ANTICIPI.map((a) => ({ etichetta: a.etichetta, prenotazioni: conAnticipo.filter(a.dentro).length }));
+  // Quando scrivono al bot: a che ora sono arrivate le prenotazioni che ha
+  // preso lui. Quelle della notte sono il lavoro che senza bot non si faceva.
+  const FASCE_ORARIE = [
+    { etichetta: 'notte 0–8', da: 0, a: 8 },
+    { etichetta: 'mattina 8–12', da: 8, a: 12 },
+    { etichetta: 'pranzo 12–15', da: 12, a: 15 },
+    { etichetta: 'pomeriggio 15–19', da: 15, a: 19 },
+    { etichetta: 'sera 19–24', da: 19, a: 24 },
+  ];
+  const dalBot = vive.filter((r) => r.origine !== 'manuale');
+  const oraDi = (r) => { const m = String(r.creata_at || '').match(/ (\d{2}):/); return m ? Number(m[1]) : null; };
+  const quandoScrivono = FASCE_ORARIE.map((f) => ({
+    etichetta: f.etichetta,
+    prenotazioni: dalBot.filter((r) => { const h = oraDi(r); return h !== null && h >= f.da && h < f.a; }).length,
+  }));
+  // I clienti che sono venuti più volte nel periodo: due o più, i primi cinque.
+  const perCliente = new Map();
+  for (const r of vive) {
+    const k = chiaveCliente(r);
+    if (!perCliente.has(k)) perCliente.set(k, { nome: '', prenotazioni: 0, coperti: 0, ultima: '' });
+    const c = perCliente.get(k);
+    c.prenotazioni += 1;
+    c.coperti += r.persone;
+    if (r.data >= c.ultima) { c.ultima = r.data; c.nome = [r.nome, r.cognome].map((x) => String(x || '').trim()).filter(Boolean).join(' '); }
+  }
+  const fedeli = [...perCliente.values()].filter((c) => c.prenotazioni >= 2)
+    .sort((a, b) => b.prenotazioni - a.prenotazioni || b.coperti - a.coperti || a.nome.localeCompare(b.nome))
+    .slice(0, 5)
+    .map(({ nome, prenotazioni, coperti: suoi }) => ({ nome: nome || 'senza nome', prenotazioni, coperti: suoi }));
+  // I locali, se ce n'è più d'uno con prenotazioni nel periodo: ognuno coi
+  // suoi coperti, gli altri anche sui loro posti.
+  const fuori = vive.filter((r) => r.fuori_sala);
+  const locali = localiDi(cfg);
+  const perLocale = fuori.length ? [
+    { nome: (locali.principale && locali.principale.nome) || cfg.bot_locale || 'Il locale', prenotazioni: inSala.length, coperti: copertiSala, posti: 0 },
+    ...[...somma(fuori, (r) => String(r.locale_scelto || '').trim() || 'Altro locale').entries()].map(([nome, v]) => {
+      const a = altroLocaleDi(cfg, nome);
+      return { nome, ...v, posti: a ? num(a.coperti, 0) : 0 };
+    }),
+  ] : [];
+
   return {
     dal, al, giorni,
     totale: {
       prenotazioni: vive.length,
       coperti,
+      // I coperti della sala, senza gli altri locali (vedi `inSala`).
+      copertiSala,
       annullate: annullate.length,
       copertiPersi: annullate.reduce((n, r) => n + r.persone, 0),
       concluse: righe.filter((r) => r.stato === 'presentata').length,
@@ -5087,11 +5168,18 @@ function reportPrenotazioni(db, cfg, dal, al) {
     serie: { passo, punti: serie },
     riempimento: {
       possibili, aperti: apertiConta,
-      quota: possibili ? Math.round((coperti / possibili) * 100) : 0,
+      // Solo la sala: i posti sono i suoi (vedi `inSala`).
+      quota: possibili ? Math.round((copertiSala / possibili) * 100) : 0,
     },
     soldOut: pieniConta,
     clienti: { totali: clienti.size, diRitorno, nuovi: clienti.size - diRitorno },
     menu: statisticheMenu(db, dal, al),
+    perServizio,
+    perEsperienza,
+    anticipo,
+    quandoScrivono,
+    fedeli,
+    perLocale,
     turnoTop: piuAlto(perTurno),
     giornoTop: piuAlto(perGiornoSettimana.filter((g) => g.coperti > 0)),
   };
