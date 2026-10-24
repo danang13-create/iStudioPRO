@@ -832,6 +832,8 @@ const PREDEFINITI = {
   // Promemoria
   bot_promemoria_attivo: 'true',
   bot_promemoria_ora: '12:00',
+  // E non dopo: vedi «promemoriaDaMandare» nel server (24 ottobre 2026).
+  bot_promemoria_fino: '21:00',
   // Quanti giorni prima. 1 = il giorno prima, 0 = lo stesso giorno.
   bot_promemoria_giorni: '1',
 

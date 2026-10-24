@@ -2448,8 +2448,11 @@
           <label>Quanto prima<input id="cfg-bot_promemoria_giorni" autocomplete="off" type="number" min="0" max="7">
             <span class="conteggio" style="margin:0">Quanti giorni prima della prenotazione. <b>1</b> = il giorno prima. <b>0</b> = lo stesso giorno, che per chi lavora a pranzo vale quanto il giorno prima per chi fa solo cena.</span>
           </label>
-          <label>A che ora<input id="cfg-bot_promemoria_ora" autocomplete="off" placeholder="12:00">
-            <span class="conteggio" style="margin:0">Alle 7 non lo legge nessuno, alle 23 arriva a giornata finita. Con «0 giorni prima», sotto l'ora di anticipo non parte: il cliente sarebbe già in macchina.</span>
+          <label>Dalle<input id="cfg-bot_promemoria_ora" autocomplete="off" placeholder="12:00">
+            <span class="conteggio" style="margin:0">Prima di quest'ora non parte: alle 7 non lo legge nessuno. Con «0 giorni prima», sotto l'ora di anticipo non parte: il cliente sarebbe già in macchina.</span>
+          </label>
+          <label>Non dopo le<input id="cfg-bot_promemoria_fino" autocomplete="off" placeholder="21:00">
+            <span class="conteggio" style="margin:0">Dopo quest'ora aspetta: alle 23 arriva a giornata finita. Chi prenota la sera per il giorno dopo lo riceve il giorno stesso, dall'ora di «Dalle», se mancano almeno due ore al tavolo.</span>
           </label>
         </div>
         <p class="conteggio" style="margin:10px 0 0">
@@ -5336,7 +5339,7 @@ setInterval(caricaRichiesteCancellazione, 2 * 60 * 1000);
 const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_menu_link', 'bot_menu_degustazione_link', 'bot_coperti_turno',
   'bot_durata_tavolo', 'bot_max_persone', 'bot_coperti_liberi', 'bot_preavviso_ore',
   'bot_recensione_link', 'bot_recensione_giorni', 'bot_recensione_ora',
-  'bot_recensione_max', 'bot_promemoria_ora', 'bot_promemoria_giorni', 'bot_sala_password', 'bot_sala_tema',
+  'bot_recensione_max', 'bot_promemoria_ora', 'bot_promemoria_fino', 'bot_promemoria_giorni', 'bot_sala_password', 'bot_sala_tema',
   'bot_pagamento_prezzo', 'bot_pagamento_modo', 'bot_pagamento_percentuale',
   'bot_pagamento_minuti', 'bot_pagamento_obbligatorio', 'bot_pagamento_chiave', 'bot_pagamento_ritorno',
   'bot_lista_attesa', 'bot_attesa_minuti',

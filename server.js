@@ -5206,8 +5206,22 @@ function promemoriaDaMandare(cfg, adesso, conEmail = false) {
 
   // Non prima dell'ora scelta. Un promemoria alle 7 del mattino non lo legge
   // nessuno, e alle 23 arriva quando la giornata è già finita.
+  // ⚠️ Il «non dopo» non c'era (24 ottobre 2026, dal titolare con una foto):
+  // «Ti ricordiamo la tua prenotazione: sabato alle 21:15» partito venerdì
+  // alle 23:08. La pagina diceva già «alle 23 arriva a giornata finita», il
+  // codice controllava solo l'inizio. Chi prenotava la sera per il giorno dopo
+  // era pronto tre ore dopo (vedi `nonAppena`) — cioè di notte — e partiva
+  // lì. Ora dopo l'ultima ora si aspetta: il giorno dopo è il giorno del
+  // tavolo, e il recupero qui sotto glielo manda dall'ora scelta, se mancano
+  // almeno due ore. Un'ultima ora prima della prima (scritta male) non chiude
+  // tutto: la finestra resta aperta almeno un'ora.
   const ora = adesso.getHours() * 60 + adesso.getMinutes();
-  if (ora < bot.inMinuti(cfg.bot_promemoria_ora || '12:00')) return [];
+  const inizio = bot.inMinuti(cfg.bot_promemoria_ora || '12:00');
+  if (ora < inizio) return [];
+  const fineScritta = bot.inMinuti(cfg.bot_promemoria_fino || '21:00');
+  const fine = Number.isFinite(fineScritta) ? Math.max(fineScritta, inizio + 60) : 24 * 60;
+  if (ora > fine) return [];
+  const fineTesto = `${String(Math.floor(Math.min(fine, 24 * 60 - 1) / 60)).padStart(2, '0')}:${String(Math.min(fine, 24 * 60 - 1) % 60).padStart(2, '0')}:00`;
 
   // Quanto prima. Uno è il giorno prima; zero è lo stesso giorno, che per un
   // locale a pranzo ha senso quanto il giorno prima per uno che fa solo cena.
@@ -5268,7 +5282,12 @@ function promemoriaDaMandare(cfg, adesso, conEmail = false) {
       // tre ore dopo averla fatta è la cosa da cui questo codice si guarda già.
       if (String(r.creata_at || '').slice(0, 10) > dovuto) continue;
       if (r.data === oggiStr && bot.inMinuti(r.ora) - adessoMin < ANTICIPO_RECUPERO) continue;
-      r.inRitardo = true;
+      // «In ritardo» (e nel registro «qualcosa era rimasto fermo») solo se
+      // quel giorno era pronto in tempo. Chi ha prenotato la sera, dopo l'ultima
+      // ora, lo riceve il giorno dopo senza che sia rimasto fermo niente.
+      const pronto = new Date(new Date(String(r.creata_at).replace(' ', 'T')).getTime() + 3 * 3600000)
+        .toLocaleString('sv-SE').replace('T', ' ');
+      r.inRitardo = !(pronto > `${dovuto} ${fineTesto}`);
     } else if (giorni === 0 && bot.inMinuti(r.ora) - adessoMin < ANTICIPO_MINIMO) continue;
     // Senza NESSUN recapito non si manda niente: è una prenotazione presa al
     // banco senza niente. Non è un guasto, ma va detto — vedi mandaPromemoria.
