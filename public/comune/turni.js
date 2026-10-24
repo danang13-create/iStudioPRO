@@ -503,6 +503,41 @@ window.Turni = (function () {
     return r && r.fuori_sala && r.locale_scelto ? `<span class="etichetta-esp">🍝 ${sicuro(r.locale_scelto)}</span>` : '';
   }
 
+  // Il motivo di una cancellazione fatta a mano (dal titolare, 24 ottobre
+  // 2026): «Cancellata» metteva insieme chi ha disdetto, chi non è venuto e
+  // un doppione segnato per sbaglio. Tre scelte rapide, o scritto. Facoltativo:
+  // il sabato sera un campo che blocca fa scrivere «x». Il bot non c'entra.
+  const MOTIVI_ANNULLAMENTO = ['Ha disdetto', 'Non si è presentato', 'Errore / doppione'];
+
+  // Nel pannello: la riga del motivo si vede solo con lo stato «Cancellata»,
+  // e un tocco su una scelta la scrive nel campo (un secondo tocco la toglie).
+  // Ridà la funzione da chiamare quando il pannello si riempie.
+  function collegaMotivo(riga, stato, campo) {
+    const scelte = riga.querySelector('.motivi');
+    scelte.innerHTML = MOTIVI_ANNULLAMENTO.map((m) =>
+      `<button type="button" class="motivo" data-motivo="${m}" aria-pressed="false">${m}</button>`).join('');
+    const segna = () => scelte.querySelectorAll('.motivo').forEach((b) =>
+      b.setAttribute('aria-pressed', String(b.dataset.motivo === campo.value.trim())));
+    const mostra = () => { riga.hidden = stato.value !== 'annullata'; segna(); };
+    scelte.addEventListener('click', (e) => {
+      const b = e.target.closest('.motivo');
+      if (!b) return;
+      campo.value = campo.value.trim() === b.dataset.motivo ? '' : b.dataset.motivo;
+      segna();
+    });
+    campo.addEventListener('input', segna);
+    stato.addEventListener('change', mostra);
+    return mostra;
+  }
+
+  // «❌ cancellata dalla sala · Non si è presentato»: per la scheda del cliente.
+  // Una cancellata dal bot resta «❌ cancellata», com'era.
+  function cancellataDetta(r, sicuro) {
+    const da = r.annullata_da === 'sala' ? ' dalla sala' : (r.annullata_da === 'piattaforma' ? ' dalla piattaforma' : '');
+    return `❌ cancellata${da}${r.motivo_annullamento ? ` · ${sicuro(r.motivo_annullamento)}` : ''}`;
+  }
+
   return { dellaGiornata, riempi, riempiPersone, vociPersone, liberiPer, capienza, dimentica, opzioniOrari, disegnaRiepilogo,
-           aggiornaRiepilogo, sceltaTavolo, elencoTavoli, chiudiTavoli, etichettaLocale };
+           aggiornaRiepilogo, sceltaTavolo, elencoTavoli, chiudiTavoli, etichettaLocale,
+           MOTIVI_ANNULLAMENTO, collegaMotivo, cancellataDetta };
 })();

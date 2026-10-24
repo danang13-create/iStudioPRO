@@ -8290,6 +8290,9 @@ const rottaModificaPrenotazione = async (req, res) => {
     stato: ['confermata', 'presentata', 'annullata'].includes(b.stato) || b.stato === p.stato
       ? b.stato : p.stato,
   };
+  // Il motivo di una cancellazione (dal titolare, 24 ottobre 2026): facoltativo,
+  // corto, su una riga. Solo se arriva: una modifica che non lo manda non lo tocca.
+  const motivo = typeof b.motivo === 'string' ? b.motivo.replace(/\s+/g, ' ').trim().slice(0, 120) : null;
 
   // ⚠️ Un'email storta non si accetta in silenzio: finirebbe in archivio un
   // dato falso, e la conferma non arriverebbe a nessuno senza che nessuno lo
@@ -8406,6 +8409,17 @@ const rottaModificaPrenotazione = async (req, res) => {
     + 'note = ?, telefono_contatto = ?, email = ?, tavolo = ?, esperienza = ?, stato = ? WHERE id = ?')
     .run(nuovi.data, nuovi.ora, nuovi.persone, nuovi.nome, nuovi.cognome,
          nuovi.note, nuovi.telefono_contatto, nuovi.email, nuovi.tavolo, nuovi.esperienza, nuovi.stato, p.id);
+  // Cancellata adesso: quando (prima lo scriveva solo il bot), da dove, e
+  // perché. Già cancellata: si corregge il motivo. Riaperta: niente resta
+  // della cancellazione, sennò in scheda direbbe ancora «Non si è presentato».
+  if (nuovi.stato === 'annullata' && p.stato !== 'annullata') {
+    db.prepare("UPDATE prenotazioni SET annullata_at = datetime('now','localtime'), annullata_da = ?, "
+      + 'motivo_annullamento = ? WHERE id = ?').run(req.dallaSala ? 'sala' : 'piattaforma', motivo || '', p.id);
+  } else if (nuovi.stato === 'annullata' && motivo !== null) {
+    db.prepare('UPDATE prenotazioni SET motivo_annullamento = ? WHERE id = ?').run(motivo, p.id);
+  } else if (nuovi.stato !== 'annullata' && p.stato === 'annullata') {
+    db.prepare("UPDATE prenotazioni SET annullata_at = NULL, annullata_da = '', motivo_annullamento = '' WHERE id = ?").run(p.id);
+  }
 
   // Spostata su un altro giorno: può essere finita proprio sul giorno per cui
   // quel cliente era in lista d'attesa. Allora la lista non serve più.
@@ -8981,6 +8995,10 @@ function salaAutenticato(req) {
 const sala = express();
 sala.use(express.json({ limit: '1mb' }));
 sala.use(corpoRotto);
+// Le rotte delle prenotazioni sono le stesse delle due porte: così sanno da
+// quale arriva la richiesta, e una cancellazione dice da dove è venuta
+// (`annullata_da`).
+sala.use((req, res, next) => { req.dallaSala = true; next(); });
 
 // L'interruttore vale per TUTTO, compreso l'accesso: spenta, questa porta non
 // risponde niente. È l'unico modo per cui «spenta» vuol dire davvero spenta.

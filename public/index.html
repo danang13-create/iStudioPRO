@@ -1110,6 +1110,8 @@
      al centro, che si salva da solo appena lo si lascia. */
   .tavolo-campo { width: 76px; padding: 6px 8px; text-align: center; font-weight: 600;
                   font-variant-numeric: tabular-nums; }
+  /* Il motivo di una cancellata, sotto il suo stato: si salva da solo. */
+  .motivo-campo { display: block; width: 100%; max-width: 220px; margin-top: 6px; padding: 6px 8px; font-size: .88rem; }
   /* La chat: elenco a sinistra, conversazione a destra. Erano stili in
      linea, e da una media query uno stile in linea non si batte: sul
      telefono le due colonne restavano affiancate, la conversazione veniva
@@ -6144,6 +6146,12 @@ async function caricaServizio() {
           r.stato === 'attesa_pagamento' ? ' disabled' : ''}>
           ${Object.entries(etichetta).map(([v, t]) => `<option value="${v}"${r.stato === v ? ' selected' : ''}>${t}</option>`).join('')}
         </select>
+        ${r.stato === 'annullata' ? `
+        <input class="motivo-campo" data-motivo="${r.id}" list="motivi-annullamento" maxlength="120" autocomplete="off"
+          value="${testoSicuro(r.motivo_annullamento || '')}" placeholder="motivo (facoltativo)"
+          title="Perché è stata cancellata: si salva da solo"
+          aria-label="Motivo dell'annullamento di ${testoSicuro([r.nome, r.cognome].filter(Boolean).join(' ') || 'questo cliente')}">
+        ${r.annullata_da ? `<span class="conteggio" style="margin:2px 0 0;display:block">dalla ${r.annullata_da === 'sala' ? 'sala' : 'piattaforma'}</span>` : ''}` : ''}
         ${r.importo_dovuto && !r.pagato_at ? `
         <br><span class="conteggio" style="margin:4px 0 0;display:block">${
           euroUI(r.importo_dovuto)}${r.stato === 'attesa_pagamento'
@@ -6159,6 +6167,24 @@ async function caricaServizio() {
   }).join('');
   corpo.querySelectorAll('[data-stato]').forEach((s) => {
     s.addEventListener('change', () => salvaPrenotazione(s.dataset.stato, { stato: s.value }).then(caricaServizio));
+  });
+  // Il motivo di una cancellata (dal titolare, 24 ottobre 2026): sulla riga,
+  // e si salva da solo come il tavolo. Le tre scelte rapide le propone il
+  // campo mentre si scrive (Turni.MOTIVI_ANNULLAMENTO).
+  if (!document.getElementById('motivi-annullamento')) {
+    document.body.insertAdjacentHTML('beforeend', `<datalist id="motivi-annullamento">${
+      Turni.MOTIVI_ANNULLAMENTO.map((m) => `<option value="${testoSicuro(m)}">`).join('')}</datalist>`);
+  }
+  corpo.querySelectorAll('[data-motivo]').forEach((campo) => {
+    campo.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') campo.blur(); });
+    campo.addEventListener('change', async () => {
+      const riga = d.righe.find((x) => String(x.id) === campo.dataset.motivo);
+      const risposta = await salvaPrenotazione(campo.dataset.motivo, { motivo: campo.value.trim() });
+      if (risposta && !risposta.error) {
+        campo.value = risposta.motivo_annullamento || '';
+        if (riga) riga.motivo_annullamento = risposta.motivo_annullamento || '';
+      }
+    });
   });
   // ⚠️ La conferma di un pagamento NON passa dalla tendina degli stati: quella
   // scriverebbe «confermata» e basta, saltando il controllo che i posti ci siano
@@ -6950,6 +6976,11 @@ function disegnaReport(d, prima = null) {
       nome: x.nome, valore: x.coperti, extra: x.posti ? `su ${x.posti} posti` : `${x.prenotazioni} pren.`,
     }))), 'Ognuno coi suoi coperti; gli altri locali anche sui loro posti.');
   }
+  if (d.perMotivo && d.perMotivo.length) {
+    html += riquadro('Perché si cancella', barre(d.perMotivo.map((x) => ({
+      nome: x.motivo, valore: x.prenotazioni, extra: `${x.coperti} coperti`,
+    })), 'prenotazioni'), 'Le cancellate dalla sala e dalla piattaforma, col motivo scritto; quelle del bot non ce l\'hanno.');
+  }
   html += '</div>';
 
   html += riquadro(`Andamento nel tempo`, serieNelTempo(d.serie),
@@ -7473,7 +7504,7 @@ function aggiornaStatoEmail() {
 
 function segnoDi(r, inArrivo) {
   if (r.stato === 'attesa_pagamento') return '⏳ attende il pagamento';
-  if (r.stato === 'annullata') return '❌ cancellata';
+  if (r.stato === 'annullata') return Turni.cancellataDetta(r, testoSicuro);
   if (r.stato === 'presentata') return '✅ venuto';
   if (inArrivo) return '';
   return '<span title="Nessuno ha segnato se quella sera si è presentato">non segnata</span>';

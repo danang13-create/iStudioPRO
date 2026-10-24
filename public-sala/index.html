@@ -336,6 +336,15 @@
   }
   label { display: block; font-size: .85rem; color: var(--grigio); font-weight: 600; }
   label input, label select { margin-top: 5px; font-weight: 400; color: var(--testo); }
+  /* Il motivo di una cancellazione (Turni.collegaMotivo): tre scelte e un
+     campo. La scelta toccata resta segnata, come un interruttore. Non è un
+     <label>: con dei tasti dentro, toccare il titolo premerebbe il primo. */
+  .motivo-riga { margin-top: 12px; }
+  .motivo-titolo { display: block; font-size: .85rem; color: var(--grigio); font-weight: 600; }
+  .motivi { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 8px; }
+  .motivo { background: var(--carta); color: var(--testo); border: 1px solid var(--bordo); border-radius: 999px;
+            padding: 8px 14px; min-height: 40px; font-size: .9rem; font-weight: 600; cursor: pointer; }
+  .motivo[aria-pressed="true"] { background: var(--giu-fondo); color: var(--giu-testo); border-color: var(--giu-bordo); }
   /* Un blocco per turno: l'ora scritta una volta, in testa, col totale già
      fatto. Prima l'ora si ripeteva su ogni riga — venti volte «20:30» — e per
      sapere quante persone c'erano alle 22:30 bisognava leggerle tutte. */
@@ -896,6 +905,12 @@
       <option value="presentata">✅ Conclusa</option>
       <option value="annullata">❌ Cancellata</option>
     </select></label>
+    <div id="p-motivo-riga" class="motivo-riga" role="group" aria-labelledby="p-motivo-titolo" hidden>
+      <span class="motivo-titolo" id="p-motivo-titolo">Motivo dell'annullamento <span class="conteggio">(facoltativo)</span></span>
+      <div class="motivi"></div>
+      <input id="p-motivo" maxlength="120" autocomplete="off" placeholder="oppure scrivi il motivo…"
+        aria-label="Motivo dell'annullamento">
+    </div>
     <label style="display:flex;align-items:flex-start;gap:9px;margin-top:14px;font-weight:400;cursor:pointer">
       <input type="checkbox" id="p-avvisa" checked style="width:auto;margin-top:3px">
       <span><b>Avvisa il cliente su WhatsApp</b><br>
@@ -1123,7 +1138,9 @@ async function caricaGiorno() {
           [Turni.etichettaLocale(r, sicuro),
             r.esperienza ? `<span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : ''].filter(Boolean).join(' '),
           r.origine === 'manuale' ? '<span class="conteggio">admin</span>' : '',
-          ETICHETTA[r.stato] ? `<span class="conteggio stato-eti">${ETICHETTA[r.stato]}</span>` : '',
+          // Cancellata: anche da dove e perché (dal titolare, 24 ottobre 2026).
+          ETICHETTA[r.stato] ? `<span class="conteggio stato-eti">${
+            r.stato === 'annullata' ? Turni.cancellataDetta(r, sicuro) : ETICHETTA[r.stato]}</span>` : '',
         ].filter(Boolean).join('<span class="conteggio"> · </span>');
         const numero = numeroPulito(r.telefono_contatto || r.telefono);
         const dettagli = [prima,
@@ -1235,6 +1252,9 @@ async function salvaTavolo(campo, riga) {
   Turni.aggiornaRiepilogo($('#turni'), $('#giorno').value);
 }
 
+// Il motivo di una cancellazione: la riga compare con «Cancellata».
+const mostraMotivo = Turni.collegaMotivo($('#p-motivo-riga'), $('#p-stato'), $('#p-motivo'));
+
 function apri(p) {
   idAperto = p ? p.id : null;
   // ⚠️ Aprendo il pannello si ripartono a chiedere i numeri: orari liberi e
@@ -1295,6 +1315,8 @@ function apri(p) {
   tendina.value = statoSuo;
   tendina.disabled = !previsto;
   $('#p-stato').parentElement.style.display = p ? '' : 'none';
+  $('#p-motivo').value = p && p.stato === 'annullata' ? (p.motivo_annullamento || '') : '';
+  mostraMotivo();
   $('#p-avvisa').checked = true;
   // Un elenco rimasto lì dalla volta prima si tocca per sbaglio, e la
   // prenotazione va all'altro cliente.
@@ -1611,7 +1633,7 @@ function sottoRiga(r, inArrivo) {
 // l'unica cosa onesta è dire che non è stato segnato.
 function segnoDi(r, inArrivo) {
   if (r.stato === 'attesa_pagamento') return '⏳ attende il pagamento';
-  if (r.stato === 'annullata') return '❌ cancellata';
+  if (r.stato === 'annullata') return Turni.cancellataDetta(r, sicuro);
   if (r.stato === 'presentata') return '✅ venuto';
   if (inArrivo) return '';
   return '<span title="Nessuno ha segnato se quella sera si è presentato">non segnata</span>';
@@ -1652,6 +1674,8 @@ async function salvaDavvero(forza) {
   // stesso, il server rispondeva «Stato non valido» — e in sala non si poteva
   // più correggere nemmeno un cognome, con un errore che non spiegava niente.
   if (idAperto && !$('#p-stato').disabled) corpo.stato = $('#p-stato').value;
+  // Il motivo va solo con «Cancellata»: vuoto vale «nessun motivo».
+  if (corpo.stato === 'annullata') corpo.motivo = $('#p-motivo').value.trim();
   if (!corpo.ora) {
     $('#p-errore').textContent = 'Scegli un orario.';
     $('#p-errore').style.display = '';

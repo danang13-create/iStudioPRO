@@ -308,6 +308,12 @@ function preparaDatabase(db) {
   // contano sui tavoli del locale principale (vedi «I locali»).
   try { db.exec("ALTER TABLE prenotazioni ADD COLUMN locale_scelto TEXT NOT NULL DEFAULT ''"); } catch {}
   try { db.exec('ALTER TABLE prenotazioni ADD COLUMN fuori_sala INTEGER NOT NULL DEFAULT 0'); } catch {}
+  // Perché è stata cancellata, quando la cancella una persona dalla sala o
+  // dalla piattaforma (dal titolare, 24 ottobre 2026): «Non si è presentato»,
+  // «Ha disdetto», o scritto a mano. Facoltativo. E da dove: 'sala' o
+  // 'piattaforma'; vuoto se l'ha cancellata il bot (lì non cambia niente).
+  try { db.exec("ALTER TABLE prenotazioni ADD COLUMN motivo_annullamento TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { db.exec("ALTER TABLE prenotazioni ADD COLUMN annullata_da TEXT NOT NULL DEFAULT ''"); } catch {}
   // «chiusura» o «pieno». Le righe già scritte sono chiusure: è quello che
   // voleva dire questa tabella prima che il sold out esistesse.
   try { db.exec("ALTER TABLE bot_chiusure ADD COLUMN tipo TEXT NOT NULL DEFAULT 'chiusura'"); } catch {}
@@ -5182,6 +5188,20 @@ function reportPrenotazioni(db, cfg, dal, al) {
     }),
   ] : [];
 
+  // Perché si cancella (dal titolare, 24 ottobre 2026): solo le cancellate a
+  // mano, dalla sala o dalla piattaforma — quelle del bot non hanno un motivo.
+  // Le tre scelte rapide hanno la loro riga, quelle scritte a mano stanno
+  // insieme in «Altro», e in fondo chi non l'ha scritto.
+  const RAPIDI = ['Ha disdetto', 'Non si è presentato', 'Errore / doppione'];
+  const aMano = annullate.filter((r) => r.annullata_da);
+  const motivoDi = (r) => {
+    const m = String(r.motivo_annullamento || '').trim();
+    return !m ? 'Senza motivo' : (RAPIDI.find((x) => normalizza(x) === normalizza(m)) || 'Altro');
+  };
+  const ordineMotivo = (nome) => (nome === 'Senza motivo' ? 2 : nome === 'Altro' ? 1 : 0);
+  const perMotivo = [...somma(aMano, motivoDi).entries()].map(([motivo, v]) => ({ motivo, ...v }))
+    .sort((a, b) => ordineMotivo(a.motivo) - ordineMotivo(b.motivo) || b.prenotazioni - a.prenotazioni);
+
   return {
     dal, al, giorni,
     totale: {
@@ -5217,6 +5237,7 @@ function reportPrenotazioni(db, cfg, dal, al) {
     quandoScrivono,
     fedeli,
     perLocale,
+    perMotivo,
     turnoTop: piuAlto(perTurno),
     giornoTop: piuAlto(perGiornoSettimana.filter((g) => g.coperti > 0)),
   };
