@@ -1119,7 +1119,7 @@ async function caricaGiorno() {
         // «Attenzione: uno di noi è celiaco» si leggeva su tre righe (vedi
         // `.pren`). «admin» scende qui: accanto al nome lo mandava a capo.
         const prima = [
-          [r.locale_scelto ? `<span class="etichetta-esp">${Turni.iconaLocale(r)} ${sicuro(r.locale_scelto)}</span>` : '',
+          [Turni.etichettaLocale(r, sicuro),
             r.esperienza ? `<span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : ''].filter(Boolean).join(' '),
           r.origine === 'manuale' ? '<span class="conteggio">admin</span>' : '',
           ETICHETTA[r.stato] ? `<span class="conteggio stato-eti">${ETICHETTA[r.stato]}</span>` : '',
@@ -1597,8 +1597,8 @@ function sottoRiga(r, inArrivo) {
   const segno = segnoDi(r, inArrivo);
   if (segno) pezzi.push(segno);
   // L'esperienza in testa, con la sua etichetta (come sulla riga del servizio).
-  // E il locale, quando il titolare ne ha più di uno (vedi «I locali»).
-  const esp = [r.locale_scelto ? `<span class="etichetta-esp">${Turni.iconaLocale(r)} ${sicuro(r.locale_scelto)}</span>` : '',
+  // E il locale, se è l'altro (vedi «etichettaLocale»).
+  const esp = [Turni.etichettaLocale(r, sicuro),
     r.esperienza ? `<span class="etichetta-esp">🍽️ ${sicuro(r.esperienza)}</span>` : ''].filter(Boolean).join(' ');
   if (!esp && !pezzi.length) return '';
   return `<span class="nota">${esp}${esp && pezzi.length ? ' ' : ''}${pezzi.join(' · ')}</span>`;

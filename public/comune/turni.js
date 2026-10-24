@@ -469,11 +469,17 @@ window.Turni = (function () {
   // Quando cambia il giorno, i turni possono essere altri (pranzo, chiusure).
   function dimentica() { ultimaData = null; ultimiTurni = []; ultimaCapienza = 0; conTavoli = false; quando = 0; }
 
-  // L'icona dell'etichetta del locale su una prenotazione: 🍝 per l'altro
-  // locale (il bistrot del 25 ottobre: chiesto dal titolare, 19 ottobre 2026),
-  // 📍 per quello di sempre. Qui e non in ciascuna pagina: due copie divergono.
-  function iconaLocale(r) { return r && r.fuori_sala ? '🍝' : '📍'; }
+  // L'etichetta del locale su una prenotazione, o niente. Solo per l'ALTRO
+  // locale (il bistrot del 25 ottobre), con 🍝 (chiesto dal titolare, 19
+  // ottobre 2026). Quello di sempre non si scrive più (24 ottobre 2026): ce
+  // l'ha quasi ogni prenotazione, e un «📍 REAR restaurant» su tutte non
+  // distingueva niente — faceva solo cercare quella del bistrot fra le altre.
+  // Qui e non in ciascuna pagina: due copie divergono. `sicuro` è la funzione
+  // della pagina che rende innocuo un testo.
+  function etichettaLocale(r, sicuro) {
+    return r && r.fuori_sala && r.locale_scelto ? `<span class="etichetta-esp">🍝 ${sicuro(r.locale_scelto)}</span>` : '';
+  }
 
   return { dellaGiornata, riempi, riempiPersone, liberiPer, capienza, dimentica, opzioniOrari, disegnaRiepilogo,
-           aggiornaRiepilogo, sceltaTavolo, elencoTavoli, chiudiTavoli, iconaLocale };
+           aggiornaRiepilogo, sceltaTavolo, elencoTavoli, chiudiTavoli, etichettaLocale };
 })();

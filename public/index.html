@@ -6058,8 +6058,8 @@ async function caricaServizio() {
           class="nome-cliente">${
           testoSicuro([r.nome, r.cognome].filter(Boolean).join(' ') || '—')}</button>
         ${r.origine === 'manuale' ? '<span class="conteggio" style="margin:0"> · admin</span>' : ''}
-        ${r.locale_scelto ? '<br><span class="etichetta-esp">' + Turni.iconaLocale(r) + ' ' + testoSicuro(r.locale_scelto) + '</span>' : ''}
-        ${r.esperienza ? (r.locale_scelto ? ' ' : '<br>') + '<span class="etichetta-esp">🍽️ ' + testoSicuro(r.esperienza) + '</span>' : ''}
+        ${Turni.etichettaLocale(r, testoSicuro) ? '<br>' + Turni.etichettaLocale(r, testoSicuro) : ''}
+        ${r.esperienza ? (Turni.etichettaLocale(r, testoSicuro) ? ' ' : '<br>') + '<span class="etichetta-esp">🍽️ ' + testoSicuro(r.esperienza) + '</span>' : ''}
         <br><span class="conteggio" style="margin:0">${
         r.telefono_contatto ? '📞 ' + numeroPulito(r.telefono_contatto) : numeroPulito(r.telefono)
       }</span></td>
@@ -7140,7 +7140,7 @@ function sottoRiga(r, inArrivo) {
   if (segno) pezzi.push(segno);
   // L'esperienza in testa, con la sua etichetta: anche nella scheda del
   // cliente si deve capire cosa ha prenotato.
-  const esp = [r.locale_scelto ? `<span class="etichetta-esp">${Turni.iconaLocale(r)} ${testoSicuro(r.locale_scelto)}</span>` : '',
+  const esp = [Turni.etichettaLocale(r, testoSicuro),
     r.esperienza ? `<span class="etichetta-esp">🍽️ ${testoSicuro(r.esperienza)}</span>` : ''].filter(Boolean).join(' ');
   if (!esp && !pezzi.length) return '';
   return `<span class="nota">${esp}${esp && pezzi.length ? ' ' : ''}${pezzi.join(' · ')}</span>`;

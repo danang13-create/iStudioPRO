@@ -99,7 +99,7 @@ window.Planning = (function () {
         : `${g.conTavoli ? `${coperti} coperti` : `${prenotazioni} pren.`}${pieno ? ' · pieno' : quasi ? ' · quasi pieno' : ''}`;
       // Una riga per ogni altro locale di quel giorno: il nome, le persone
       // sui suoi coperti, e «pieno» a parole quando lo è. 🍝 è l'icona del
-      // bistrot, la stessa delle etichette (vedi `iconaLocale`).
+      // bistrot, la stessa delle etichette (vedi `etichettaLocale`).
       const altri = g.locali || [];
       // Sul telefono il nome sparisce («🍝 9/60», vedi `planning.css`): in un
       // riquadro da 108 pixel mandava i numeri a capo, e 🍝 dice già chi è.
