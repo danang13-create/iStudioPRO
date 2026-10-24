@@ -755,18 +755,65 @@
      a destra l'ultima volta. Un tasto largo quanto la riga, così sul telefono
      si tocca ovunque. */
   .cli-testa { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
-  .cli-riga { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: center;
-              width: 100%; padding: 10px 4px; border: 0; border-top: 1px solid var(--bordo);
+  /* Le iniziali a sinistra (24 ottobre 2026): in un elenco lungo l'occhio
+     trova una persona dalla forma prima che dal nome. A destra quando, e sotto
+     quante volte ha prenotato; chi ha un tavolo in arrivo lo dice in verde. */
+  .cli-riga { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "ini chi quando" "ini dove quando";
+              gap: 2px 12px; align-items: center;
+              width: 100%; padding: 10px 8px; border: 0; border-top: 1px solid var(--bordo); border-radius: 0;
               background: none; font: inherit; color: var(--testo); text-align: left; cursor: pointer; }
   .cli-riga:first-child { border-top: 0; }
   .cli-riga:hover { background: var(--carta-2); }
-  .cli-riga .chi { font-weight: 600; }
+  .cli-riga .cli-iniziali { grid-area: ini; width: 38px; height: 38px; font-size: .82rem; }
+  .cli-riga .chi { grid-area: chi; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+  .cli-riga .dove { grid-area: dove; min-width: 0; overflow-wrap: anywhere; }
   .cli-riga .dove, .cli-riga .quando { font-size: .84rem; color: var(--grigio); }
-  .cli-riga .quando { grid-column: 2; grid-row: 1 / span 2; text-align: right; white-space: nowrap; }
+  .cli-riga .quando { grid-area: quando; text-align: right; white-space: nowrap; }
+  .cli-riga .quando b { font-weight: 500; color: var(--testo); }
+  .cli-riga .quando small { display: block; font-size: .78rem; }
+  .cli-riga .quando.arriva b { color: var(--verde-testo); font-weight: 600; }
   /* Il segno accanto al nome: in rubrica, o ha chiesto di non ricevere. Non
      solo un colore — una parola. */
   .cli-segno { margin-left: 6px; font-size: .76rem; font-weight: 600; color: var(--grigio); }
-  .cli-azioni { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  /* La scheda rifatta (24 ottobre 2026): in testa chi è, sotto una fila di
+     tasti tutti uguali, poi i numeri. */
+  /* La testa resta ferma mentre lo storico scorre, come il titolo degli altri
+     pannelli: chi è e la × restano sempre a portata di dito. */
+  .cli-capo { display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 1;
+              margin: 0 -20px 12px; padding: 16px 20px 12px; background: var(--carta);
+              border-bottom: 1px solid var(--bordo); border-radius: 12px 12px 0 0; }
+  .cli-iniziali { flex: none; display: inline-grid; place-items: center; width: 46px; height: 46px; border-radius: 50%;
+                  background: var(--nuova-fondo); color: var(--nuova-testo); border: 1px solid var(--nuova-bordo);
+                  font-weight: 700; font-size: .95rem; letter-spacing: .02em; }
+  .cli-chi { flex: 1; min-width: 0; }
+  .cli-chi h2 { font-size: 1.12rem; margin: 0; overflow-wrap: anywhere; }
+  .cli-recapiti { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 3px; font-size: .86rem; color: var(--grigio); }
+  .cli-recapiti a { color: var(--verde-testo); text-decoration: none; overflow-wrap: anywhere; }
+  .cli-recapiti a:hover { text-decoration: underline; }
+  .cli-x { flex: none; align-self: flex-start; width: 40px; height: 40px; margin: -6px -8px 0 0; border: 0; border-radius: 50%;
+           background: none; color: var(--grigio); font: inherit; font-size: 1.6rem; line-height: 1; cursor: pointer; }
+  .cli-x:hover { background: var(--carta-2); color: var(--testo); }
+  .cli-tasti { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 0 12px; margin-bottom: 14px;
+               border-bottom: 1px solid var(--bordo); }
+  .cli-tasti[hidden] { display: none; }
+  .cli-tasti #cli-elimina { margin-left: auto; }
+  .cli-azioni { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cli-azioni:empty { display: none; }
+  .cli-stati { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 12px; }
+  .cli-stati:empty { display: none; }
+  /* Lo stato della rubrica, quando non c'è un tasto: una parola e un segno. */
+  .cli-stato { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 999px;
+               font-size: .8rem; font-weight: 600; background: var(--ok-fondo); color: var(--ok-testo); }
+  .cli-stato.stop { background: var(--male-fondo); color: var(--male-testo); }
+  .cli-stato.nessuno { background: var(--carta-2); color: var(--grigio); font-weight: 500; }
+  .cli-elimina { border: 1px solid var(--male-bordo); background: var(--male-fondo); border-radius: 10px;
+                 padding: 12px 14px; margin: -4px 0 14px; color: var(--testo); }
+  .cli-elimina[hidden] { display: none; }
+  .cli-elimina > b { color: var(--male-testo); }
+  .cli-elimina p { margin: 6px 0; font-size: .88rem; }
+  .cli-elimina label { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0; font-weight: 500; font-size: .88rem; cursor: pointer; }
+  .cli-elimina label input { width: auto; margin-top: 3px; }
+  .cli-elimina .cli-nome-tasti { margin-top: 10px; }
   .cli-testa { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .escluso { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--bordo); }
   .escluso > div { flex: 1; min-width: 0; }
@@ -782,7 +829,7 @@
   .cli-nome-tasti, .cli-nome-form p { grid-column: 1 / -1; }
   .cli-nome-tasti { display: flex; gap: 8px; }
   @media (max-width: 480px) { .cli-nome-form { grid-template-columns: 1fr; } }
-  .cli-numeri { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .cli-numeri { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
   .cli-numero { background: var(--carta-2); border-radius: 10px; padding: 10px 12px; }
   .cli-numero b { display: block; font-size: 1.3rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
   .cli-numero span { font-size: .78rem; color: var(--grigio); }
@@ -794,8 +841,12 @@
     /* Sul telefono una colonna sola: nome, recapiti, ultima volta uno sotto
        l'altro. Con due colonne il nome andava a capo e i recapiti finivano
        accanto alla data, a 390 pixel non ci stanno. */
-    .cli-riga { grid-template-columns: 1fr; padding: 12px 4px; }
-    .cli-riga .quando { grid-column: 1; grid-row: auto; text-align: left; white-space: normal; }
+    .cli-riga { grid-template-columns: auto 1fr; grid-template-areas: "ini chi" "ini dove" "ini quando"; padding: 12px 4px; }
+    .cli-riga .quando { text-align: left; white-space: normal; }
+    .cli-riga .quando small { display: inline; }
+    .cli-riga .quando small::before { content: ' · '; }
+    .cli-tasti #cli-elimina { margin-left: 0; }
+    .cli-x { width: 44px; height: 44px; }
     .cli-numeri { grid-template-columns: repeat(2, 1fr); }
   }
   .riga-strumenti { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
@@ -2292,9 +2343,10 @@
         </div>
         <p class="conteggio" style="margin:0 0 10px">
           Chi ha prenotato almeno una volta, dall'ultima visita in giù. Tocca un nome per la sua
-          scheda: le prenotazioni, le cose da ricordare, le richieste che ha fatto, e il tasto per
-          metterlo in rubrica — uno per uno, perché chi prenota un tavolo non ha chiesto le novità
-          del locale. La scheda si apre anche dal nome su una prenotazione qualsiasi.
+          scheda: le prenotazioni, le cose da ricordare, le richieste che ha fatto, e i tasti per
+          correggere il nome, metterlo in rubrica — uno per uno, perché chi prenota un tavolo non ha
+          chiesto le novità del locale — o eliminarlo, così il bot non se ne ricorda più. La scheda
+          si apre anche dal nome su una prenotazione qualsiasi.
         </p>
         <input id="cli-cerca" type="search" autocomplete="off" placeholder="nome, cognome, numero o email…" style="max-width:420px">
         <div id="cli-elenco" style="margin-top:10px"></div>
@@ -2838,10 +2890,17 @@
         <!-- «Modifica»: chi ha scritto male il suo nome se lo portava dietro per
              sempre, perché il bot lo riconosce dal numero. Solo qui, sulla
              piattaforma: la scheda in sala non ce l'ha. -->
-        <div class="cli-testa">
-          <h2 style="font-size:1.05rem;margin:0 0 2px" id="cli-nome">Cliente</h2>
-          <button type="button" class="btn btn-secondario btn-piccolo" id="cli-modifica" hidden>✏️ Modifica</button>
+        <!-- In testa chi è: le iniziali, il nome, i recapiti che si toccano
+             (chiamare, scrivere), e la × per chiudere senza scorrere fino in fondo. -->
+        <div class="cli-capo">
+          <span class="cli-iniziali" id="cli-iniziali" aria-hidden="true"></span>
+          <div class="cli-chi">
+            <h2 id="cli-nome">Cliente</h2>
+            <div id="cli-recapiti" class="cli-recapiti"></div>
+          </div>
+          <button type="button" class="cli-x" id="cli-x" aria-label="Chiudi la scheda">×</button>
         </div>
+        <div id="cli-stati" class="cli-stati"></div>
         <form id="cli-nome-form" class="cli-nome-form" hidden>
           <label>Nome<input id="cli-nome-nuovo" autocomplete="off" maxlength="60"></label>
           <label>Cognome<input id="cli-cognome-nuovo" autocomplete="off" maxlength="60"></label>
@@ -2852,10 +2911,16 @@
           <p class="conteggio" style="margin:0">Vale per tutte le sue prenotazioni, per la rubrica e per come lo chiama
             il bot. Un titolo (Don, Ing., Dott. e simili) va nel nome, davanti: «Don Franco», «Ing. Muto».</p>
         </form>
-        <div class="conteggio" style="margin:0 0 10px" id="cli-recapiti"></div>
-        <!-- La rubrica sta qui, sulla persona: è il gesto che trasforma una
-             serata in un cliente a cui poter scrivere. -->
-        <div id="cli-azioni" class="cli-azioni"></div>
+        <!-- I tasti della persona, tutti uguali e in fila (24 ottobre 2026):
+             correggere il nome, la rubrica — è il gesto che trasforma una
+             serata in un cliente a cui poter scrivere — ed eliminarlo, così il
+             bot non se ne ricorda più. Elimina chiede conferma qui sotto. -->
+        <div class="cli-tasti" id="cli-tasti" hidden>
+          <button type="button" class="btn btn-secondario btn-piccolo" id="cli-modifica" hidden>✏️ Modifica nome</button>
+          <span id="cli-azioni" class="cli-azioni"></span>
+          <button type="button" class="btn btn-rosso btn-piccolo" id="cli-elimina">🗑️ Elimina cliente</button>
+        </div>
+        <div id="cli-elimina-box" class="cli-elimina" role="alertdialog" aria-labelledby="cli-elimina-titolo" hidden></div>
         <div id="cli-numeri" class="cli-numeri"></div>
         <div id="cli-note" style="margin-bottom:14px"></div>
         <div id="cli-richieste" style="margin-bottom:14px"></div>
@@ -6943,9 +7008,12 @@ async function apriScheda(id) {
   schedaId = id;
   schedaDati = null;
   $('#cli-nome').textContent = 'Un momento…';
+  $('#cli-iniziali').textContent = '';
   $('#cli-modifica').hidden = true;
+  $('#cli-tasti').hidden = true;
+  $('#cli-elimina-box').hidden = true;
   $('#cli-nome-form').hidden = true;
-  for (const k of ['#cli-recapiti', '#cli-azioni', '#cli-numeri', '#cli-note', '#cli-richieste', '#cli-righe']) $(k).innerHTML = '';
+  for (const k of ['#cli-recapiti', '#cli-stati', '#cli-azioni', '#cli-numeri', '#cli-note', '#cli-richieste', '#cli-righe']) $(k).innerHTML = '';
   storicoTutto = false;
   let d;
   try { d = await (await fetch('/api/bot/cliente?id=' + encodeURIComponent(id))).json(); }
@@ -6954,8 +7022,10 @@ async function apriScheda(id) {
   schedaDati = d;
 
   $('#cli-nome').textContent = d.nome || '—';
+  $('#cli-iniziali').textContent = iniziali(d.nome);
   $('#cli-modifica').hidden = false;
-  $('#cli-recapiti').textContent = [numeroPulito(d.telefono), d.email].filter(Boolean).join(' · ') || 'Nessun recapito';
+  $('#cli-tasti').hidden = false;
+  $('#cli-recapiti').innerHTML = recapitiScheda(d);
   disegnaAzioniScheda(d);
 
   // ⚠️ Si scrive «prenotazioni», non «visite». Finché non c'è l'appello di
@@ -6966,10 +7036,14 @@ async function apriScheda(id) {
   // server nuovo — si scrive un trattino.
   // «Ultima volta» non è un numero: passa com'è.
   const conto = (n) => (typeof n === 'string' ? n : (Number.isFinite(n) ? n : '—'));
+  // Coperti e prima volta (24 ottobre 2026): «2» o «40» persone portate, e da
+  // quanto tempo lo si conosce, sono le due cose che mancavano per dire chi è.
   $('#cli-numeri').innerHTML = [
     ['Prenotazioni', d.prenotazioni],
     ['In corso', d.prossime],
     ['Annullate', d.annullate],
+    ['Coperti', d.coperti],
+    ['Prima volta', d.primaVolta ? tempoFa(d.primaVolta) : '—', 'testo'],
     ['Ultima volta', d.ultimaVolta ? tempoFa(d.ultimaVolta) : '—', 'testo'],
   ].map(([t, n, classe]) => `<div class="cli-numero"><b${classe ? ` class="${classe}"` : ''}>${conto(n)}</b><span>${t}</span></div>`).join('');
 
@@ -6993,23 +7067,117 @@ async function apriScheda(id) {
 // Il tasto per la rubrica, o il motivo per cui non c'è. A chi ha chiesto di
 // non ricevere messaggi il tasto non si offre: sarebbe il modo di non
 // rispettare uno STOP.
+// Due posti: in testa lo STATO, a parole (in rubrica, ha detto no, STOP); nella
+// fila dei tasti l'AZIONE, «Salva in rubrica», solo se c'è da salvare. Tutto
+// nella fila dei tasti, gli stati lunghi andavano a capo fra un tasto e
+// l'altro. Lo STOP scritto al bot è un'altra cosa dal «no» della rubrica, e
+// «Elimina» non lo toglie.
 function disegnaAzioniScheda(d) {
   const box = $('#cli-azioni');
+  const stati = $('#cli-stati');
+  const stop = d.stop ? '<span class="cli-stato stop">⛔ Ha scritto STOP al bot</span>' : '';
+  box.innerHTML = '';
   if (d.inRubrica && d.inRubrica.optOut) {
-    box.innerHTML = `<span class="conteggio" style="margin:0">⛔ In rubrica come <b>${testoSicuro(d.inRubrica.nome)}</b> · ha chiesto di non ricevere messaggi</span>`;
+    stati.innerHTML = `<span class="cli-stato stop">⛔ In rubrica come <b>${testoSicuro(d.inRubrica.nome)}</b> · ha chiesto di non ricevere messaggi</span>${stop}`;
     return;
   }
   if (d.inRubrica) {
-    box.innerHTML = `<span class="conteggio" style="margin:0">✅ In rubrica come <b>${testoSicuro(d.inRubrica.nome)}</b></span>`;
+    stati.innerHTML = `<span class="cli-stato">✅ In rubrica come <b>${testoSicuro(d.inRubrica.nome)}</b></span>${stop}`;
     return;
   }
   if (!d.telefono && !d.email) {
-    box.innerHTML = '<span class="conteggio" style="margin:0">Senza un numero o un\'email non c\'è niente da mettere in rubrica.</span>';
+    stati.innerHTML = `<span class="cli-stato nessuno">Senza un numero o un\'email non c\'è niente da mettere in rubrica.</span>${stop}`;
     return;
   }
-  box.innerHTML = '<button type="button" class="btn btn-secondario btn-piccolo" id="cli-rubrica">Salva in rubrica</button>'
-    + '<span class="conteggio" style="margin:0">per gli invii WhatsApp e la newsletter</span>';
+  stati.innerHTML = stop;
+  box.innerHTML = '<button type="button" class="btn btn-secondario btn-piccolo" id="cli-rubrica"'
+    + ' title="Per gli invii WhatsApp e la newsletter">📇 Salva in rubrica</button>';
   $('#cli-rubrica').addEventListener('click', salvaSchedaInRubrica);
+}
+
+// Le iniziali, nel tondo in testa alla scheda e sulle righe dell'elenco.
+function iniziali(nome) {
+  const parole = String(nome || '').replace(/[^\p{L}\s]/gu, ' ').split(/\s+/).filter(Boolean);
+  return (parole.slice(0, 2).map((p) => p[0]).join('') || '?').toUpperCase();
+}
+
+// «+39 347 167 2981»: a gruppi si legge e si detta al telefono. Gli altri
+// formati restano come sono.
+function numeroBello(valore) {
+  const n = numeroPulito(valore);
+  const m = n.match(/^\+39(3\d{2})(\d{3})(\d{3,4})$/) || n.match(/^\+39(0\d{1,3})(\d{3})(\d{3,4})$/);
+  return m ? `+39 ${m[1]} ${m[2]} ${m[3]}` : n;
+}
+
+// I recapiti si toccano: il numero chiama, l'email apre la posta. Un numero
+// che non è un numero (un identificativo di WhatsApp) resta testo.
+function recapitiScheda(d) {
+  const pezzi = [];
+  const n = numeroPulito(d.telefono);
+  if (d.telefono && /^\+\d{8,15}$/.test(n)) pezzi.push(`<a href="tel:${n}">📞 ${testoSicuro(numeroBello(d.telefono))}</a>`);
+  else if (d.telefono) pezzi.push(`<span>📞 ${testoSicuro(n)}</span>`);
+  if (d.email) pezzi.push(`<a href="mailto:${testoSicuro(d.email)}">✉️ ${testoSicuro(d.email)}</a>`);
+  return pezzi.join('') || '<span>Nessun recapito</span>';
+}
+
+// ---- «Elimina cliente» (vedi «/api/bot/cliente/elimina» nel server) ----
+// La conferma sta DENTRO la scheda, sotto i tasti: si legge cosa sparisce
+// prima di toccare il tasto rosso. Con un tavolo in arrivo non si offre
+// nemmeno: lo si dice, con la data.
+function apriElimina() {
+  const d = schedaDati;
+  const box = $('#cli-elimina-box');
+  if (!d) return;
+  if (!box.hidden) { box.hidden = true; return; }
+  const oggi = new Date().toLocaleDateString('sv-SE');
+  const arrivo = (d.righe || []).filter((r) => r.data >= oggi && r.stato !== 'annullata')
+    .sort((a, b) => (a.data + a.ora < b.data + b.ora ? -1 : 1))[0];
+  const quante = d.prenotazioni || 0;
+  const rubrica = d.inRubrica && !d.inRubrica.optOut;
+  const titolo = arrivo ? 'Ha una prenotazione in arrivo' : `Eliminare ${testoSicuro(d.nome || 'questo cliente')}?`;
+  const corpo = arrivo
+    ? `<p>${testoSicuro(dataStoricaUI(arrivo.data))} alle ${testoSicuro(arrivo.ora)}. Un tavolo non si cancella da qui:
+        prima annulla quella dal servizio, poi elimini il cliente.</p>`
+    : `<p>Si cancellano ${quante === 1 ? 'la sua prenotazione' : `le sue ${quante} prenotazioni`}, le cose da ricordare
+        e le richieste fatte. Il bot non se ne ricorderà più: al prossimo messaggio lo tratterà come una persona nuova.
+        Non si torna indietro.</p>
+      ${rubrica ? `<label><input type="checkbox" id="cli-elimina-rubrica" checked>
+        <span>Togli anche dalla rubrica <span class="conteggio" style="margin:0">— lasciato lì, il bot lo saluta ancora per nome</span></span></label>` : ''}
+      ${d.inRubrica && d.inRubrica.optOut ? '<p class="conteggio" style="margin:6px 0">In rubrica resta: ha chiesto di non ricevere messaggi, e quella riga è il suo «no».</p>' : ''}
+      ${d.stop ? '<p class="conteggio" style="margin:6px 0">Ha scritto STOP al bot: quello resta, e il bot continua a non scrivergli.</p>' : ''}`;
+  box.innerHTML = `<b id="cli-elimina-titolo">${titolo}</b>${corpo}
+    <div class="cli-nome-tasti">
+      ${arrivo ? '' : '<button type="button" class="btn btn-rosso btn-piccolo" id="cli-elimina-si">Elimina per sempre</button>'}
+      <button type="button" class="btn btn-secondario btn-piccolo" id="cli-elimina-no">${arrivo ? 'Ho capito' : 'Annulla'}</button>
+    </div>`;
+  if (!arrivo) $('#cli-elimina-si').addEventListener('click', eliminaCliente);
+  $('#cli-elimina-no').addEventListener('click', () => { box.hidden = true; });
+  box.hidden = false;
+  box.scrollIntoView({ block: 'nearest' });
+}
+
+async function eliminaCliente() {
+  const tasto = $('#cli-elimina-si');
+  if (!tasto || !schedaDati) return;
+  tasto.disabled = true;
+  try {
+    const togli = $('#cli-elimina-rubrica');
+    const r = await fetch('/api/bot/cliente/elimina', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: Number(schedaId), rubrica: !!(togli && togli.checked) }),
+    });
+    let d = {};
+    try { d = await r.json(); } catch {}
+    if (!r.ok || d.error) { toast(d.error || 'Non sono riuscito a eliminarlo.'); return; }
+    $('#cliente-pannello').style.display = 'none';
+    toast(`Cliente eliminato${d.nome ? `: ${d.nome}` : ''}${d.rubrica === 'tolto' ? ', anche dalla rubrica' : ''}. Il bot non se ne ricorda più.`);
+    // Dietro la scheda: l'elenco, il servizio, e la rubrica se è cambiata.
+    caricaElencoClienti();
+    if (typeof caricaServizio === 'function') caricaServizio();
+    if (d.rubrica === 'tolto' && typeof caricaContatti === 'function') caricaContatti();
+  } catch {
+    toast('Non sono riuscito a eliminarlo: iStudio non risponde.');
+  } finally { tasto.disabled = false; }
 }
 
 async function salvaSchedaInRubrica() {
@@ -7261,6 +7429,8 @@ function segnoDi(r, inArrivo) {
 
 $('#pagina-ricarica').addEventListener('click', () => location.reload());
 $('#cli-chiudi').addEventListener('click', () => { $('#cliente-pannello').style.display = 'none'; });
+$('#cli-x').addEventListener('click', () => { $('#cliente-pannello').style.display = 'none'; });
+$('#cli-elimina').addEventListener('click', apriElimina);
 
 // «Modifica» il nome (vedi «/api/bot/cliente/nome» nel server).
 $('#cli-modifica').addEventListener('click', () => {
@@ -7336,8 +7506,10 @@ function disegnaElencoClienti() {
   righe.sort((a, b) => (b.ultima || '').localeCompare(a.ultima || '')
     || (b.prossima || '').localeCompare(a.prossima || '') || a.nome.localeCompare(b.nome, 'it'));
   const inRubrica = clientiTutti.filter((c) => c.inRubrica).length;
+  const inArrivo = clientiTutti.filter((c) => c.prossima).length;
   $('#cli-conto').textContent = clientiTutti.length
-    ? `${clientiTutti.length} clienti · ${inRubrica} in rubrica${filtro ? ` · ${righe.length} trovati` : ''}` : '';
+    ? `${clientiTutti.length} clienti · ${inRubrica} in rubrica${inArrivo ? ` · ${inArrivo} in arrivo` : ''}`
+      + `${filtro ? ` · ${righe.length} trovati` : ''}` : '';
   // «Nessuno» va detto: un riquadro vuoto sembra un guasto.
   if (!clientiTutti.length) {
     box.innerHTML = '<span class="conteggio" style="margin:0">Nessuna prenotazione ancora: l\'elenco si riempie da solo.</span>';
@@ -7347,14 +7519,23 @@ function disegnaElencoClienti() {
     box.innerHTML = '<span class="conteggio" style="margin:0">Nessuno con questo nome, numero o email.</span>';
     return;
   }
-  box.innerHTML = righe.map((c) => `
+  // A destra: quando è venuto l'ultima volta (o quando arriva), e sotto
+  // quante volte ha prenotato. Un tavolo in arrivo si dice anche a chi è già
+  // venuto: è la notizia che serve stasera.
+  box.innerHTML = righe.map((c) => {
+    const arriva = c.prossima ? `in arrivo ${dataStoricaUI(c.prossima)}` : '';
+    const quando = c.ultima ? tempoFa(c.ultima) : (arriva || (c.prenotazioni ? 'mai venuto' : ''));
+    const sotto = [c.ultima && arriva ? arriva : '',
+      `${c.prenotazioni} ${c.prenotazioni === 1 ? 'prenotazione' : 'prenotazioni'}`].filter(Boolean).join(' · ');
+    const recapiti = [c.telefono ? numeroBello(c.telefono) : '', c.email].filter(Boolean).join(' · ');
+    return `
     <button type="button" class="cli-riga" data-scheda="${c.id}">
+      <span class="cli-iniziali" aria-hidden="true">${testoSicuro(iniziali(c.nome))}</span>
       <span class="chi">${testoSicuro(c.nome)}${segnoRubrica(c.inRubrica)}</span>
-      <span class="quando">${c.ultima
-        ? `${tempoFa(c.ultima)}`
-        : (c.prossima ? `in arrivo ${dataStoricaUI(c.prossima)}` : (c.prenotazioni ? 'mai venuto' : ''))}</span>
-      <span class="dove">${testoSicuro([numeroPulito(c.telefono), c.email].filter(Boolean).join(' · ')) || '—'}</span>
-    </button>`).join('');
+      <span class="dove">${testoSicuro(recapiti) || 'senza numero né email'}</span>
+      <span class="quando${c.prossima ? ' arriva' : ''}"><b>${testoSicuro(quando)}</b><small>${testoSicuro(sotto)}</small></span>
+    </button>`;
+  }).join('');
   box.querySelectorAll('.cli-riga').forEach((b) => b.addEventListener('click', () => apriScheda(b.dataset.scheda)));
 }
 

@@ -4593,6 +4593,53 @@ function rinominaPersona(db, id, nome, cognome) {
   return { ...giusto, prima, prenotazioni: righe.length };
 }
 
+// «Elimina cliente» dalla scheda (24 ottobre 2026, dal titolare: «così da
+// azzerare in memoria il cliente al bot»). Si cancella quello che il bot sa di
+// lui — le sue serate (cioè il nome con cui lo saluta e le cose da ricordare),
+// la conversazione lasciata a metà, la lista d'attesa, le richieste al
+// personale, il menu chiesto, il numero imparato dal profilo — e al prossimo
+// messaggio è una persona nuova. Le stesse righe della scheda: quelle in cui è
+// lui a cenare. Restano:
+// - lo STOP (`bot_stop`). Chi l'ha scritto non riceve più niente, e STOP non
+//   si annulla con un tasto: cancellato, il bot ricomincerebbe a scrivergli;
+// - le prenotazioni che ha fatto per un'altra persona: sono di chi cena;
+// - ⚠️ e un tavolo IN ARRIVO ferma tutto. Cancellarlo da qui vorrebbe dire una
+//   sera prenotata che sparisce senza che nessuno l'abbia disdetta, e il
+//   cliente che arriva e non c'è. Prima si cancella quello, dal servizio.
+// La rubrica è della piattaforma, e la decide il server (vedi la rotta).
+function dimenticaPersona(db, id, adesso = new Date()) {
+  const righe = prenotazioniDellaPersona(db, id, 100000);
+  if (!righe || !righe.length) return null;
+  const oggi = comeData(adesso);
+  const inArrivo = righe.filter((r) => r.data >= oggi && STATI_VIVI.includes(r.stato))
+    .sort((a, b) => (a.data + a.ora < b.data + b.ora ? -1 : 1));
+  if (inArrivo.length) {
+    const p = inArrivo[0];
+    return { errore: `Ha una prenotazione in arrivo (${dataItaliana(p.data)} alle ${p.ora}): `
+      + 'prima cancellala dal servizio, poi elimini il cliente.', inArrivo: inArrivo.length };
+  }
+  const chiavi = [...new Set(righe.flatMap((r) => chiaviStoriche(r)))];
+  const numeri = chiavi.filter((k) => /^\d+$/.test(k));
+  const conti = { nome: [righe[0].nome, righe[0].cognome].map((x) => String(x || '').trim()).filter(Boolean).join(' '),
+    prenotazioni: 0, conversazioni: 0, attese: 0, richieste: 0 };
+  db.transaction(() => {
+    const via = db.prepare('DELETE FROM prenotazioni WHERE id = ?');
+    for (const r of righe) conti.prenotazioni += via.run(r.id).changes;
+    if (chiavi.length) {
+      const seg = chiavi.map(() => '?').join(',');
+      conti.conversazioni = db.prepare(`DELETE FROM bot_conversazioni WHERE telefono IN (${seg})`).run(...chiavi).changes;
+      conti.attese = db.prepare(`DELETE FROM bot_attese WHERE telefono IN (${seg})`).run(...chiavi).changes;
+      conti.richieste = db.prepare(`DELETE FROM bot_richieste WHERE chat_id IN (${seg}) OR telefono IN (${seg})`)
+        .run(...chiavi, ...chiavi).changes;
+      db.prepare(`DELETE FROM bot_menu_richieste WHERE telefono IN (${seg})`).run(...chiavi);
+    }
+    if (numeri.length) {
+      db.prepare(`DELETE FROM numeri_visti WHERE telefono IN (${numeri.map(() => '?').join(',')})`).run(...numeri);
+    }
+  })();
+  return conti;
+}
+
 // La scheda: chi è, e cosa si vede a colpo d'occhio.
 function schedaPersona(db, id, adesso = new Date()) {
   const righe = prenotazioniDellaPersona(db, id);
@@ -4660,6 +4707,9 @@ function schedaPersona(db, id, adesso = new Date()) {
     // locale ha davvero registrato. Finché non c'è l'appello resta un numero
     // piccolo, e va bene così — meglio piccolo che inventato.
     concluse: righe.filter((r) => r.stato === 'presentata').length,
+    // Le persone portate, sere annullate escluse: «2» o «40» dicono due
+    // clienti diversi (24 ottobre 2026, la scheda rifatta).
+    coperti: attive.reduce((n, r) => n + (Number(r.persone) || 0), 0),
     primaVolta: passate.length ? passate[passate.length - 1].data : '',
     ultimaVolta: passate.length ? passate[0].data : '',
     note,
@@ -7798,7 +7848,7 @@ module.exports = {
   eSoloDaccordo,
   conversazioneScaduta, giorniAncoraBuoni,
   riapreConUnSaluto, daRichiamare, segnaRichiamata, daLasciareAndare, lasciaAndare,
-  minutiFermi, PASSI_CHE_RIAPRONO, COSA_MANCA, eSimulatore, orariDellEsperienza, nomeConTitolo, rinominaPersona, vuoleRinunciare,
+  minutiFermi, PASSI_CHE_RIAPRONO, COSA_MANCA, eSimulatore, orariDellEsperienza, nomeConTitolo, rinominaPersona, dimenticaPersona, vuoleRinunciare,
   vuoleCambiareEsperienza, vuoleTornareIndietro,
   prenotazioniDellaPersona, schedaPersona, elencoPersone,
   reportPrenotazioni, giorniFra, NOMI_SETTIMANA,

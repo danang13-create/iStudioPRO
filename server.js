@@ -7030,6 +7030,9 @@ const rottaSchedaCliente = (req, res) => {
   // Da qui si mette in rubrica: la scheda deve sapere se c'è già, e se ha
   // chiesto di non ricevere messaggi.
   scheda.inRubrica = contattoInRubrica(scheda.telefono, scheda.email);
+  // E se ha scritto STOP al bot: la scheda lo dice, e «Elimina» non lo toglie.
+  const chat = (scheda.righe.find((r) => String(r.chat_id || r.telefono || '').includes('@')) || {});
+  scheda.stop = bot.haDettoBasta(db, chat.chat_id || chat.telefono || '', scheda.telefono);
   res.json(scheda);
 };
 app.get('/api/bot/cliente', rottaSchedaCliente);
@@ -7055,6 +7058,35 @@ app.post('/api/bot/cliente/nome', (req, res) => {
   annota('clienti', `nome corretto: «${esito.prima}» → «${dopo}», su ${esito.prenotazioni} `
     + `${esito.prenotazioni === 1 ? 'prenotazione' : 'prenotazioni'}${inRubrica ? ' e in rubrica' : ''}`);
   res.json({ ok: true, nome: esito.nome, cognome: esito.cognome, prenotazioni: esito.prenotazioni, rubrica: !!inRubrica });
+});
+
+// «Elimina cliente» dalla scheda (vedi «dimenticaPersona»): il bot non si
+// ricorda più di lui. Solo la piattaforma, come «Modifica»: il tablet della
+// sala sta sul bancone. La rubrica è del locale e si tocca solo se lo si
+// chiede — e mai chi ha chiesto di non ricevere: la sua riga È il suo «no»
+// alle newsletter, e cancellata tornerebbe a riceverle alla prima importazione.
+// ⚠️ Il bot il nome lo legge ANCHE dalla rubrica: lasciato lì, al prossimo
+// messaggio lo saluta ancora per nome. La pagina lo dice, accanto alla spunta.
+app.post('/api/bot/cliente/elimina', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const b = req.body || {};
+  const id = Number(b.id);
+  if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Manca il cliente da eliminare.' });
+  const scheda = bot.schedaPersona(db, id, new Date());
+  if (!scheda) return res.status(404).json({ error: 'Questo cliente non c\'è più: forse è già stato eliminato.' });
+  const esito = bot.dimenticaPersona(db, id, new Date());
+  if (!esito) return res.status(404).json({ error: 'Questo cliente non c\'è più: forse è già stato eliminato.' });
+  if (esito.errore) return res.status(409).json({ error: esito.errore });
+  const inRubrica = contattoInRubrica(scheda.telefono, scheda.email);
+  let rubrica = inRubrica ? 'resta' : 'no';
+  if (inRubrica && b.rubrica) {
+    if (inRubrica.optOut) rubrica = 'resta-stop';
+    else { db.prepare('DELETE FROM contacts WHERE id = ?').run(inRubrica.id); rubrica = 'tolto'; }
+  }
+  annota('clienti', `eliminato ${esito.nome || 'un cliente senza nome'}: ${esito.prenotazioni} `
+    + `${esito.prenotazioni === 1 ? 'prenotazione' : 'prenotazioni'}${rubrica === 'tolto' ? ', e tolto dalla rubrica' : ''}`
+    + ' — il bot non se ne ricorda più');
+  res.json({ ok: true, ...esito, rubrica });
 });
 
 // TUTTI i clienti che hanno prenotato, con scritto se sono già in rubrica.
