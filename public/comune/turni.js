@@ -98,7 +98,15 @@ window.Turni = (function () {
   // Il numero che c'è GIÀ resta sempre, anche se supera la capienza di oggi —
   // una prenotazione vecchia da otto quando adesso i coperti sono sei è un
   // fatto, e aprire una finestra non deve cambiarlo in silenzio.
-  async function riempiPersone(select, data, quanteAdesso, ora) {
+  //
+  // ⚠️ Dal titolare (24 ottobre 2026): «chi prenota tramite bot resta
+  // invariato, ma l'admin può inserire oltre i posti». Con `oltre` (SOLO la
+  // piattaforma) dopo i liberi la tendina continua, ogni voce segnata «oltre i
+  // posti», e al salvataggio la piattaforma chiede «La prendo lo
+  // stesso?». Qui la voce si usa davvero: non è il rumore di prima. La sala e
+  // il bot restano ai posti liberi, e il server dalla porta della sala non
+  // lascia sforare (vedi `req.dallaSala` in server.js).
+  async function riempiPersone(select, data, quanteAdesso, ora, opzioni = {}) {
     const el = typeof select === 'string' ? document.querySelector(select) : select;
     if (!el) return;
     const massimo = await capienza(data);
@@ -114,20 +122,36 @@ window.Turni = (function () {
     // ⚠️ Turno esaurito: la tendina lo DICE. Restare con la sola voce vuota
     // sarebbe la stessa cosa di un campo rotto, e chi la guarda non saprebbe se
     // il turno è pieno o se la pagina non ha caricato.
-    if (liberi < 1 && attuale < 1) {
+    if (liberi < 1 && attuale < 1 && !opzioni.oltre) {
       el.innerHTML = '<option value="">— nessun posto libero a quest\'ora —</option>';
       return;
     }
+    el.innerHTML = vociPersone(liberi, attuale, { oltre: opzioni.oltre, massimo });
+  }
+
+  // Fin dove arriva la tendina con `oltre`: cinquanta, o la capienza e trenta
+  // in più se è più grande. Più di così è una serata intera, non un tavolo.
+  const OLTRE_FINO = 50;
+  const PERSONE_MASSIMO = 200;   // come il server
+  function vociPersone(liberi, attuale, { oltre = false, massimo = 0 } = {}) {
     const voci = ['<option value="">Quante persone…</option>'];
     for (let n = 1; n <= liberi; n++) {
       voci.push(`<option value="${n}"${n === attuale ? ' selected' : ''}>${n}</option>`);
     }
-    // La prenotazione che si sta modificando resta scegliibile anche quando è
-    // più grande dei coperti di oggi: è un dato che esiste, non una proposta.
-    if (attuale > liberi) {
+    if (oltre) {
+      const fino = Math.min(PERSONE_MASSIMO, Math.max(OLTRE_FINO, (Number(massimo) || 0) + 30, attuale));
+      if (fino > liberi) voci.push('<option value="" disabled>── oltre i posti liberi ──</option>');
+      for (let n = Math.max(liberi, 0) + 1; n <= fino; n++) {
+        // Corta: chiusa, nella colonna stretta della piattaforma, «· oltre i posti
+        // liberi» si tagliava («liber»). Il separatore sopra la dice intera.
+        voci.push(`<option value="${n}"${n === attuale ? ' selected' : ''}>${n} · oltre i posti</option>`);
+      }
+    } else if (attuale > liberi) {
+      // La prenotazione che si sta modificando resta scegliibile anche quando è
+      // più grande dei coperti di oggi: è un dato che esiste, non una proposta.
       voci.push(`<option value="${attuale}" selected>${attuale} · oltre i coperti</option>`);
     }
-    el.innerHTML = voci.join('');
+    return voci.join('');
   }
 
   // Le voci della tendina degli orari, divise per servizio.
@@ -480,6 +504,6 @@ window.Turni = (function () {
     return r && r.fuori_sala && r.locale_scelto ? `<span class="etichetta-esp">🍝 ${sicuro(r.locale_scelto)}</span>` : '';
   }
 
-  return { dellaGiornata, riempi, riempiPersone, liberiPer, capienza, dimentica, opzioniOrari, disegnaRiepilogo,
+  return { dellaGiornata, riempi, riempiPersone, vociPersone, liberiPer, capienza, dimentica, opzioniOrari, disegnaRiepilogo,
            aggiornaRiepilogo, sceltaTavolo, elencoTavoli, chiudiTavoli, etichettaLocale };
 })();

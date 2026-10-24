@@ -6258,9 +6258,10 @@ function usaLocaleNelPannello(p) {
   $('#pann-data').value = a.data;
   $('#pann-ora').innerHTML = `<option value="${testoSicuro(a.da)}">${testoSicuro(a.da)}–${testoSicuro(a.a)}</option>`;
   const attuale = p ? p.persone : (+$('#pann-persone').value || 0);
-  const fino = Math.max(a.posti + (p ? p.persone : 0), attuale, 1);
-  $('#pann-persone').innerHTML = ['<option value="">Quante persone…</option>',
-    ...Array.from({ length: fino }, (_, i) => `<option value="${i + 1}"${i + 1 === attuale ? ' selected' : ''}>${i + 1}</option>`)].join('');
+  // Anche qui si può andare oltre i suoi posti: è la piattaforma (vedi
+  // `vociPersone` in comune/turni.js).
+  $('#pann-persone').innerHTML = Turni.vociPersone(Math.max(a.posti + (p ? p.persone : 0), 0), attuale,
+    { oltre: true, massimo: a.coperti });
   return true;
 }
 function riempiEsperienze(select, valore) {
@@ -6306,7 +6307,7 @@ function apriPannello(p) {
   // restavano due si poteva scrivere sei, e il «non c'è posto» arrivava solo
   // premendo Salva. Il numero libero era già scritto accanto a ogni orario, e
   // non veniva usato dove serviva.
-  Turni.riempiPersone('#pann-persone', $('#pann-data').value, p ? p.persone : '', p ? p.ora : '');
+  Turni.riempiPersone('#pann-persone', $('#pann-data').value, p ? p.persone : '', p ? p.ora : '', { oltre: true });
   $('#pann-telefono').value = p ? (p.telefono_contatto || (String(p.telefono).includes('@') ? '' : p.telefono)) : '';
   $('#pann-email').value = p ? (p.email || '') : '';
   mostraAvvisoPrefissoPann();
@@ -6507,18 +6508,18 @@ async function cercaInRubrica() {
 $('#pann-locale').addEventListener('change', () => {
   if (usaLocaleNelPannello(null)) return;
   Turni.riempi('#pann-ora', $('#pann-data').value, '');
-  Turni.riempiPersone('#pann-persone', $('#pann-data').value, $('#pann-persone').value, '');
+  Turni.riempiPersone('#pann-persone', $('#pann-data').value, $('#pann-persone').value, '', { oltre: true });
 });
 // Cambiando giorno cambiano i turni: pranzo, cena, giorni di chiusura.
 $('#pann-data').addEventListener('change', () => {
   Turni.riempi('#pann-ora', $('#pann-data').value, '');
-  Turni.riempiPersone('#pann-persone', $('#pann-data').value, $('#pann-persone').value, '');
+  Turni.riempiPersone('#pann-persone', $('#pann-data').value, $('#pann-persone').value, '', { oltre: true });
 });
 // ⚠️ E cambiando ORA cambiano i posti liberi: senza questa riga la tendina
 // resterebbe sui numeri del turno di prima, e direbbe «6» su un'ora dove ne
 // restano due.
 $('#pann-ora').addEventListener('change', () => {
-  Turni.riempiPersone('#pann-persone', $('#pann-data').value, $('#pann-persone').value, $('#pann-ora').value);
+  Turni.riempiPersone('#pann-persone', $('#pann-data').value, $('#pann-persone').value, $('#pann-ora').value, { oltre: true });
 });
 
 $('#pann-in-rubrica').addEventListener('click', async () => {
