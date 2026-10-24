@@ -532,8 +532,9 @@ window.Turni = (function () {
 
   // «❌ cancellata dalla sala · Non si è presentato»: per la scheda del cliente.
   // Una cancellata dal bot resta «❌ cancellata», com'era.
+  const DA_DOVE = { sala: ' dalla sala', piattaforma: ' dalla piattaforma', appello: ' all\'appello' };
   function cancellataDetta(r, sicuro) {
-    const da = r.annullata_da === 'sala' ? ' dalla sala' : (r.annullata_da === 'piattaforma' ? ' dalla piattaforma' : '');
+    const da = DA_DOVE[r.annullata_da] || '';
     return `❌ cancellata${da}${r.motivo_annullamento ? ` · ${sicuro(r.motivo_annullamento)}` : ''}`;
   }
 

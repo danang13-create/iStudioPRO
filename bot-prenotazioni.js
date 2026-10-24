@@ -5188,19 +5188,29 @@ function reportPrenotazioni(db, cfg, dal, al) {
     }),
   ] : [];
 
-  // Perché si cancella (dal titolare, 24 ottobre 2026): solo le cancellate a
-  // mano, dalla sala o dalla piattaforma — quelle del bot non hanno un motivo.
-  // Le tre scelte rapide hanno la loro riga, quelle scritte a mano stanno
-  // insieme in «Altro», e in fondo chi non l'ha scritto.
+  // Le cancellazioni, TUTTE (dal titolare, 24 ottobre 2026: prima «Perché si
+  // cancella» guardava solo quelle a mano). Il bot non scrive né motivo né da
+  // dove — e non deve —, ma l'ora la scrive sempre (`annullata_at`), mentre le
+  // pagine fino al 24 ottobre non la scrivevano. Così:
+  //   - sala, piattaforma, appello: il loro motivo (le tre scelte rapide
+  //     scritte in qualunque modo; «Altro motivo» quelle a mano; e chi non
+  //     l'ha scritto);
+  //   - senza «da dove» ma con l'ora: il bot. Scaduta senza pagare (vedi
+  //     `liberaScadute`: dovuto, non pagato, con una scadenza) o «Su
+  //     WhatsApp» (il cliente che disdice, o il responsabile col comando);
+  //   - senza né l'uno né l'altra: a mano, prima del 24 ottobre.
   const RAPIDI = ['Ha disdetto', 'Non si è presentato', 'Errore / doppione'];
-  const aMano = annullate.filter((r) => r.annullata_da);
   const motivoDi = (r) => {
-    const m = String(r.motivo_annullamento || '').trim();
-    return !m ? 'Senza motivo' : (RAPIDI.find((x) => normalizza(x) === normalizza(m)) || 'Altro');
+    if (r.annullata_da) {
+      const m = String(r.motivo_annullamento || '').trim();
+      return !m ? 'A mano, senza motivo' : (RAPIDI.find((x) => normalizza(x) === normalizza(m)) || 'Altro motivo');
+    }
+    if (!r.annullata_at) return 'Prima del 24 ottobre';
+    return r.importo_dovuto > 0 && !r.pagato_at && r.pagamento_scade_at ? 'Pagamento non arrivato' : 'Su WhatsApp';
   };
-  const ordineMotivo = (nome) => (nome === 'Senza motivo' ? 2 : nome === 'Altro' ? 1 : 0);
-  const perMotivo = [...somma(aMano, motivoDi).entries()].map(([motivo, v]) => ({ motivo, ...v }))
-    .sort((a, b) => ordineMotivo(a.motivo) - ordineMotivo(b.motivo) || b.prenotazioni - a.prenotazioni);
+  const IN_FONDO = ['Altro motivo', 'A mano, senza motivo', 'Prima del 24 ottobre'];
+  const perMotivo = [...somma(annullate, motivoDi).entries()].map(([motivo, v]) => ({ motivo, ...v }))
+    .sort((a, b) => IN_FONDO.indexOf(a.motivo) - IN_FONDO.indexOf(b.motivo) || b.prenotazioni - a.prenotazioni);
 
   return {
     dal, al, giorni,

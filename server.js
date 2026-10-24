@@ -4815,12 +4815,17 @@ function rispondiAppello(giorno, testo) {
   for (const r of righe) {
     const assente = assenti.some((a) => a.id === r.id);
     // ⚠️ Chi non si è presentato finisce fra le CANCELLATE. Gli stati sono
-    // tre, e il locale ha scelto così — ma è bene sapere cosa si perde: un
-    // tavolo disdetto per tempo e uno rimasto vuoto tutta la sera diventano la
-    // stessa cosa, e il secondo è quello che costa. Per contarli servirebbe di
-    // nuovo uno stato suo.
-    db.prepare('UPDATE prenotazioni SET stato = ? WHERE id = ?')
-      .run(assente ? 'annullata' : 'presentata', r.id);
+    // tre, e il locale ha scelto così — ma un tavolo disdetto per tempo e uno
+    // rimasto vuoto tutta la sera diventavano la stessa cosa, e il secondo è
+    // quello che costa. Dal 24 ottobre 2026 si distinguono col motivo, come
+    // dalla sala: «Non si è presentato», all'appello (vedi il report, «Le
+    // cancellazioni»).
+    if (assente) {
+      db.prepare("UPDATE prenotazioni SET stato = 'annullata', annullata_at = datetime('now','localtime'), "
+        + "annullata_da = 'appello', motivo_annullamento = 'Non si è presentato' WHERE id = ?").run(r.id);
+    } else {
+      db.prepare("UPDATE prenotazioni SET stato = 'presentata' WHERE id = ?").run(r.id);
+    }
   }
   db.prepare("DELETE FROM settings WHERE key = 'bot_appello_aperto'").run();
   const nomi = assenti.map((a) => bot.nomeInSala(a) !== 'senza nome' ? bot.nomeInSala(a) : a.telefono).join(', ');

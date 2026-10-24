@@ -713,6 +713,14 @@
      chi non distingue i colori legge i numeri, non deve indovinarli. */
   .rep-barre { display: grid; grid-template-columns: auto 1fr auto; gap: 7px 12px; align-items: center; }
   .rep-barre .et { font-size: .88rem; white-space: nowrap; }
+  /* ⚠️ Sul telefono un nome lungo («A mano, senza motivo», un'esperienza
+     dal nome lungo) prendeva tutta la riga: barra a zero, e i numeri tagliati
+     fuori dal riquadro — visto a 390 con «Le cancellazioni». Lì il nome va a
+     capo, e la barra ha sempre un po' di posto. */
+  @media (max-width: 560px) {
+    .rep-barre { grid-template-columns: minmax(0, auto) minmax(48px, 1fr) auto; }
+    .rep-barre .et { white-space: normal; overflow-wrap: anywhere; }
+  }
   .rep-barra { background: var(--sfondo); border-radius: 0 4px 4px 0; height: 14px; }
   /* ⚠️ Niente larghezza minima: uno zero disegnava un moncone di due pixel,
      che a colpo d'occhio è «poco», non «niente». La differenza fra «nessuno
@@ -6151,7 +6159,8 @@ async function caricaServizio() {
           value="${testoSicuro(r.motivo_annullamento || '')}" placeholder="motivo (facoltativo)"
           title="Perché è stata cancellata: si salva da solo"
           aria-label="Motivo dell'annullamento di ${testoSicuro([r.nome, r.cognome].filter(Boolean).join(' ') || 'questo cliente')}">
-        ${r.annullata_da ? `<span class="conteggio" style="margin:2px 0 0;display:block">dalla ${r.annullata_da === 'sala' ? 'sala' : 'piattaforma'}</span>` : ''}` : ''}
+        ${r.annullata_da ? `<span class="conteggio" style="margin:2px 0 0;display:block">${
+          { sala: 'dalla sala', piattaforma: 'dalla piattaforma', appello: 'all\'appello' }[r.annullata_da] || ''}</span>` : ''}` : ''}
         ${r.importo_dovuto && !r.pagato_at ? `
         <br><span class="conteggio" style="margin:4px 0 0;display:block">${
           euroUI(r.importo_dovuto)}${r.stato === 'attesa_pagamento'
@@ -6976,10 +6985,14 @@ function disegnaReport(d, prima = null) {
       nome: x.nome, valore: x.coperti, extra: x.posti ? `su ${x.posti} posti` : `${x.prenotazioni} pren.`,
     }))), 'Ognuno coi suoi coperti; gli altri locali anche sui loro posti.');
   }
+  // Tutte le cancellazioni del periodo, per motivo (vedi `perMotivo`).
   if (d.perMotivo && d.perMotivo.length) {
-    html += riquadro('Perché si cancella', barre(d.perMotivo.map((x) => ({
+    const t = d.totale;
+    html += riquadro('Le cancellazioni', barre(d.perMotivo.map((x) => ({
       nome: x.motivo, valore: x.prenotazioni, extra: `${x.coperti} coperti`,
-    })), 'prenotazioni'), 'Le cancellate dalla sala e dalla piattaforma, col motivo scritto; quelle del bot non ce l\'hanno.');
+    })), 'prenotazioni'), `${t.annullate} ${t.annullate === 1 ? 'cancellata' : 'cancellate'}, ${t.copertiPersi} coperti persi. `
+      + '«Su WhatsApp»: il cliente che disdice col bot, o il responsabile col comando. '
+      + '«Prima del 24 ottobre»: cancellate a mano quando il motivo non si scriveva ancora.');
   }
   html += '</div>';
 
