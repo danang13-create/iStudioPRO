@@ -3531,9 +3531,30 @@ function valeIlGiorno(e, iso, servizio) {
 //   🍽️ Pranzo: 12:30–15:30, dal lunedì al venerdì e la domenica.
 //   🌙 Cena: 19:30–23:00, dal lunedì al sabato.
 //   Chiusi il martedì.            (solo se c'è un giorno senza niente)
-// I giorni con lo stesso orario stanno insieme; un servizio va dal primo
-// arrivo all'ultima fine. Niente elenco dei turni. Vuoto se non c'è nessun
+// Quando un servizio ha orari diversi da un giorno all'altro (dal titolare,
+// 24 ottobre 2026) la riga unica diventava «12:30–15:30, dal lunedì al
+// venerdì; 12:30–16:00, la domenica.», da rileggere due volte. Allora il
+// servizio fa da titolo e ogni orario ha la sua riga, coi giorni davanti:
+//   🍽️ Pranzo
+//   dal lunedì al venerdì · 12:30–15:30
+//   la domenica · 12:30–16:00
+//
+//   🌙 Cena
+//   dal lunedì al giovedì · 19:30–23:30
+//   venerdì e sabato · 19:30–24:00
+// e fra un servizio e l'altro resta una riga vuota. Con un orario solo resta
+// la riga unica. I giorni con lo stesso orario stanno insieme; un servizio va
+// dal primo arrivo all'ultima fine, e «23:59» si dice «24:00»: è mezzanotte,
+// non un minuto prima. Niente elenco dei turni. Vuoto se non c'è nessun
 // orario. «Siamo aperti:» sta nella frase, non qui.
+const fineDetta = (m) => (m >= 23 * 60 + 59 ? '24:00' : daMinuti(m));
+// Nelle righe «giorni · orario» più giorni sciolti vanno senza articolo
+// («venerdì e sabato», non «il venerdì e il sabato»); uno solo lo tiene
+// («la domenica»).
+function giorniDellaRiga(giorni) {
+  const detti = giorniDetti(giorni);
+  return / e /.test(detti) ? detti.replace(/(^|, | e )(?:il|la) /g, '$1') : detti;
+}
 function orariDetti(cfg, solo = null) {
   const fasce = fasceDi(cfg);
   const pezzi = [];
@@ -3546,24 +3567,29 @@ function orariDetti(cfg, solo = null) {
       const da = Math.min(...sue.map((f) => inMinuti(f.da)));
       const a = Math.max(...sue.map((f) => Math.max(inMinuti(f.a), inMinuti(f.da))));
       // Un orario solo (i turni di prima, senza fine): «dalle 20:00».
-      const chiave = a > da ? `${daMinuti(da)}–${daMinuti(a)}` : `dalle ${daMinuti(da)}`;
+      const chiave = a > da ? `${daMinuti(da)}–${fineDetta(a)}` : `dalle ${daMinuti(da)}`;
       if (!perOrario.has(chiave)) perOrario.set(chiave, []);
       perOrario.get(chiave).push(g);
     }
     if (!perOrario.size) continue;
     const testa = servizio === 'pranzo' ? '🍽️ Pranzo' : '🌙 Cena';
-    pezzi.push(`${testa}: ${[...perOrario.entries()].map(([orario, giorni]) => `${orario}, ${giorniDetti(giorni)}`).join('; ')}.`);
+    const orari = [...perOrario.entries()];
+    pezzi.push(orari.length === 1
+      ? `${testa}: ${orari[0][0]}, ${giorniDetti(orari[0][1])}.`
+      : [testa, ...orari.map(([orario, giorni]) => `${giorniDellaRiga(giorni)} · ${orario}`)].join('\n'));
   }
   if (!pezzi.length) return '';
-  if (solo) return pezzi.join('\n');
-  const chiusi = [0, 1, 2, 3, 4, 5, 6].filter((g) => !(fasce[g] || []).length);
+  const chiusi = solo ? [] : [0, 1, 2, 3, 4, 5, 6].filter((g) => !(fasce[g] || []).length);
   if (chiusi.length) pezzi.push(`Chiusi ${giorniDetti(chiusi)}.`);
-  return pezzi.join('\n');
+  // A righe sciolte, una riga vuota fra un blocco e l'altro: sennò la cena
+  // si attacca all'ultimo orario del pranzo.
+  return pezzi.join(pezzi.some((p) => p.includes('\n')) ? '\n\n' : '\n');
 }
 // Gli orari di UNA esperienza, nello stesso formato: solo i suoi giorni, a
 // ogni servizio, con gli orari di «Orari e tavoli» di quei giorni. Vanno sotto
 // «Perfetto, Business lunch 👍», dopo la scelta (dal titolare, 22 ottobre
-// 2026): «🍽️ Pranzo: 12:30–15:30, dal lunedì al venerdì.». Niente «Chiusi»:
+// 2026): «🍽️ Pranzo: 12:30–15:30, dal lunedì al venerdì.», o a righe se
+// quei giorni hanno orari diversi. Niente «Chiusi»:
 // qui si dice quando c'è, non quando il locale è chiuso.
 function orariDellEsperienza(cfg, e) {
   return orariDetti(cfg, { pranzo: (e && e.pranzo) || [], cena: (e && e.cena) || [] });
