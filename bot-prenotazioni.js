@@ -3512,10 +3512,24 @@ function quandoDetto(e) {
   // Prima il servizio con più giorni: «dal lunedì al sabato a cena e la domenica a pranzo».
   return pezzi.sort((x, y) => y[0] - x[0]).map((x) => x[1]).join(' e ');
 }
-// Chi al menu non sceglie (due risposte che non si capiscono) prenota lo
-// stesso: sulla prenotazione, al posto dell'esperienza, c'è questo. La sala
-// lo legge; il report lo conta come una voce a sé.
+// Chi al menu non sceglie (lo dice, o due risposte che non si capiscono)
+// prenota lo stesso: sulla prenotazione, al posto dell'esperienza, c'è questo.
+// La sala lo legge; il report lo conta come una voce a sé.
 const MENU_AL_TAVOLO = 'Menu da scegliere al tavolo';
+// «Non lo so», «non saprei», «decido al tavolo», «scelgo lì», «indifferente»:
+// al menu, un «non scelgo» detto chiaro. All'inizio del messaggio: «non so se
+// avete il parcheggio» è un'altra cosa. «Boh» e «mah» no: sono anche il
+// «non ho capito» di chi legge l'elenco.
+function nonSceglieIlMenu(testo) {
+  const t = normalizza(testo);
+  const dove = '(?:dopo|poi|li|al tavolo|a tavola|in sala|sul posto|al ristorante|quando arrivo|quando arriviamo|la sera stessa)';
+  return new RegExp('^(?:mah?\\s+|boh?\\s+|ehm\\s+|guarda\\s+|sinceramente\\s+)?(?:'
+    // «Non so se avete il parcheggio» è una domanda: dopo «non so» non deve
+    // venire «se», «come», «quando»… («non so quale» sì: è proprio lui).
+    + 'non\\s+(?:lo\\s+)?so\\b(?!\\s+(?:se|come|quando|dove|perche|cosa|chi|quanto|quanti|quante)\\b)|non\\s+saprei\\b|non\\s+(?:ho|abbiamo)\\s+(?:ancora\\s+)?deciso\\b|(?:devo|dobbiamo)\\s+ancora\\s+decidere\\b'
+    + `|(?:decido|decidiamo|decidero|decideremo|scelgo|scegliamo|sceglieremo|vediamo|vedremo)\\s+${dove}\\b`
+    + '|indifferente\\b|non\\s+importa\\b|fa\\s+lo\\s+stesso\\b|(?:e|è)\\s+uguale\\b|uno\\s+qualsiasi\\b|qualsiasi\\b|nessuno\\s+in\\s+particolare\\b)').test(t);
+}
 const NUMERI_IN_CERCHIO = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
 // L'elenco per il cliente: numero, nome in grassetto, la riga. Con `numeri`
 // i numeri sono quelli dati (una parte dell'elenco, coi numeri che il cliente
@@ -7018,6 +7032,16 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       // Non è un equivoco: ha risposto a una domanda che viene dopo.
       const persone = personeDette(testo);
       const giorno = giornoDettoInsieme(testo);
+      // ⚠️ «Non lo so», «decido al tavolo»: non è una risposta che non si
+      // capisce, è un «non scelgo» detto chiaro (dal titolare, 24 ottobre
+      // 2026, su una chat vera: «Non lo so» si sentiva rispondere «non ho
+      // capito», e l'elenco di nuovo). Si va avanti subito, tenendo quello che
+      // ha detto insieme («non lo so, siamo in 4»).
+      if (nonSceglieIlMenu(testo)) {
+        const { scelte, ...resto } = avanzato(dati);
+        return dopoLEsperienza({ ...resto, ...conServizio(), ...(persone !== null ? { persone } : {}),
+          ...(giorno ? { giornoDetto: giorno } : {}), esperienza: MENU_AL_TAVOLO }, di('bot_t_esperienza_al_tavolo'));
+      }
       if (persone !== null || giorno || servizioDetto(testo) || eSaluto(testo)) {
         const { scelte, ...resto } = avanzato(dati);
         return chiediEsperienza({ ...resto, ...conServizio(),
@@ -7977,6 +8001,7 @@ module.exports = {
   turniDelGiorno,
   turniValidi,
   MENU_AL_TAVOLO,
+  nonSceglieIlMenu,
   fineDellaFascia,
   oraDetta,
   fasceDi, fasceValide, fasceDaiTurni, fasceDelGiorno, fineDelTavolo, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
