@@ -2028,7 +2028,8 @@
         <p class="conteggio" style="margin:0 0 12px">
           Per ogni giorno, il pranzo e la cena, <b>a turni</b>. Ogni turno ha un inizio e una fine: il cliente
           arriva all'inizio, il tavolo è suo <b>fino alla fine del turno</b>, poi torna libero per il turno dopo.
-          Il bot propone gli inizi dei turni. Per le ferie usa i giorni di chiusura, che finiscono da soli.
+          Il bot propone gli inizi dei turni. Se si chiude a mezzanotte, la fine è <b>00:00</b>.
+          Per le ferie usa i giorni di chiusura, che finiscono da soli.
         </p>
         <p id="fasce-nota" class="conteggio" style="margin:10px 0 0" hidden></p>
         <div id="pren-fasce" class="fasce"></div>
@@ -5478,7 +5479,7 @@ const TESTI_BOT = [
 
   ['bot_t_bentornato_esperienze', 'Chi torna, con le esperienze', 'Sostituisce «che bello rivederti» quando ci sono le esperienze: anche qui senza la domanda delle persone, e senza orari — arrivano dopo la scelta.'],
 
-  ['bot_t_orari', 'Gli orari d\'apertura', 'A chi scrive ORARI, «che orari fate?», «quando siete aperti?», in qualunque momento: poi si riprende da dove si era. <b>{orari}</b> sono le righe composte dal bot dalle fasce di «Orari e tavoli», una per servizio («🍽️ Pranzo: 12:30–14:00, dal lunedì al venerdì.», «🌙 Cena: 19:30–23:00, dal lunedì al sabato.», e «Chiusi la domenica.» se c\'è un giorno senza niente). Se un servizio ha orari diversi da un giorno all\'altro, il servizio fa da titolo e sotto c\'è una riga per orario coi giorni davanti («dal lunedì al venerdì · 12:30–15:30», «la domenica · 12:30–16:00»). Mezzanotte si scrive «24:00». Va su una riga sua, e vale in ogni frase.'],
+  ['bot_t_orari', 'Gli orari d\'apertura', 'A chi scrive ORARI, «che orari fate?», «quando siete aperti?», in qualunque momento: poi si riprende da dove si era. <b>{orari}</b> sono le righe composte dal bot dalle fasce di «Orari e tavoli», una per servizio («🍽️ Pranzo: 12:30–14:00, dal lunedì al venerdì.», «🌙 Cena: 19:30–23:00, dal lunedì al sabato.», e «Chiusi la domenica.» se c\'è un giorno senza niente). Se un servizio ha orari diversi da un giorno all\'altro, il servizio fa da titolo e sotto c\'è una riga per orario coi giorni davanti («dal lunedì al venerdì · 12:30–15:30», «la domenica · 12:30–16:00»). Mezzanotte si scrive «00:00». Va su una riga sua, e vale in ogni frase.'],
   ['bot_t_esperienze', 'L\'elenco delle esperienze e la domanda', 'Sotto il primo messaggio. <b>{esperienze}</b> è l\'elenco, scritto dal bot dalla scheda Esperienze: numero, nome e la riga di presentazione. I giorni e gli orari no: il bot li dice dopo la scelta, quelli dell\'esperienza scelta. Se lo togli, il bot lo mette lo stesso in fondo: senza, il cliente non saprebbe cosa scegliere. <b>{numeri}</b> è «1, 2 o 3»: i numeri da scrivere.'],
   ['bot_t_esperienze_giorno', 'L\'elenco, quando il giorno l\'ha già detto', 'Chi scrive subito «per 4 sabato sera» vede solo le esperienze che valgono quel giorno, senza «quando valgono». <b>{data}</b> è il giorno, <b>{servizio}</b> « a cena» se l\'ha detto, <b>{esperienze}</b> l\'elenco: se lo togli, il bot lo mette in fondo. Se ne resta una sola il bot la prende senza chiedere. <b>{numeri}</b> sono i numeri da scrivere.'],
   ['bot_t_esperienza_no', 'Non ha capito quale esperienza', 'Con <b>{esperienze}</b> l\'elenco di nuovo: se lo togli, il bot lo mette in fondo. <b>{numeri}</b> è «1, 2 o 3».'],
@@ -8084,6 +8085,15 @@ function daMinutiUI(m) {
   const giusto = Math.min(Math.max(m, 0), 23 * 60 + 59);
   return `${String(Math.floor(giusto / 60)).padStart(2, '0')}:${String(giusto % 60).padStart(2, '0')}`;
 }
+// Mezzanotte come FINE di un turno (dal titolare, 24 ottobre 2026): si
+// scrive 00:00, e vale dopo tutte le altre ore del giorno. Il bot la salva
+// 23:59 (vedi `fineDellaFascia`); qui si rilegge 00:00, com'è stata scritta.
+function fineInMinutiUI(hhmm) {
+  return /^(?:00:00|24:00)$/.test(String(hhmm || '')) ? 24 * 60 : inMinutiUI(hhmm);
+}
+function fineUI(hhmm) {
+  return hhmm === '23:59' ? '00:00' : hhmm;
+}
 // Cosa non va in un servizio, o '' se va bene. Sono cose che il server
 // toglierebbe: si dicono prima.
 function servizioStorto(sv) {
@@ -8091,7 +8101,7 @@ function servizioStorto(sv) {
   if (!sv.turni.length) return 'nessun turno';
   for (const [i, t] of sv.turni.entries()) {
     if (inMinutiUI(t.da) === null || inMinutiUI(t.a) === null) return `il ${i + 1}° turno ha un'ora che manca o non si legge`;
-    if (inMinutiUI(t.a) <= inMinutiUI(t.da)) return `il ${i + 1}° turno finisce prima di cominciare`;
+    if (fineInMinutiUI(t.a) <= inMinutiUI(t.da)) return `il ${i + 1}° turno finisce prima di cominciare`;
   }
   const inizi = sv.turni.map((t) => t.da);
   if (new Set(inizi).size !== inizi.length) return 'due turni cominciano alla stessa ora';
@@ -8104,7 +8114,7 @@ function servizioDaControllare(sv) {
   for (let i = 1; i < ordinati.length; i++) {
     const prima = ordinati[i - 1];
     const dopo = ordinati[i];
-    if (inMinutiUI(prima.a) > inMinutiUI(dopo.da)) {
+    if (fineInMinutiUI(prima.a) > inMinutiUI(dopo.da)) {
       return `il turno delle ${prima.da} finisce alle ${prima.a}, dopo l'inizio del turno delle ${dopo.da}: i suoi tavoli non saranno liberi per quello dopo`;
     }
     if (inMinutiUI(dopo.da) - inMinutiUI(prima.da) < TURNI_TROPPO_VICINI) {
@@ -8133,7 +8143,7 @@ function servizioDaFasce(fasce, salvate = true) {
   const turni = [];
   for (const f of [...fasce].sort((x, y) => inMinutiUI(x.da) - inMinutiUI(y.da))) {
     if (f.turno || f.da === f.a || salvate) {
-      turni.push({ da: f.da, a: f.a !== f.da ? f.a : '' });
+      turni.push({ da: f.da, a: f.a !== f.da ? fineUI(f.a) : '' });
     } else {
       for (let m = inMinutiUI(f.da); m <= inMinutiUI(f.a); m += 30) turni.push({ da: daMinutiUI(m), a: '' });
     }
@@ -8141,7 +8151,7 @@ function servizioDaFasce(fasce, salvate = true) {
   const unici = turni.filter((t, i) => turni.findIndex((x) => x.da === t.da) === i);
   // La fine che manca: l'inizio del turno dopo, o la durata del tavolo.
   unici.forEach((t, i) => {
-    if (!t.a) t.a = unici[i + 1] ? unici[i + 1].da : daMinutiUI(inMinutiUI(t.da) + durataTavoloUI);
+    if (!t.a) t.a = unici[i + 1] ? unici[i + 1].da : fineUI(daMinutiUI(inMinutiUI(t.da) + durataTavoloUI));
   });
   return { modo: 'turni', turni: unici, convertito };
 }
@@ -8183,8 +8193,10 @@ function anteprimaFasce(g) {
   document.querySelectorAll(`#pren-fasce [data-giorno="${g}"] input.ora-fascia`).forEach((i) => {
     const sv = fasceUI[g][i.closest('[data-servizio]').dataset.servizio];
     const t = sv.turni[+i.dataset.turno];
-    const storta = !t || inMinutiUI(i.value) === null
-      || (inMinutiUI(t.da) !== null && inMinutiUI(t.a) !== null && inMinutiUI(t.a) <= inMinutiUI(t.da));
+    // Sul valore come verrà sistemato («0» è 00:00, «2130» è 21:30): sennò
+    // il campo resta rosso dopo che si è messo a posto da solo.
+    const storta = !t || inMinutiUI(oraScritta(i.value)) === null
+      || (inMinutiUI(t.da) !== null && inMinutiUI(t.a) !== null && fineInMinutiUI(t.a) <= inMinutiUI(t.da));
     i.classList.toggle('storta', storta);
   });
 }
@@ -8256,6 +8268,7 @@ function oraScritta(testo) {
   if (!m) return t;
   const h = +m[1];
   const mi = m[2] === undefined ? 0 : +m[2];
+  if (h === 24 && mi === 0) return '00:00';   // mezzanotte, come si scrive qui
   return h <= 23 && mi <= 59 ? daMinutiUI(h * 60 + mi) : t;
 }
 function servizioDi(el) {
@@ -8273,7 +8286,7 @@ $('#pren-fasce').addEventListener('input', (e) => {
 });
 $('#pren-fasce').addEventListener('change', (e) => {
   const i = e.target.closest('input.ora-fascia');
-  if (i) { i.value = oraScritta(i.value); return; }
+  if (i) { i.value = oraScritta(i.value); anteprimaFasce(servizioDi(i).g); return; }
   const modo = e.target.closest('select.sv-modo');
   if (!modo) return;
   const { sv, s } = servizioDi(modo);
@@ -8313,8 +8326,9 @@ $('#pren-fasce').addEventListener('click', (e) => {
   else {
     // Il turno nuovo comincia dove finisce l'ultimo.
     const ultimo = sv.turni[sv.turni.length - 1];
-    const da = ultimo && inMinutiUI(ultimo.a) !== null ? ultimo.a : '';
-    sv.turni.push({ da, a: da ? daMinutiUI(inMinutiUI(da) + DURATA_TURNO_NUOVO) : '' });
+    // Dopo un turno che finisce a mezzanotte non c'è un'ora da cui partire.
+    const da = ultimo && inMinutiUI(ultimo.a) !== null && fineInMinutiUI(ultimo.a) < 24 * 60 ? ultimo.a : '';
+    sv.turni.push({ da, a: da ? fineUI(daMinutiUI(inMinutiUI(da) + DURATA_TURNO_NUOVO)) : '' });
   }
   // Togliendo l'ultimo turno il servizio è chiuso: dirlo con la tendina, non
   // con una riga vuota che sembra rotta.

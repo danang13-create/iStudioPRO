@@ -7347,9 +7347,11 @@ app.post('/api/bot/impostazioni', (req, res) => {
     // falso, che insegna a non leggere quelli veri. Si confrontano gli orari
     // come insieme, scritti bene.
     const grezze = typeof valori.bot_fasce === 'string' ? JSON.parse(valori.bot_fasce) : valori.bot_fasce;
+    // ⚠️ Una fine scritta 00:00 si salva 23:59 (mezzanotte, vedi
+    // `fineDellaFascia`): è la stessa ora, non una fascia tolta.
     const ora = (v) => bot.turniValidi(v)[0] || String(v);
     const comeTesto = (f, g) => [...new Set((Array.isArray(f[g]) ? f[g] : [])
-      .map((x) => `${ora(x && x.da)}-${ora(x && x.a)}`))].sort().join(',');
+      .map((x) => `${ora(x && x.da)}-${ora(x && bot.fineDellaFascia(x.da, x.a))}`))].sort().join(',');
     for (let g = 0; g < 7; g++) if (comeTesto(grezze, g) !== comeTesto(fasce, g)) fasceRipulite = true;
     valori.bot_fasce = JSON.stringify(fasce);
   }

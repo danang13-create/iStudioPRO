@@ -1977,6 +1977,18 @@ function passoDi() {
 function daMinuti(m) {
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 }
+// Mezzanotte (dal titolare, 24 ottobre 2026): al cliente si dice «00:00».
+// Dentro resta 23:59, l'ultimo minuto del giorno: con «la fine viene dopo
+// l'inizio» funziona in ogni conto, e i turni salvati così non cambiano.
+// Chi scrive 00:00 (o 24:00) come FINE intende quello, non un turno che
+// finisce prima di cominciare: prima la fascia spariva in silenzio.
+const MEZZANOTTE = '23:59';
+const oraDetta = (hhmm) => (hhmm === MEZZANOTTE ? '00:00' : hhmm);
+function fineDellaFascia(da, a) {
+  const fine = String(a == null ? '' : a).trim();
+  const inizio = turniValidi(da)[0];
+  return /^(?:0?0:00|24:00)$/.test(fine) && inizio && inizio !== '00:00' ? MEZZANOTTE : a;
+}
 
 // Le fasce ripulite: ore vere, l'ultimo arrivo non prima del primo, niente
 // doppioni, in ordine. `null` vuol dire «non ci sono fasce salvate» — che non
@@ -1995,7 +2007,7 @@ function fasceValide(valore) {
     for (const f of Array.isArray(grezze[g]) ? grezze[g] : []) {
       if (!f || typeof f !== 'object') continue;
       const [da] = turniValidi(f.da);
-      const [a] = turniValidi(f.a);
+      const [a] = turniValidi(fineDellaFascia(f.da, f.a));
       if (!da || !a || inMinuti(a) < inMinuti(da)) continue;
       const servizio = SERVIZI.includes(f.servizio) ? f.servizio : servizioPerOrario(da);
       // Un turno ha un inizio e una fine: il cliente arriva all'inizio, il
@@ -2453,10 +2465,10 @@ function riepilogoDelGiorno(db, cfg, iso) {
   const altri = localiDi(cfg).altri.filter((a) => a.data === iso).map((a) => {
     const presi = a.coperti - postiAltroLocale(db, a);
     const pieno = presi >= a.coperti;
-    return { servizio: servizioPerOrario(a.da), etichetta: `${a.nome} ${a.da}–${a.a}`,
+    return { servizio: servizioPerOrario(a.da), etichetta: `${a.nome} ${a.da}–${oraDetta(a.a)}`,
              testo: `${presi}/${a.coperti} coperti${pieno ? ' · pieno' : ''}`,
              pieno, occupati: presi, totale: a.coperti, coperti: presi, senzaTavolo: 0,
-             tipo: 'locale', turno: null, titolo: a.nome, orario: `${a.da}–${a.a}`, unita: 'coperti' };
+             tipo: 'locale', turno: null, titolo: a.nome, orario: `${a.da}–${oraDetta(a.a)}`, unita: 'coperti' };
   });
   // Con un altro locale lo stesso giorno, le schede della sala dicono di chi
   // sono: «REAR Restaurant · 1° turno» accanto a «RO bistrot».
@@ -2511,7 +2523,7 @@ function riepilogoDellaSala(db, cfg, iso) {
         const occupati = occupatiAlle(o);
         const pieno = occupati >= totale;
         const fissa = sue.find((f) => f.da === o);
-        const fascia = fissa && fissa.turno && fissa.a !== fissa.da ? `${o}–${fissa.a}` : o;
+        const fascia = fissa && fissa.turno && fissa.a !== fissa.da ? `${o}–${oraDetta(fissa.a)}` : o;
         // Il numero solo se i turni sono più di uno (vedi `turnoDellOra`).
         const numerato = fissa && fissa.turno && orari.length > 1;
         righe.push({ servizio, etichetta: `${NOMI[servizio]} ${numerato ? `· ${i + 1}° turno ` : ''}${fascia}`,
@@ -3351,7 +3363,7 @@ function localiValidi(valore) {
     if (!a || typeof a !== 'object') continue;
     const nome = pulito(a.nome, 40);
     const [da] = turniValidi(a.da);
-    const [fine] = turniValidi(a.a);
+    const [fine] = turniValidi(fineDellaFascia(a.da, a.a));
     const coperti = parseInt(a.coperti, 10);
     if (!nome || visti.has(normalizza(nome)) || !dataEsiste(a.data) || !da || !fine
         || inMinuti(fine) <= inMinuti(da) || !(coperti >= 1 && coperti <= 5000)) continue;
@@ -3380,7 +3392,7 @@ function erroriLocali(valore) {
     nomi.add(normalizza(nome));
     if (!dataEsiste(a.data)) errori.push(`${chi}: manca la data.`);
     const [da] = turniValidi(a.da);
-    const [fine] = turniValidi(a.a);
+    const [fine] = turniValidi(fineDellaFascia(a.da, a.a));
     if (!da || !fine) errori.push(`${chi}: scrivi l'orario di inizio e di fine (per esempio 12:30 e 15:30).`);
     else if (inMinuti(fine) <= inMinuti(da)) errori.push(`${chi}: l'orario di fine viene prima dell'inizio.`);
     const c = parseInt(a.coperti, 10);
@@ -3426,7 +3438,7 @@ function postiAltroLocale(db, a, escludiId = null) {
 function oraDellaPrenotazione(cfg, p) {
   const fuori = p.fuori_sala || p.fuoriSala;
   const a = fuori ? altroLocaleDi(cfg, p.locale_scelto || p.localeScelto) : null;
-  if (a && a.da === p.ora) return `${p.ora} (fino alle ${a.a})`;
+  if (a && a.da === p.ora) return `${p.ora} (fino alle ${oraDetta(a.a)})`;
   if (fuori) return p.ora;
   return oraColTurno(cfg, p.data, p.ora);
 }
@@ -3541,13 +3553,12 @@ function valeIlGiorno(e, iso, servizio) {
 //
 //   🌙 Cena
 //   dal lunedì al giovedì · 19:30–23:30
-//   venerdì e sabato · 19:30–24:00
+//   venerdì e sabato · 19:30–00:00
 // e fra un servizio e l'altro resta una riga vuota. Con un orario solo resta
 // la riga unica. I giorni con lo stesso orario stanno insieme; un servizio va
-// dal primo arrivo all'ultima fine, e «23:59» si dice «24:00»: è mezzanotte,
-// non un minuto prima. Niente elenco dei turni. Vuoto se non c'è nessun
-// orario. «Siamo aperti:» sta nella frase, non qui.
-const fineDetta = (m) => (m >= 23 * 60 + 59 ? '24:00' : daMinuti(m));
+// dal primo arrivo all'ultima fine, e mezzanotte si dice «00:00» (vedi
+// `oraDetta`). Niente elenco dei turni. Vuoto se non c'è nessun orario.
+// «Siamo aperti:» sta nella frase, non qui.
 // Nelle righe «giorni · orario» più giorni sciolti vanno senza articolo
 // («venerdì e sabato», non «il venerdì e il sabato»); uno solo lo tiene
 // («la domenica»).
@@ -3567,7 +3578,7 @@ function orariDetti(cfg, solo = null) {
       const da = Math.min(...sue.map((f) => inMinuti(f.da)));
       const a = Math.max(...sue.map((f) => Math.max(inMinuti(f.a), inMinuti(f.da))));
       // Un orario solo (i turni di prima, senza fine): «dalle 20:00».
-      const chiave = a > da ? `${daMinuti(da)}–${fineDetta(a)}` : `dalle ${daMinuti(da)}`;
+      const chiave = a > da ? `${daMinuti(da)}–${oraDetta(daMinuti(a))}` : `dalle ${daMinuti(da)}`;
       if (!perOrario.has(chiave)) perOrario.set(chiave, []);
       perOrario.get(chiave).push(g);
     }
@@ -4358,13 +4369,13 @@ function numeroDaDire(cfg, iso, ora) {
 function rigaTurno(cfg, iso, ora) {
   const t = turnoDellOra(cfg, iso, ora);
   if (!t) return ora;
-  const fascia = t.a ? `dalle ${t.da} alle ${t.a}` : `alle ${t.da}`;
+  const fascia = t.a ? `dalle ${t.da} alle ${oraDetta(t.a)}` : `alle ${t.da}`;
   return t.unico ? fascia : `*${t.numero}° turno* · ${fascia}`;
 }
 // «dalle 13:00 alle 15:00», o «alle 13:00» se la fine non è scritta.
 function fasciaDetta(cfg, iso, ora) {
   const t = turnoDellOra(cfg, iso, ora);
-  return t && t.a ? `dalle ${ora} alle ${t.a}` : `alle ${ora}`;
+  return t && t.a ? `dalle ${ora} alle ${oraDetta(t.a)}` : `alle ${ora}`;
 }
 // Il numero detto, come turno: «il primo», «2°», «secondo», «turno 3».
 // null se il messaggio non sceglie un turno per numero.
@@ -4380,14 +4391,14 @@ function ordinaleDi(testo) {
 function oraColTurno(cfg, iso, ora) {
   const t = turnoDellOra(cfg, iso, ora);
   if (!t) return ora;
-  if (t.unico) return t.a ? `${ora} (fino alle ${t.a})` : ora;
-  return `${ora} (${t.numero}° turno${t.a ? `, fino alle ${t.a}` : ''})`;
+  if (t.unico) return t.a ? `${ora} (fino alle ${oraDetta(t.a)})` : ora;
+  return `${ora} (${t.numero}° turno${t.a ? `, fino alle ${oraDetta(t.a)}` : ''})`;
 }
 // «alle 12:30, e il tavolo è tuo fino alle 15:30», o «alle 12:30» se la fine
 // del turno non è scritta. Per la domanda sul turno che resta.
 function arrivoDetto(cfg, iso, ora) {
   const t = turnoDellOra(cfg, iso, ora);
-  return t && t.a ? `alle ${ora}, e il tavolo è tuo fino alle ${t.a}` : `alle ${ora}`;
+  return t && t.a ? `alle ${ora}, e il tavolo è tuo fino alle ${oraDetta(t.a)}` : `alle ${ora}`;
 }
 
 // «il primo», «2° turno», «secondo», o un «1» da solo: il turno scelto,
@@ -7901,6 +7912,8 @@ module.exports = {
   dataBreve,
   turniDelGiorno,
   turniValidi,
+  fineDellaFascia,
+  oraDetta,
   fasceDi, fasceValide, fasceDaiTurni, fasceDelGiorno, fineDelTavolo, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
   servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI, turnoDellOra, numeroDaDire, rigaTurno, oraColTurno, arrivoDetto, fasciaDetta, ordinaleDi, interpretaTurno,
   tavoliDi, usaTavoli, capienzaDi, trovaTavolo, postoPer, ciStanno, gruppoMassimo, tavoliLiberi,
