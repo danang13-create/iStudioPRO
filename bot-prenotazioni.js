@@ -919,6 +919,9 @@ const PREDEFINITI = {
   // Il giorno l'ha già detto: solo le esperienze che valgono quel giorno.
   bot_t_esperienze_giorno: '{data}{servizio} puoi scegliere:\n\n{esperienze}\n\nQuale preferisci? Scrivi il numero: {numeri}.',
   bot_t_esperienza_no: 'Non ho capito quale preferisci 🙏 Scrivi il numero: {numeri}.\n\n{esperienze}',
+  // Alla seconda risposta che non si capisce, al menu: si va avanti e il
+  // menu si sceglie al tavolo (24 ottobre 2026). Sotto, la domanda dopo.
+  bot_t_esperienza_al_tavolo: 'Nessun problema, il menu lo scegli direttamente al tavolo 😊',
   // Il nome scritto va bene per più d'una («business lunch»: da €35 o da
   // €45?). L'elenco è solo di quelle, coi numeri di prima.
   bot_t_esperienza_quale: 'Ne abbiamo più di uno 🙂\n\n{esperienze}\n\nQuale preferisci? Scrivi il numero: {numeri}.',
@@ -1309,7 +1312,9 @@ function interpretaData(testo, adesso, { storti = false } = {}) {
   const t = dateRaddrizzate(normalizza(testo), storti);
   if (!t) return null;
 
-  if (/\b(oggi|stasera|stanotte|stamattina)\b/.test(t)) return comeData(adesso);
+  // «Questa sera», «sta sera» come «stasera» (24 ottobre 2026: «Per questa
+  // sera a cena» al passo del menu non si capiva).
+  if (/\b(oggi|stasera|stanotte|stamattina|(?:questa|sta) (?:sera|mattina|notte))\b/.test(t)) return comeData(adesso);
   if (/\bdopodomani\b/.test(t)) return comeData(piuGiorni(adesso, 2));
   if (/\bdomani\b/.test(t)) return comeData(piuGiorni(adesso, 1));
 
@@ -3507,6 +3512,10 @@ function quandoDetto(e) {
   // Prima il servizio con più giorni: «dal lunedì al sabato a cena e la domenica a pranzo».
   return pezzi.sort((x, y) => y[0] - x[0]).map((x) => x[1]).join(' e ');
 }
+// Chi al menu non sceglie (due risposte che non si capiscono) prenota lo
+// stesso: sulla prenotazione, al posto dell'esperienza, c'è questo. La sala
+// lo legge; il report lo conta come una voce a sé.
+const MENU_AL_TAVOLO = 'Menu da scegliere al tavolo';
 const NUMERI_IN_CERCHIO = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
 // L'elenco per il cliente: numero, nome in grassetto, la riga. Con `numeri`
 // i numeri sono quelli dati (una parte dell'elenco, coi numeri che il cliente
@@ -5942,7 +5951,13 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   const esperienzaScelta = (d = dati) => (d.fuoriSala ? null
     : esperienzaDi(cfg, d.esperienza) || (esperienze.length === 1 ? esperienze[0] : null));
   const perEsperienza = (d = dati) => { const e = esperienzaScelta(d); return e ? { esperienza: e } : {}; };
-  const nomeEsperienza = (d = dati) => { const e = esperienzaScelta(d); return e ? { esperienza: e.nome } : {}; };
+  // «Menu da scegliere al tavolo» (vedi il passo del menu) viaggia come un
+  // nome, ma non è un'esperienza: non restringe giorni e turni.
+  const nomeEsperienza = (d = dati) => {
+    const e = esperienzaScelta(d);
+    if (e) return { esperienza: e.nome };
+    return d.esperienza === MENU_AL_TAVOLO && !d.fuoriSala ? { esperienza: MENU_AL_TAVOLO } : {};
+  };
 
   // Quante risposte non capite di fila prima di passare (`bot_tentativi`).
   const tentativiMassimi = Math.min(Math.max(num(cfg.bot_tentativi, 3), 2), 5);
@@ -6711,6 +6726,15 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   function elencoDaProporre(d) {
     const tutte = { valide: esperienze, ristrette: false,
       testo: diConElenco('bot_t_esperienze', elencoEsperienze(esperienze), { numeri: numeriDetti(daUnoA(esperienze.length)) }) };
+    // Il servizio senza il giorno («a cena»): quelle che a cena ci sono, in
+    // qualche giorno (24 ottobre 2026: «A cena» non si capiva).
+    if (!d.giornoDetto && d.servizio) {
+      const valide = esperienze.filter((e) => (d.servizio === 'pranzo' ? e.pranzo : e.cena).length);
+      if (!valide.length) return tutte;
+      return { valide, ristrette: true,
+        testo: diConElenco('bot_t_esperienze_giorno', elencoEsperienze(valide),
+          { data: d.servizio === 'pranzo' ? 'A pranzo' : 'A cena', servizio: '', numeri: numeriDetti(daUnoA(valide.length)) }) };
+    }
     if (!d.giornoDetto) return tutte;
     const valide = esperienze.filter((e) => valeIlGiorno(e, d.giornoDetto, d.servizio));
     if (!valide.length) return tutte;
@@ -6989,14 +7013,23 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     if (scelta === null) {
       const faq = cercaFaq(db, testo);
       if (faq) { risposte.push(riempi(faq, valori)); return esito; }
-      // «Siamo in 4», «sabato»: si tiene da parte e si richiede l'esperienza.
+      // «Siamo in 4», «sabato», «per questa sera a cena», «a cena»: si tiene
+      // da parte e si richiede l'esperienza, solo fra quelle che valgono.
       // Non è un equivoco: ha risposto a una domanda che viene dopo.
       const persone = personeDette(testo);
       const giorno = giornoDettoInsieme(testo);
-      if (persone !== null || giorno || eSaluto(testo)) {
+      if (persone !== null || giorno || servizioDetto(testo) || eSaluto(testo)) {
         const { scelte, ...resto } = avanzato(dati);
         return chiediEsperienza({ ...resto, ...conServizio(),
           ...(persone !== null ? { persone } : {}), ...(giorno ? { giornoDetto: giorno } : {}) }, '');
+      }
+      // ⚠️ Dal titolare (24 ottobre 2026), su una chat vera: due «non ho
+      // capito» al menu, e il cliente ha chiesto un operatore. Alla seconda
+      // risposta che non si capisce il bot non insiste: si va avanti, e il
+      // menu lo sceglie al tavolo. La sala lo vede sulla prenotazione.
+      if ((dati.tentativi || 0) >= 1) {
+        const { scelte, ...resto } = avanzato(dati);
+        return dopoLEsperienza({ ...resto, ...conServizio(), esperienza: MENU_AL_TAVOLO }, di('bot_t_esperienza_al_tavolo'));
       }
       return nonCapito('esperienza', dati, diConElenco('bot_t_esperienza_no', elencoEsperienze(proposte),
         { numeri: numeriDetti(daUnoA(proposte.length)) }));
@@ -7043,7 +7076,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // 15 ottobre» al primo messaggio perdeva la data — il bot la richiedeva.
   function giornoDettoInsieme(t) {
     const n = dateRaddrizzate(normalizza(t));
-    if (!new RegExp(`\\b(oggi|domani|dopodomani|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica|\\d{1,2}\\/\\d{1,2}|\\d{1,2} (${NOMI_MESI.join('|')}))\\b`).test(n)) return null;
+    if (!new RegExp(`\\b(oggi|stasera|stanotte|stamattina|(?:questa|sta) (?:sera|mattina|notte)|domani|dopodomani|lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica|\\d{1,2}\\/\\d{1,2}|\\d{1,2} (${NOMI_MESI.join('|')}))\\b`).test(n)) return null;
     return interpretaData(t, adesso);
   }
 
@@ -7943,6 +7976,7 @@ module.exports = {
   dataBreve,
   turniDelGiorno,
   turniValidi,
+  MENU_AL_TAVOLO,
   fineDellaFascia,
   oraDetta,
   fasceDi, fasceValide, fasceDaiTurni, fasceDelGiorno, fineDelTavolo, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
