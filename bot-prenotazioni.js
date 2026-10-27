@@ -5208,6 +5208,15 @@ function reportPrenotazioni(db, cfg, dal, al) {
   const perTurnoCfg = usaTavoli(db)
     ? capienzaDi(db, cfg)
     : num(cfg.bot_coperti_turno, 0) - num(cfg.bot_coperti_liberi, 0);
+  // ⚠️ I giorni in cui iStudio non c'era ancora non contano (27 ottobre 2026,
+  // dal titolare, col report di ottobre in mano: «3%» di riempimento, perché
+  // il programma è partito il 22 e il conto prendeva anche i ventun giorni
+  // prima, aperti e senza nessuna prenotazione scritta). Il primo giorno è
+  // quello della prima prenotazione, o di quando è stata scritta se viene
+  // prima. Senza nessuna prenotazione si contano tutti: non c'è niente da
+  // spostare.
+  const primo = (db.prepare('SELECT MIN(MIN(data, substr(creata_at, 1, 10))) AS g FROM prenotazioni').get() || {}).g || '';
+  const daContare = primo > dal ? primo : dal;
   let possibili = 0;
   let apertiConta = 0;
   let pieniConta = 0;
@@ -5215,7 +5224,7 @@ function reportPrenotazioni(db, cfg, dal, al) {
     const iso = comeData(piuGiorni(new Date(dal + 'T12:00:00'), i));
     const turni = turniDelGiorno(cfg, iso);
     if (ePieno(db, iso)) pieniConta += 1;
-    if (!turni.length || eBloccato(db, iso)) continue;
+    if (iso < daContare || !turni.length || eBloccato(db, iso)) continue;
     apertiConta += 1;
     possibili += Math.max(perTurnoCfg, 0) * giriDelGiorno(cfg, iso);
   }
@@ -5245,11 +5254,34 @@ function reportPrenotazioni(db, cfg, dal, al) {
   }
   // Le esperienze: quanto vale il business lunch, quanto il degustazione. Vuoto
   // se nessuna prenotazione ne ha una — allora la sezione non c'è.
+  // (27 ottobre 2026, dal titolare: «la scelta delle esperienze», per il
+  // commerciale.) Di ognuna anche QUANDO si sceglie (il giorno e il servizio
+  // coi coperti più alti), quante persone a tavolo, quanti clienti e quanti
+  // nuovi, e quante sono state cancellate: dice cosa proporre, e quando.
+  // In fondo «Menu da scegliere al tavolo» (chi non ha scelto) e chi non ne ha.
   const conEsperienza = vive.some((r) => String(r.esperienza || '').trim());
+  const espDi = (r) => String(r.esperienza || '').trim();
+  const posizione = (nome) => (!nome ? 2 : nome === MENU_AL_TAVOLO ? 1 : 0);
   const perEsperienza = conEsperienza
-    ? [...somma(vive.filter((r) => !r.fuori_sala), (r) => String(r.esperienza || '').trim() || '').entries()]
-      .map(([nome, v]) => ({ nome, ...v }))
-      .sort((a, b) => (!a.nome) - (!b.nome) || b.coperti - a.coperti)
+    ? [...somma(inSala, espDi).entries()].map(([nome, v]) => {
+      const sue = inSala.filter((r) => espDi(r) === nome);
+      const quando = new Map();
+      for (const r of sue) {
+        const g = new Date(r.data + 'T12:00:00').getDay();
+        const s = servizioDellOra(cfg, r.data, r.ora) === 'pranzo' ? 'pranzo' : 'cena';
+        quando.set(`${g}|${s}`, (quando.get(`${g}|${s}`) || 0) + r.persone);
+      }
+      const [chiave, suoi] = [...quando.entries()].sort((a, b) => b[1] - a[1])[0];
+      const loro = new Set(sue.map(chiaveCliente));
+      return {
+        nome, ...v,
+        media: Math.round((v.coperti / v.prenotazioni) * 10) / 10,
+        quando: { giorno: NOMI_SETTIMANA[Number(chiave.split('|')[0])], servizio: chiave.split('|')[1], coperti: suoi },
+        clienti: loro.size,
+        nuovi: [...loro].filter((c) => !prima.has(c)).length,
+        annullate: annullate.filter((r) => !r.fuori_sala && espDi(r) === nome).length,
+      };
+    }).sort((a, b) => posizione(a.nome) - posizione(b.nome) || b.coperti - a.coperti)
     : [];
   // Quanto prima prenotano: se tutti scrivono il giorno stesso, il promemoria
   // del giorno prima non serve a niente, e la sala si decide all'ultimo.
@@ -5353,6 +5385,8 @@ function reportPrenotazioni(db, cfg, dal, al) {
     serie: { passo, punti: serie },
     riempimento: {
       possibili, aperti: apertiConta,
+      // Il giorno da cui si conta, se il periodo comincia prima di iStudio.
+      dal: daContare > dal ? daContare : '',
       // Solo la sala: i posti sono i suoi (vedi `inSala`).
       quota: possibili ? Math.round((copertiSala / possibili) * 100) : 0,
     },

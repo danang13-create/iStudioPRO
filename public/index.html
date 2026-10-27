@@ -711,14 +711,16 @@
   .rep-legenda span.b::before { background: var(--bordo-2, var(--bordo)); }
   /* Le barre: nome a sinistra, barra, valore in punta. È già una tabella —
      chi non distingue i colori legge i numeri, non deve indovinarli. */
-  .rep-barre { display: grid; grid-template-columns: auto 1fr auto; gap: 7px 12px; align-items: center; }
+  .rep-barre { display: grid; grid-template-columns: auto 1fr repeat(var(--col, 1), auto); gap: 7px 12px; align-items: center; }
   .rep-barre .et { font-size: .88rem; white-space: nowrap; }
+  /* Il titolo di ogni colonna di numeri, una volta sola in cima. */
+  .rep-barre .tc { font-size: .72rem; color: var(--grigio); text-align: right; margin-bottom: -2px; }
   /* ⚠️ Sul telefono un nome lungo («A mano, senza motivo», un'esperienza
      dal nome lungo) prendeva tutta la riga: barra a zero, e i numeri tagliati
      fuori dal riquadro — visto a 390 con «Le cancellazioni». Lì il nome va a
      capo, e la barra ha sempre un po' di posto. */
   @media (max-width: 560px) {
-    .rep-barre { grid-template-columns: minmax(0, auto) minmax(48px, 1fr) auto; }
+    .rep-barre { grid-template-columns: minmax(0, auto) minmax(48px, 1fr) repeat(var(--col, 1), auto); gap: 7px 9px; }
     .rep-barre .et { white-space: normal; overflow-wrap: anywhere; }
   }
   .rep-barra { background: var(--sfondo); border-radius: 0 4px 4px 0; height: 14px; }
@@ -727,8 +729,11 @@
      viene da solo» e «qualcuno ogni tanto» è tutta lì. */
   .rep-barra i { display: block; height: 100%; background: var(--verde-scuro);
                  border-radius: 0 4px 4px 0; }
-  .rep-barre .v { font-size: .86rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .rep-barre .v small { color: var(--grigio); }
+  .rep-barre .v { font-size: .86rem; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+  /* Una sezione larga quanto il report, anche dove le altre stanno su due colonne. */
+  .rep-largo { grid-column: 1 / -1; }
+  .rep-righe { margin: 12px 0 0; padding: 0; list-style: none; font-size: .86rem; line-height: 1.45; }
+  .rep-righe li { padding: 6px 0; border-top: 1px solid var(--bordo); }
   /* La colonna del tempo. Il distacco fra due colonne è FATTO DI SFONDO, non
      di un bordo: un bordo è inchiostro che non è un dato. */
   /* La riga del massimo: senza, un grafico di colonne non dice quanto sono
@@ -6887,16 +6892,24 @@ async function caricaReport() {
   collegaTabelle();
 }
 
-// Le barre: nome, barra, valore in punta. È già una tabella — chi non
-// distingue i colori legge i numeri e non deve indovinarli.
-function barre(voci, unita = 'coperti') {
-  const massimo = voci.reduce((m, v) => Math.max(m, v.valore), 0) || 1;
-  return '<div class="rep-barre">' + voci.map((v) => `
+// Le barre: nome, barra, e i numeri in colonna, ognuno sotto il suo titolo.
+// È già una tabella — chi non distingue i colori legge i numeri e non deve
+// indovinarli. La barra misura la PRIMA colonna.
+// ⚠️ Prima i numeri stavano uno accanto all'altro: «46 13 pren.», e in un
+// riquadro il primo erano i coperti, in un altro le prenotazioni (27 ottobre
+// 2026, dal titolare, col PDF in mano: «non si capisce»). Ora ogni numero ha
+// il suo titolo, scritto una volta sola in cima alla colonna.
+function barre(voci, colonne = ['coperti']) {
+  const massimo = voci.reduce((m, v) => Math.max(m, Number(v.valori[0]) || 0), 0) || 1;
+  const dette = (v) => colonne.map((c, i) => `${v.valori[i]} ${c}`).join(', ');
+  return `<div class="rep-barre" style="--col:${colonne.length}">`
+    + `<span></span><span></span>${colonne.map((c) => `<span class="tc">${testoSicuro(c)}</span>`).join('')}`
+    + voci.map((v) => `
     <span class="et">${testoSicuro(v.nome)}</span>
-    <span class="rep-barra" title="${testoSicuro(v.nome)}: ${v.valore} ${unita}${v.extra ? ', ' + testoSicuro(v.extra) : ''}"
-      ><i style="width:${v.valore ? Math.round((v.valore / massimo) * 100) : 0}%"></i></span>
-    <span class="v">${v.valore}${v.extra ? ` <small>${testoSicuro(v.extra)}</small>` : ''}</span>`).join('')
-    + '</div>' + `<p class="conteggio" style="margin:6px 0 0">In ${unita}.</p>`;
+    <span class="rep-barra" title="${testoSicuro(v.nome)}: ${testoSicuro(dette(v))}"
+      ><i style="width:${Number(v.valori[0]) ? Math.round((Number(v.valori[0]) / massimo) * 100) : 0}%"></i></span>
+    ${v.valori.map((n) => `<span class="v">${testoSicuro(n)}</span>`).join('')}`).join('')
+    + '</div>';
 }
 
 function riquadro(titolo, dentro, sotto = '') {
@@ -6918,31 +6931,42 @@ function quotaDoppia(a, b, nomeA, nomeB) {
 function disegnaReport(d, prima = null) {
   const t = d.totale;
   const perc = (n, su) => (su ? Math.round((n / su) * 100) : 0);
-  const pt = prima ? prima.totale : null;
-  const conf = (ora, chiave, come) => (pt ? deltaTesto(ora, chiave === 'riempimento' ? prima.riempimento.quota : pt[chiave], d.giorni, come) : '');
+  // ⚠️ Un periodo prima SENZA NIENTE non è un confronto (27 ottobre 2026):
+  // prima di iStudio non c'era nessuna prenotazione scritta, e ogni riquadro
+  // diceva «nei 27 giorni prima: niente» — cinque volte la stessa riga, e un
+  // «▲ 3 punti» di riempimento rispetto al vuoto. Si dice una volta sola.
+  const confronto = prima && (prima.totale.prenotazioni || prima.totale.annullate) ? prima : null;
+  const pt = confronto ? confronto.totale : null;
+  const conf = (ora, chiave, come) => (pt ? deltaTesto(ora, chiave === 'riempimento' ? confronto.riempimento.quota : pt[chiave], d.giorni, come) : '');
+  const r = d.riempimento;
   const kpi = [
     ['Prenotazioni', t.prenotazioni, '', conf(t.prenotazioni, 'prenotazioni')],
-    ['Coperti', t.coperti, t.prenotazioni ? `${t.mediaCoperti} a tavolo` : '', conf(t.coperti, 'coperti')],
-    ['Riempimento', d.riempimento.quota + '%', `su ${d.riempimento.possibili} coperti in ${d.riempimento.aperti} giorni aperti`
+    ['Coperti', t.coperti, t.prenotazioni ? `${String(t.mediaCoperti).replace('.', ',')} persone a tavolo` : '', conf(t.coperti, 'coperti')],
+    ['Riempimento', r.possibili ? r.quota + '%' : '—', (r.possibili
+      ? `su ${conMigliaia(r.possibili)} coperti in ${r.aperti} ${r.aperti === 1 ? 'giorno aperto' : 'giorni aperti'}` : 'nessun giorno aperto da contare')
+      + (r.dal ? ` · dal ${dataItalianaUI(r.dal)}, quando è partito iStudio` : '')
       + (d.perLocale && d.perLocale.length ? ` · solo ${d.perLocale[0].nome}` : ''),
-      conf(d.riempimento.quota, 'riempimento', 'punti')],
-    ['Annullate', t.annullate, t.annullate ? `${t.copertiPersi} coperti persi · ${perc(t.annullate, t.prenotazioni + t.annullate)}%` : '',
+      conf(r.quota, 'riempimento', 'punti')],
+    ['Cancellate', t.annullate, t.annullate ? `${t.copertiPersi} coperti persi · ${perc(t.annullate, t.prenotazioni + t.annullate)}% delle prenotazioni` : '',
       conf(t.annullate, 'annullate', 'inverso')],
-    ['Clienti', d.clienti.totali, `${d.clienti.diRitorno} già stati qui`,
-      prima ? deltaTesto(d.clienti.totali, prima.clienti.totali, d.giorni) : ''],
+    ['Clienti', d.clienti.totali, `${d.clienti.nuovi} ${d.clienti.nuovi === 1 ? 'nuovo' : 'nuovi'} · ${d.clienti.diRitorno} ${d.clienti.diRitorno === 1 ? 'già stato qui' : 'già stati qui'}`,
+      confronto ? deltaTesto(d.clienti.totali, confronto.clienti.totali, d.giorni) : ''],
   ];
   if (d.soldOut) kpi.push(['Giorni sold out', d.soldOut, '', '']);
   // Il menu: chi l'ha CHIESTO (i clic sul collegamento non si possono
   // contare), e quanti di loro hanno poi prenotato.
   if (d.menu && d.menu.richieste) {
-    kpi.push(['Menu chiesto', d.menu.persone,
-      `${d.menu.richieste === 1 ? '1 volta' : `${d.menu.richieste} volte`} · ${d.menu.poiPrenotato} ${d.menu.poiPrenotato === 1 ? 'ha' : 'hanno'} poi prenotato`,
-      prima && prima.menu ? deltaTesto(d.menu.persone, prima.menu.persone, d.giorni) : '']);
+    kpi.push(['Hanno chiesto il menu', d.menu.persone,
+      `${d.menu.richieste === 1 ? '1 richiesta' : `${d.menu.richieste} richieste`} · ${d.menu.poiPrenotato} ${d.menu.poiPrenotato === 1 ? 'ha' : 'hanno'} poi prenotato`,
+      confronto && confronto.menu ? deltaTesto(d.menu.persone, confronto.menu.persone, d.giorni) : '']);
   }
 
   let html = '<div class="rep-kpi">' + kpi.map(([nome, n, p, delta]) => `
     <div><div class="n">${n}</div><div class="t">${nome}</div>
     ${p ? `<div class="p">${testoSicuro(p)}</div>` : ''}${delta || ''}</div>`).join('') + '</div>';
+  if (prima && !confronto) {
+    html += `<p class="conteggio" style="margin:8px 0 0">Nessun confronto: nei ${d.giorni} giorni prima non c'è nessuna prenotazione.</p>`;
+  }
 
   if (!t.prenotazioni) {
     return html + '<p class="conteggio" style="margin:20px 0 0">In questo periodo non ci sono prenotazioni.</p>';
@@ -6954,8 +6978,22 @@ function disegnaReport(d, prima = null) {
   // La quota sui coperti della SALA: l'orario è suo, il bistrot ha i suoi.
   if (d.turnoTop) frasi.push(`L'orario che riempie di più è <b>le ${testoSicuro(d.turnoTop.ora)}</b>,
     con ${d.turnoTop.coperti} coperti (${perc(d.turnoTop.coperti, t.copertiSala ?? t.coperti)}% del totale).`);
-  if (d.giornoTop) frasi.push(`La serata più forte è <b>${testoSicuro(d.giornoTop.nome)}</b>,
-    con ${d.giornoTop.coperti} coperti.`);
+  // Il giorno più forte, e quelli alla pari (sabato e domenica a 42 coperti
+  // ciascuno: dirne uno solo era sbagliato). «Giorno», non «serata»: dentro
+  // c'è anche il pranzo.
+  const piuForti = SETTIMANA_DA_LUNEDI.map((g) => d.perGiornoSettimana[g])
+    .filter((g) => g && g.coperti && d.giornoTop && g.coperti === d.giornoTop.coperti);
+  if (piuForti.length === 1) {
+    frasi.push(`Il giorno più forte è <b>${testoSicuro(piuForti[0].nome)}</b>, con ${piuForti[0].coperti} coperti.`);
+  } else if (piuForti.length > 1) {
+    frasi.push(`I giorni più forti sono <b>${testoSicuro(elencoConE(piuForti.map((g) => g.nome)))}</b>,
+      con ${piuForti[0].coperti} coperti ciascuno.`);
+  }
+  const scelte = (d.perEsperienza || []).filter((x) => x.nome && x.nome !== MENU_AL_TAVOLO_UI);
+  if (scelte.length) {
+    frasi.push(`L'esperienza più scelta è <b>${testoSicuro(scelte[0].nome)}</b>, con
+      ${conArticolo(perc(scelte[0].coperti, t.copertiSala ?? t.coperti))} dei coperti.`);
+  }
   // (24 ottobre 2026) Quello che fa il bot, e quando la gente si decide.
   if (d.origine.bot) frasi.push(`Il bot ne ha prese <b>${d.origine.bot}</b> da solo (${perc(d.origine.bot, t.prenotazioni)}%).`);
   const notte = (d.quandoScrivono || [])[0];
@@ -6972,13 +7010,15 @@ function disegnaReport(d, prima = null) {
   const soloSala = d.perLocale && d.perLocale.length
     ? ` Solo ${testoSicuro(d.perLocale[0].nome)}: gli altri locali sono in fondo.` : '';
   html += '<div class="rep-griglia">';
+  const COPERTI_E_PRENOTAZIONI = ['coperti', 'prenotazioni'];
   html += riquadro('Coperti per orario', barre(d.perTurno.map((x) => ({
-    nome: x.ora, valore: x.coperti, extra: `${x.prenotazioni} pren.`,
-  }))), 'Quale turno porta più gente.' + soloSala);
+    nome: x.ora, valori: [x.coperti, x.prenotazioni],
+  })), COPERTI_E_PRENOTAZIONI), 'Quale orario porta più gente.' + soloSala);
 
-  html += riquadro('Coperti per giorno della settimana', barre(d.perGiornoSettimana.map((x) => ({
-    nome: x.nome, valore: x.coperti, extra: x.prenotazioni ? `${x.prenotazioni} pren.` : '',
-  }))), 'Quale serata tira, e quale no.' + soloSala);
+  // Dal lunedì, come si legge una settimana in un locale.
+  html += riquadro('Coperti per giorno della settimana', barre(SETTIMANA_DA_LUNEDI.map((g) => d.perGiornoSettimana[g]).map((x) => ({
+    nome: x.nome, valori: [x.coperti, x.prenotazioni],
+  })), COPERTI_E_PRENOTAZIONI), 'Quale giorno tira, e quale no.' + soloSala);
 
   // Pranzo e cena: solo se ci sono tutti e due, sennò è una barra piena e basta.
   const s = d.perServizio;
@@ -6986,48 +7026,49 @@ function disegnaReport(d, prima = null) {
     html += riquadro('Pranzo e cena', quotaDoppia(s.pranzo.coperti, s.cena.coperti, 'coperti a pranzo', 'a cena'),
       `Quale servizio porta più gente: ${s.pranzo.prenotazioni} prenotazioni a pranzo, ${s.cena.prenotazioni} a cena.`);
   }
-  if (d.perEsperienza && d.perEsperienza.length) {
-    html += riquadro('Coperti per esperienza', barre(d.perEsperienza.map((x) => ({
-      nome: x.nome || 'senza esperienza', valore: x.coperti, extra: `${x.prenotazioni} pren.`,
-    }))), 'Quanto vale ognuna.');
-  }
-
   html += riquadro('Quanto sono grandi i tavoli', barre(d.perDimensione.map((x) => ({
     nome: x.etichetta + (x.etichetta === '1' ? ' persona' : ' persone'),
-    valore: x.prenotazioni, extra: x.coperti ? `${x.coperti} coperti` : '',
-  })), 'prenotazioni'), 'Per sapere come apparecchiare.');
+    valori: [x.prenotazioni, x.coperti],
+  })), ['prenotazioni', 'coperti']), 'Per sapere come apparecchiare.');
 
   if (d.anticipo && d.anticipo.some((x) => x.prenotazioni)) {
-    html += riquadro('Quanto prima prenotano', barre(d.anticipo.map((x) => ({ nome: x.etichetta, valore: x.prenotazioni })), 'prenotazioni'),
+    html += riquadro('Quanto prima prenotano', barre(d.anticipo.map((x) => ({ nome: x.etichetta, valori: [x.prenotazioni] })), ['prenotazioni']),
       'Dal giorno in cui hanno scritto al giorno del tavolo: dice quando serve il promemoria.');
   }
   if (d.quandoScrivono && d.quandoScrivono.some((x) => x.prenotazioni)) {
-    html += riquadro('A che ora scrivono al bot', barre(d.quandoScrivono.map((x) => ({ nome: x.etichetta, valore: x.prenotazioni })), 'prenotazioni'),
+    html += riquadro('A che ora scrivono al bot', barre(d.quandoScrivono.map((x) => ({ nome: x.etichetta, valori: [x.prenotazioni] })), ['prenotazioni']),
       'Le prenotazioni prese dal bot, per l\'ora in cui sono arrivate.');
   }
 
+  // I nuovi e chi torna stanno nel riquadro «Clienti», in alto: qui erano
+  // gli stessi due numeri una seconda volta.
   html += riquadro('Chi le prende',
     quotaDoppia(d.origine.bot, d.origine.manuale, 'dal bot', 'segnate a mano'),
-    'Quante prenotazioni sono arrivate da sole, senza che nessuno rispondesse.')
-    + riquadro('Clienti nuovi e di ritorno',
-      quotaDoppia(d.clienti.diRitorno, d.clienti.nuovi, 'già stati qui', 'nuovi'),
-      'Se il locale sta crescendo o sta girando sugli stessi.');
+    'Quante prenotazioni sono arrivate da sole, senza che nessuno rispondesse.');
   if (d.fedeli && d.fedeli.length) {
     html += riquadro('I clienti più presenti', tabellaFedeli(d.fedeli), 'Chi è venuto più volte in questo periodo.');
   }
   if (d.perLocale && d.perLocale.length) {
     html += riquadro('I locali', barre(d.perLocale.map((x) => ({
-      nome: x.nome, valore: x.coperti, extra: x.posti ? `su ${x.posti} posti` : `${x.prenotazioni} pren.`,
-    }))), 'Ognuno coi suoi coperti; gli altri locali anche sui loro posti.');
+      nome: x.nome, valori: [x.coperti, x.prenotazioni, x.posti || '—'],
+    })), ['coperti', 'prenotazioni', 'posti']), 'Ognuno coi suoi coperti; gli altri locali anche coi loro posti.');
   }
   // Tutte le cancellazioni del periodo, per motivo (vedi `perMotivo`).
   if (d.perMotivo && d.perMotivo.length) {
     const t = d.totale;
     html += riquadro('Le cancellazioni', barre(d.perMotivo.map((x) => ({
-      nome: x.motivo, valore: x.prenotazioni, extra: `${x.coperti} coperti`,
-    })), 'prenotazioni'), `${t.annullate} ${t.annullate === 1 ? 'cancellata' : 'cancellate'}, ${t.copertiPersi} coperti persi. `
-      + '«Su WhatsApp»: il cliente che disdice col bot, o il responsabile col comando. '
-      + '«Prima del 24 ottobre»: cancellate a mano quando il motivo non si scriveva ancora.');
+      nome: x.motivo, valori: [x.prenotazioni, x.coperti],
+    })), ['prenotazioni', 'coperti']), `${t.annullate} ${t.annullate === 1 ? 'cancellata' : 'cancellate'}, ${t.copertiPersi} coperti persi. `
+      // Si spiegano solo le voci che ci sono: a ottobre «Su WhatsApp» e
+      // «Prima del 24 ottobre» si spiegavano anche senza nessuna cancellata così.
+      + (d.perMotivo.some((x) => x.motivo === 'Su WhatsApp') ? '«Su WhatsApp»: il cliente che disdice col bot, o il responsabile col comando. ' : '')
+      + (d.perMotivo.some((x) => x.motivo === 'Prima del 24 ottobre') ? '«Prima del 24 ottobre»: cancellate a mano quando il motivo non si scriveva ancora.' : ''));
+  }
+  // Le esperienze, larghe quanto il report: la scelta del cliente è la parte
+  // che serve al commerciale (27 ottobre 2026, dal titolare).
+  if (d.perEsperienza && d.perEsperienza.length) {
+    html += `<div class="rep-largo">${riquadro('Le esperienze scelte', esperienzeScelte(d.perEsperienza, t.copertiSala ?? t.coperti),
+      'Quale scelgono, quando e chi: per sapere cosa proporre, e in quali giorni.')}</div>`;
   }
   html += '</div>';
 
@@ -7036,6 +7077,41 @@ function disegnaReport(d, prima = null) {
       : d.serie.passo === 'settimana' ? 'Coperti settimana per settimana — il periodo è troppo lungo per i singoli giorni.'
       : 'Coperti mese per mese.');
   return html;
+}
+
+// Le esperienze scelte: le barre (coperti, quota, prenotazioni) e sotto, per
+// ognuna, una riga a parole — quando si sceglie di più, quante persone a
+// tavolo, quanti clienti nuovi, quante cancellate. «Senza esperienza» ha la
+// barra ma non la riga: non è una scelta.
+const SETTIMANA_DA_LUNEDI = [1, 2, 3, 4, 5, 6, 0];
+const MENU_AL_TAVOLO_UI = 'Menu da scegliere al tavolo';
+// «1.040», col punto anche a quattro cifre: `toLocaleString('it-IT')` lì non
+// lo mette (l'italiano raggruppa da cinque cifre in su) e scrive «1040».
+function conMigliaia(n) {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+// «il 31%», ma «l'85%», «l'8%», «l'11%», «l'1%»: si legge «l'ottantacinque».
+function conArticolo(n) {
+  return n === 1 || n === 11 || String(n)[0] === '8' ? `l'${n}%` : `il ${n}%`;
+}
+function elencoConE(nomi) {
+  return nomi.length > 1 ? `${nomi.slice(0, -1).join(', ')} e ${nomi[nomi.length - 1]}` : (nomi[0] || '');
+}
+function esperienzeScelte(voci, totale) {
+  const quota = (n) => `${totale ? Math.round((n / totale) * 100) : 0}%`;
+  const righe = voci.filter((x) => x.nome).map((x) => {
+    const giorno = `${x.quando.giorno === 'domenica' ? 'la' : 'il'} ${x.quando.giorno} a ${x.quando.servizio}`;
+    const quando = x.prenotazioni === 1 ? giorno
+      : x.quando.coperti === x.coperti ? `sempre ${giorno}` : `soprattutto ${giorno}`;
+    const pezzi = [quando, `${String(x.media).replace('.', ',')} ${x.media === 1 ? 'persona' : 'persone'} a tavolo`,
+      x.clienti === 1 ? (x.nuovi ? 'un cliente, nuovo' : 'un cliente, già stato qui')
+        : `${x.nuovi} ${x.nuovi === 1 ? 'cliente nuovo' : 'clienti nuovi'} su ${x.clienti}`];
+    if (x.annullate) pezzi.push(`${x.annullate} ${x.annullate === 1 ? 'cancellata' : 'cancellate'}`);
+    return `<li><b>${testoSicuro(x.nome)}</b> · ${testoSicuro(pezzi.join(' · '))}</li>`;
+  });
+  return barre(voci.map((x) => ({ nome: x.nome || 'Senza esperienza', valori: [x.coperti, quota(x.coperti), x.prenotazioni] })),
+    ['coperti', 'quota', 'prenotazioni'])
+    + (righe.length ? `<ul class="rep-righe">${righe.join('')}</ul>` : '');
 }
 
 // I clienti più presenti: una tabella corta, coi nomi — sono loro i numeri.
