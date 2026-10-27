@@ -1204,7 +1204,19 @@
     background: var(--carta); color: var(--grigio); cursor: pointer; font-size: 1rem; line-height: 1;
   }
   .tasto-togli:hover { color: var(--male-testo); border-color: var(--male-bordo); }
+  /* ── Orari da prenotare (27 ottobre 2026) ──
+     Per ogni servizio aperto, gli orari possibili dentro l'apertura: si
+     toccano quelli da aprire. Un tasto acceso è come «Questo mese» nel report. */
+  .slot-servizio { display: flex; flex-direction: column; gap: 6px; }
+  .slot-servizio .sv-nome { color: var(--grigio); font-size: .88rem; }
+  .slot-orari { display: flex; flex-wrap: wrap; gap: 6px; }
+  .slot-ora { padding: 6px 12px; min-height: 36px; border: 1px solid var(--bordo); background: var(--bianco); color: var(--testo);
+              border-radius: 999px; font: inherit; font-size: .88rem; font-variant-numeric: tabular-nums; cursor: pointer; }
+  .slot-ora[aria-pressed="true"] { background: var(--verde-scuro); border-color: var(--verde-scuro); color: #fff; }
+  .slot-dice { margin: 0; font-size: .82rem; }
+  .slot-dice.avviso { color: var(--avviso-testo); }
   @media (max-width: 560px) {
+    .slot-ora { min-height: 40px; }
     .fascia-giorno { grid-template-columns: 1fr; }
     .fascia-giorno .fg-nome { padding-top: 0; }
     /* Sul telefono il nome del servizio e la tendina stanno sulla stessa
@@ -2046,6 +2058,25 @@
         <div class="barra-salva">
           <button class="btn" id="fasce-salva">Salva gli orari</button>
           <span id="fasce-salvato" class="conteggio" style="margin:0;align-self:center"></span>
+        </div>
+      </div>
+
+      <!-- GLI ORARI DA PRENOTARE (27 ottobre 2026): giorno per giorno, a che
+           ore si prenota, DENTRO gli orari di apertura qui sopra. Vedi
+           `slotDelGiorno` in bot-prenotazioni.js. -->
+      <div class="card" id="pren-card-slot">
+        <h2 style="font-size:1rem;margin:0 0 6px">Orari da prenotare</h2>
+        <p class="conteggio" style="margin:0 0 12px">
+          Per ogni giorno puoi scegliere <b>a che ore si prenota</b>, dentro gli orari di apertura qui sopra:
+          tocca gli orari da aprire. Il bot propone quelli — tutti quelli con un tavolo libero — invece dei turni:
+          «Per sabato 31 ottobre a cena ho questi orari: 19:30 · 20:00 · 20:30». Chi prenota tiene il tavolo per la
+          <b>durata del tavolo</b> (<span id="slot-durata">2 ore</span>), mai oltre la chiusura.
+          Se per un servizio non ne scegli nessuno, quel servizio resta a turni.
+        </p>
+        <div id="pren-slot" class="fasce"></div>
+        <div class="barra-salva">
+          <button class="btn" id="slot-salva">Salva gli orari da prenotare</button>
+          <span id="slot-salvato" class="conteggio" style="margin:0;align-self:center"></span>
         </div>
       </div>
 
@@ -5520,6 +5551,7 @@ const TESTI_BOT = [
   ['bot_t_servizio', 'Chiede «pranzo o cena?»', 'Prima degli orari, solo quando quel giorno pranzo e cena hanno tutti e due posto e il cliente non l\'ha già detto («sabato a cena»).'],
   ['bot_t_servizio_no', 'Non ha capito «pranzo o cena»', 'Se alla domanda il cliente risponde con un orario o un turno («20:00», «il secondo») va bene lo stesso: questa frase esce solo quando non si capisce niente.'],
   ['bot_t_ora_turno', 'Propone i turni liberi', 'Il messaggio intero coi turni. Al posto di <b>{turni}</b> il bot scrive l\'elenco, un turno per riga: «*1° turno* · dalle 20:00 alle 22:00» (gli asterischi su WhatsApp diventano grassetto). Se togli {turni}, l\'elenco va in fondo. Il cliente può rispondere «il primo», «2° turno», «secondo» oppure con l\'orario.'],
+  ['bot_t_ora_orari', 'Propone gli orari da prenotare', 'Quando per quel giorno e quel servizio hai scelto gli «Orari da prenotare» (in «Orari e tavoli»), il bot propone quelli invece dei turni. <b>{data}</b> è «sabato 31 ottobre», <b>{servizio}</b> è « a cena» (vuoto se gli orari sono di pranzo e cena insieme), <b>{orari}</b> è «19:30 · 20:00 · 20:30». Se togli {orari}, l\'elenco va in fondo.'],
   ['bot_t_ora', 'Propone gli orari liberi (senza turni)', 'Solo se gli orari non sono a turni: sotto arrivano da soli gli orari, uno per riga.'],
   ['bot_t_turno_unico', 'Un servizio con un turno solo', 'Invece di un elenco di una riga, si chiede se va bene, senza la parola «turno». <b>{arrivo}</b> è «alle 12:30, e il tavolo è tuo fino alle 15:30» (o «alle 12:30» se il turno non ha la fine); <b>{fascia}</b> è «dalle 12:30 alle 15:30», <b>{ora}</b> è «12:30», <b>{servizio}</b> è «pranzo» o «cena». Se dice no, si propongono altri giorni per lo stesso servizio.'],
   ['bot_t_unico_va_bene', 'Chiuso nel servizio chiesto, e nell\'altro un turno solo', 'Sotto «a cena siamo chiusi, ma abbiamo disponibilità…» e quell\'unico turno: la domanda, perché il cliente possa rispondere SÌ.'],
@@ -7695,6 +7727,7 @@ async function caricaConfigBot() {
   }
   caricaGiorniPieni();
   mostraFasce(d);
+  mostraSlot(d);
   mostraEsperienze(d);
   mostraLocali(d);
   caricaTavoli();
@@ -8044,6 +8077,8 @@ async function salvaConfigBot(doveDirlo) {
   // che un «Salva» qualunque — quello dei promemoria — salva anche gli orari
   // com'erano disegnati in pagina, magari mezzi scritti in un'altra scheda.
   if (fasceToccate && fasceUI) corpo.bot_fasce = JSON.stringify(fasceDaSalvare());
+  // Gli orari da prenotare, stessa regola: partono solo se toccati.
+  if (slotToccati && slotUI) corpo.bot_slot = JSON.stringify(slotDaSalvare());
   // Le esperienze, stessa regola: partono solo se toccate.
   if (esperienzeToccate) corpo.bot_esperienze = JSON.stringify(esperienzeDaSalvare());
   // I locali, stessa regola.
@@ -8078,6 +8113,7 @@ async function salvaConfigBot(doveDirlo) {
   }
   // Gli orari tornano come li ha salvati il server — ripuliti e in ordine.
   if (r.ok && d.fasce) { fasceToccate = false; mostraFasce(d); }
+  if (r.ok && d.slot) { slotToccati = false; mostraSlot(d); }
   if (r.ok && d.esperienze) { esperienzeToccate = false; mostraEsperienze(d); }
   if (r.ok && d.locali) { localiToccati = false; mostraLocali(d); }
   // L'indirizzo da scrivere sul tablet cambia insieme all'interruttore.
@@ -8093,6 +8129,7 @@ $('#orari-avvisi-salva').addEventListener('click', () => salvaConfigBot('orari-a
 $('#recensioni-salva').addEventListener('click', () => salvaConfigBot('recensioni-salvato'));
 $('#sala-salva').addEventListener('click', () => salvaConfigBot('sala-salvato'));
 $('#fasce-salva').addEventListener('click', () => salvaConfigBot('fasce-salvato'));
+$('#slot-salva').addEventListener('click', () => salvaConfigBot('slot-salvato'));
 $('#coperti-salva').addEventListener('click', () => salvaConfigBot('coperti-salvato'));
 
 // ═══ Gli orari di apertura ═══
@@ -8251,7 +8288,114 @@ function campoOra(valore, attributi, etichetta) {
   return `<input class="ora-fascia" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="19:30"
     value="${esc(valore)}" ${attributi} aria-label="${etichetta}">`;
 }
+// ---- Gli orari da prenotare (dal titolare, 27 ottobre 2026) ----
+// «Devo decidere io: lunedì metto disponibile 20, 20:30, 21, 21:30», dentro
+// gli orari di apertura («il vincolo è quello in mezzo»). Per ogni giorno e
+// servizio aperto, gli orari possibili ogni mezz'ora dall'apertura alla
+// chiusura (esclusa): si toccano quelli da aprire.
+let slotUI = null;   // { giorno: { pranzo: Set, cena: Set } }
+let slotToccati = false;
+const PASSO_SLOT_UI = 30;
+function mostraSlot(d) {
+  slotUI = {};
+  for (let g = 0; g < 7; g++) {
+    slotUI[g] = {};
+    for (const [s] of SERVIZI_UI) slotUI[g][s] = new Set(((d.slot || {})[g] || {})[s] || []);
+  }
+  const ore = Math.round((durataTavoloUI / 60) * 10) / 10;
+  if ($('#slot-durata')) $('#slot-durata').textContent = ore === 1 ? '1 ora' : `${String(ore).replace('.', ',')} ore`;
+  disegnaSlot();
+}
+// L'apertura di un servizio come è scritta in pagina (anche non salvata): dal
+// primo inizio all'ultima fine, in minuti. null se chiuso o scritto male.
+function aperturaUI(g, s) {
+  const sv = fasceUI && fasceUI[g] && fasceUI[g][s];
+  if (!sv || sv.modo !== 'turni' || !sv.turni.length || servizioStorto(sv)) return null;
+  const da = Math.min(...sv.turni.map((t) => inMinutiUI(t.da)));
+  const a = Math.max(...sv.turni.map((t) => fineInMinutiUI(t.a)));
+  return a > da ? { da, a } : null;
+}
+function orariPossibiliUI(g, s) {
+  const ap = aperturaUI(g, s);
+  const orari = [];
+  if (ap) for (let m = ap.da; m < ap.a; m += PASSO_SLOT_UI) orari.push(daMinutiUI(m));
+  return orari;
+}
+// Quelli da salvare: solo i toccati che stanno dentro l'apertura di adesso.
+function slotDaSalvare() {
+  const fuori = {};
+  for (let g = 0; g < 7; g++) {
+    for (const [s] of SERVIZI_UI) {
+      const possibili = orariPossibiliUI(g, s);
+      const scelti = [...slotUI[g][s]].filter((o) => possibili.includes(o)).sort();
+      if (scelti.length) (fuori[g] = fuori[g] || {})[s] = scelti;
+    }
+  }
+  return fuori;
+}
+function disegnaSlot() {
+  const box = $('#pren-slot');
+  if (!box || !slotUI || !fasceUI) return;
+  box.innerHTML = ORDINE_GIORNI_UI.map((g) => {
+    const giorno = NOMI_GIORNI_UI[g];
+    const righe = SERVIZI_UI.map(([s, nome]) => {
+      const possibili = orariPossibiliUI(g, s);
+      if (!possibili.length) return '';
+      const ap = aperturaUI(g, s);
+      const scelti = slotUI[g][s];
+      const aperti = possibili.filter((o) => scelti.has(o));
+      const fuori = [...scelti].filter((o) => !possibili.includes(o)).sort();
+      const qui = `${giorno}, ${nome.toLowerCase()}`;
+      return `<div class="slot-servizio" data-servizio="${s}">
+        <span class="sv-nome">${nome} · aperto ${daMinutiUI(ap.da)}–${fineUI(daMinutiUI(ap.a))}</span>
+        <div class="slot-orari" role="group" aria-label="${qui}: orari da prenotare">${possibili.map((o) =>
+          `<button type="button" class="slot-ora" data-slot="${o}" aria-pressed="${scelti.has(o)}">${o}</button>`).join('')}</div>
+        <p class="conteggio slot-dice${fuori.length ? ' avviso' : ''}">${aperti.length
+          ? `Il bot propone ${aperti.join(' · ')}.` : 'Nessuno scelto: il bot propone i turni.'}${fuori.length
+          ? ` ⚠️ Fuori dall'apertura, non valgono: ${fuori.join(', ')}.` : ''}</p>
+      </div>`;
+    }).join('');
+    const qualcuno = SERVIZI_UI.some(([s]) => orariPossibiliUI(g, s).some((o) => slotUI[g][s].has(o)));
+    return `<div class="fascia-giorno" data-giorno-slot="${g}">
+      <div class="fg-nome">${giorno}</div>
+      <div class="fg-fasce">${righe || '<span class="fg-anteprima chiuso">Chiuso</span>'}
+        ${qualcuno ? `<span><button type="button" class="btn btn-secondario btn-piccolo" data-copia-slot
+          aria-label="Copia gli orari da prenotare di ${giorno.toLowerCase()} sugli altri giorni aperti">Copia sugli altri giorni aperti</button></span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+$('#pren-slot').addEventListener('click', (e) => {
+  const tasto = e.target.closest('.slot-ora');
+  const copia = e.target.closest('[data-copia-slot]');
+  if (!tasto && !copia) return;
+  const g = +e.target.closest('[data-giorno-slot]').dataset.giornoSlot;
+  if (copia) {
+    // Sugli altri giorni aperti, solo gli orari che lì stanno dentro l'apertura.
+    const dove = ORDINE_GIORNI_UI.filter((x) => x !== g && SERVIZI_UI.some(([s]) => orariPossibiliUI(x, s).length));
+    for (const x of dove) {
+      for (const [s] of SERVIZI_UI) {
+        const possibili = orariPossibiliUI(x, s);
+        slotUI[x][s] = new Set([...slotUI[g][s]].filter((o) => possibili.includes(o)));
+      }
+    }
+    slotToccati = true;
+    disegnaSlot();
+    toast(`Copiati su ${dove.map((x) => NOMI_GIORNI_UI[x].toLowerCase()).join(', ')}. Non è ancora salvato: premi «Salva gli orari da prenotare».`);
+    return;
+  }
+  const s = tasto.closest('[data-servizio]').dataset.servizio;
+  const o = tasto.dataset.slot;
+  if (slotUI[g][s].has(o)) slotUI[g][s].delete(o); else slotUI[g][s].add(o);
+  slotToccati = true;
+  disegnaSlot();
+  // Il tasto ridisegnato riprende il fuoco: chi usa la tastiera resta dov'era.
+  const di = $(`#pren-slot [data-giorno-slot="${g}"] [data-servizio="${s}"] [data-slot="${o}"]`);
+  if (di) di.focus();
+});
 function disegnaFasce() {
+  // Gli orari da prenotare stanno dentro l'apertura: cambia lei, cambiano loro.
+  setTimeout(disegnaSlot, 0);
   $('#pren-fasce').innerHTML = ORDINE_GIORNI_UI.map((g) => {
     const giorno = NOMI_GIORNI_UI[g];
     const righe = SERVIZI_UI.map(([s, nome]) => {
@@ -8329,6 +8473,7 @@ $('#pren-fasce').addEventListener('input', (e) => {
   sv.turni[+i.dataset.turno][i.dataset.campo] = oraScritta(i.value);
   fasceToccate = true;
   anteprimaFasce(g);
+  disegnaSlot();
 });
 $('#pren-fasce').addEventListener('change', (e) => {
   const i = e.target.closest('input.ora-fascia');

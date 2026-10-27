@@ -689,6 +689,10 @@ const PREDEFINITI = {
   // ESATTAMENTE come prima: un locale che si aggiorna non deve trovarsi orari
   // diversi da quelli che aveva. Vedi `fasceDi`.
   bot_fasce: '',
+  // Gli orari da prenotare, scelti giorno per giorno e servizio per servizio
+  // (vedi `slotDelGiorno`): {"1":{"cena":["20:00","20:30"]}}. Vuoto di
+  // fabbrica: senza, ogni servizio resta a turni.
+  bot_slot: '',
   // Le esperienze («business lunch», «alla carta», «menu degustazione»): una
   // lista JSON, vuota di fabbrica. Con meno di due il bot non chiede niente
   // e lavora come sempre. Vedi `esperienzeValide`.
@@ -1001,6 +1005,8 @@ const PREDEFINITI = {
   // bot mette l'elenco al posto di {turni}, un turno per riga. Senza turni
   // (orari di prima) vale ancora `bot_t_ora`, con gli orari sotto.
   bot_t_ora_turno: 'Per {data} c’è disponibilità nei seguenti orari:\n\n{turni}\n\nScrivimi il turno che preferisci (per esempio «il primo») oppure l’orario.',
+  // Con gli orari scelti dal locale (vedi `slotDelGiorno`), al posto dei turni.
+  bot_t_ora_orari: 'Per {data}{servizio} ho questi orari:\n\n{orari}\n\nScrivimi l’orario che preferisci.',
   // Un servizio con un turno solo: invece di un elenco di una riga, si chiede
   // se va bene. {arrivo} è «alle 12:30, e il tavolo è tuo fino alle 15:30»
   // (o «alle 12:30» se la fine non è scritta); {fascia} è «dalle 12:30 alle
@@ -2066,6 +2072,63 @@ function fasceDi(cfg) {
   return fasceValide(cfg.bot_fasce) || fasceDaiTurni(cfg);
 }
 
+// ---- Gli orari da prenotare (dal titolare, 27 ottobre 2026) ----
+// «Devo decidere io: lunedì metto disponibile lo slot 20, 20:30, 21, 21:30»,
+// e «il vincolo è quello in mezzo»: gli orari d'apertura (le fasce) restano
+// il limite. Per un giorno e un servizio con degli orari scelti, il bot
+// propone QUELLI (tutti quelli con un tavolo), non i turni; i turni restano
+// a dire quando il locale apre e chiude. Senza orari scelti, a turni come
+// prima. Un orario fuori dall'apertura non vale (anche se le fasce cambiano
+// dopo): lo toglie `slotDelGiorno`, non chi li salva.
+function slotValidi(valore) {
+  let grezzi = valore;
+  if (typeof grezzi === 'string') {
+    if (!grezzi.trim()) return {};
+    try { grezzi = JSON.parse(grezzi); } catch { return null; }
+  }
+  if (!grezzi || typeof grezzi !== 'object' || Array.isArray(grezzi)) return null;
+  const puliti = {};
+  for (let g = 0; g < 7; g++) {
+    const giorno = grezzi[g];
+    if (!giorno || typeof giorno !== 'object') continue;
+    for (const s of SERVIZI) {
+      const orari = [...new Set((Array.isArray(giorno[s]) ? giorno[s] : []).flatMap((o) => turniValidi(o)))].sort().slice(0, 48);
+      if (orari.length) (puliti[g] = puliti[g] || {})[s] = orari;
+    }
+  }
+  return puliti;
+}
+// Letti una volta sola per testo: `fasceDelGiorno` passa di qui a ogni
+// prenotazione guardata.
+let slotLetti = { testo: null, valore: {} };
+function slotDi(cfg) {
+  const testo = String(cfg.bot_slot || '');
+  if (slotLetti.testo !== testo) slotLetti = { testo, valore: slotValidi(testo) || {} };
+  return slotLetti.valore;
+}
+// Gli orari scelti di quel giorno, per servizio, SOLO dentro l'apertura: dal
+// primo inizio alla fine del servizio, la fine esclusa (a quell'ora si chiude).
+// {} se quel giorno si lavora a turni.
+function slotDelGiorno(cfg, iso) {
+  const [a, m, g] = String(iso).split('-').map(Number);
+  const giorno = new Date(a, m - 1, g).getDay();
+  const scelti = slotDi(cfg)[giorno];
+  if (!scelti) return {};
+  const fasce = fasceDi(cfg)[giorno] || [];
+  const durata = Math.max(num(cfg.bot_durata_tavolo, 120), 1);
+  const esito = {};
+  for (const s of SERVIZI) {
+    const sue = fasce.filter((f) => f.servizio === s);
+    if (!sue.length || !(scelti[s] || []).length) continue;
+    const apre = Math.min(...sue.map((f) => inMinuti(f.da)));
+    // Un turno di prima senza fine chiude dopo la durata del tavolo.
+    const chiude = Math.max(...sue.map((f) => (inMinuti(f.a) > inMinuti(f.da) ? inMinuti(f.a) : inMinuti(f.da) + durata)));
+    const dentro = scelti[s].filter((o) => inMinuti(o) >= apre && inMinuti(o) < chiude);
+    if (dentro.length) esito[s] = dentro;
+  }
+  return esito;
+}
+
 // Gli orari di una fascia. L'ultimo arrivo c'è SEMPRE, anche quando non cade
 // su un passo: è l'ora che il locale ha scritto, e toglierla vorrebbe dire
 // chiudere prima di quando ha detto.
@@ -2085,7 +2148,11 @@ function orariDellaFascia(f, passo) {
 // fasce) quello dell'ora.
 function fasceDelGiorno(cfg, iso) {
   const [a, m, g] = String(iso).split('-').map(Number);
-  return fasceDi(cfg)[new Date(a, m - 1, g).getDay()] || [];
+  const fasce = fasceDi(cfg)[new Date(a, m - 1, g).getDay()] || [];
+  // Le fasce di un servizio a orari scelti portano il segno `slot`: lì dicono
+  // solo quando si apre e si chiude (vedi `fineDelTavolo`, `numeroDelTurno`).
+  const slot = slotDelGiorno(cfg, iso);
+  return Object.keys(slot).length ? fasce.map((f) => (slot[f.servizio] ? { ...f, slot: true } : f)) : fasce;
 }
 
 function servizioDellOra(cfg, iso, ora) {
@@ -2100,7 +2167,8 @@ function numeroDelTurno(cfg, iso, ora) {
   const fasce = fasceDelGiorno(cfg, iso);
   const servizio = servizioDellOra(cfg, iso, ora);
   const sue = fasce.filter((f) => f.servizio === servizio);
-  if (!sue.length || !sue.every((f) => f.turno)) return null;
+  // A orari scelti non ci sono turni da numerare, anche se le fasce lo sono.
+  if (!sue.length || !sue.every((f) => f.turno) || sue.some((f) => f.slot)) return null;
   const i = sue.map((f) => f.da).sort().indexOf(ora);
   return i < 0 ? null : i + 1;
 }
@@ -2124,6 +2192,19 @@ function numeroDelTurno(cfg, iso, ora) {
 function fineDelTavolo(cfg, fasceGiorno, ora) {
   const durata = Math.max(num(cfg.bot_durata_tavolo, 120), 1);
   const inizio = inMinuti(ora);
+  // A orari scelti (vedi `slotDelGiorno`): il tavolo per la durata, ma mai
+  // oltre la chiusura del servizio — deciso col titolare, 27 ottobre 2026.
+  // ⚠️ Si passa di qui per ogni prenotazione guardata: il conto si fa solo se
+  // quel giorno ha davvero orari scelti (la prova di carico lo misura).
+  if (fasceGiorno.some((x) => x.slot)) {
+    const contiene = fasceGiorno.find((x) => inMinuti(x.da) <= inizio && inizio <= inMinuti(x.a));
+    const servizio = contiene ? contiene.servizio : servizioPerOrario(ora);
+    const delServizio = fasceGiorno.filter((x) => x.servizio === servizio);
+    if (delServizio.some((x) => x.slot)) {
+      const chiude = Math.max(...delServizio.map((x) => inMinuti(x.a)));
+      return chiude > inizio ? Math.min(inizio + durata, chiude) : inizio + durata;
+    }
+  }
   const turno = fasceGiorno.find((x) => x.turno && inMinuti(x.da) === inizio);
   if (!turno) return inizio + durata;
   // Il turno con la sua fine scritta: il tavolo è suo fino a lì, né prima né
@@ -2137,7 +2218,10 @@ function fineDelTavolo(cfg, fasceGiorno, ora) {
 
 function turniDelGiorno(cfg, iso) {
   const passo = passoDi(cfg);
-  const tutti = fasceDelGiorno(cfg, iso).flatMap((f) => orariDellaFascia(f, passo));
+  // Un servizio a orari scelti propone quelli; gli altri i loro turni.
+  const slot = slotDelGiorno(cfg, iso);
+  const tutti = fasceDelGiorno(cfg, iso).filter((f) => !f.slot).flatMap((f) => orariDellaFascia(f, passo))
+    .concat(...Object.values(slot));
   // Due fasce che si toccano danno lo stesso orario due volte: è uno solo.
   return [...new Set(tutti)].sort();
 }
@@ -2520,11 +2604,16 @@ function riepilogoDellaSala(db, cfg, iso) {
       }
       continue;
     }
-    const orari = [...new Set(sue.flatMap((f) => orariDellaFascia(f, passo)))].sort();
+    // A orari scelti (vedi `slotDelGiorno`): una scheda per orario, come i
+    // turni di prima — niente «1° turno», anche se l'orario cade sull'inizio
+    // di un turno.
+    const aOrari = sue.some((f) => f.slot);
+    const orari = aOrari ? (slotDelGiorno(cfg, iso)[servizio] || [])
+      : [...new Set(sue.flatMap((f) => orariDellaFascia(f, passo)))].sort();
     // Orari singoli — i turni fissi, e anche i turni di prima come «20:00,
     // 22:00», che erano due giri di sala — si leggono uno per riga. Solo i
     // turni fissi si chiamano «1° turno».
-    if (sue.every((f) => f.turno || f.da === f.a)) {
+    if (aOrari || sue.every((f) => f.turno || f.da === f.a)) {
       orari.forEach((o, i) => {
         // Al turno va chi arriva da quell'ora fino al turno dopo: un orario
         // scritto a mano a metà fra due turni sta in quello cominciato.
@@ -2533,7 +2622,7 @@ function riepilogoDellaSala(db, cfg, iso) {
         const coperti = loro.reduce((n, r) => n + r.persone, 0);
         const occupati = occupatiAlle(o);
         const pieno = occupati >= totale;
-        const fissa = sue.find((f) => f.da === o);
+        const fissa = aOrari ? null : sue.find((f) => f.da === o);
         const fascia = fissa && fissa.turno && fissa.a !== fissa.da ? `${o}–${oraDetta(fissa.a)}` : o;
         // Il numero solo se i turni sono più di uno (vedi `turnoDellOra`).
         const numerato = fissa && fissa.turno && orari.length > 1;
@@ -4366,8 +4455,12 @@ function elencoTurni(turni, cfg, iso) {
   const conTurni = turni.some((t) => numeroDelTurno(cfg, iso, t));
   const pranzo = turni.filter((t) => servizioDellOra(cfg, iso, t) === 'pranzo');
   const cena = turni.filter((t) => !pranzo.includes(t));
-  if (!pranzo.length || !cena.length) return turni.map(riga).join('\n');
-  if (conTurni) return `*Pranzo*\n${pranzo.map(riga).join('\n')}\n\n*Cena*\n${cena.map(riga).join('\n')}`;
+  // Gli orari scelti (vedi `slotDelGiorno`) stanno su una riga sola:
+  // «19:30 · 20:00 · 20:30» — un turno per riga, invece, perché ha la fine.
+  const slot = slotDelGiorno(cfg, iso);
+  const blocco = (lista, s) => (slot[s] ? lista.join(' · ') : lista.map(riga).join('\n'));
+  if (!pranzo.length || !cena.length) return blocco(turni, pranzo.length ? 'pranzo' : 'cena');
+  if (conTurni) return `*Pranzo*\n${blocco(pranzo, 'pranzo')}\n\n*Cena*\n${blocco(cena, 'cena')}`;
   return `Pranzo: ${pranzo.join(' · ')}\nCena: ${cena.join(' · ')}`;
 }
 
@@ -7185,6 +7278,14 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       risposte.push(testo.includes('{turni}')
         ? di('bot_t_ora_turno', { data: dataItaliana(iso), turni: elenco })
         : `${di('bot_t_ora_turno', { data: dataItaliana(iso) })}\n${elenco}`);
+    } else if (suoi.some((o) => slotDelGiorno(cfg, iso)[servizioDellOra(cfg, iso, o)])) {
+      // Gli orari scelti dal locale, come li ha voluti il titolare (27 ottobre
+      // 2026): «Per sabato 31 ottobre a cena ho questi orari: 19:30 · 20:00 ·
+      // 20:30 · 21:00 · 21:30. Scrivimi l'orario che preferisci.»
+      const servizi = [...new Set(suoi.map((o) => servizioDellOra(cfg, iso, o)))];
+      const valoriOra = { data: dataItaliana(iso), servizio: servizi.length === 1 ? ` a ${servizi[0]}` : '', orari: elenco };
+      risposte.push(String(cfg.bot_t_ora_orari || '').includes('{orari}')
+        ? di('bot_t_ora_orari', valoriOra) : `${di('bot_t_ora_orari', { ...valoriOra, orari: '' })}\n${elenco}`.trim());
     } else {
       risposte.push(`${prima}\n${elenco}`);
     }
@@ -8004,7 +8105,7 @@ module.exports = {
   nonSceglieIlMenu,
   fineDellaFascia,
   oraDetta,
-  fasceDi, fasceValide, fasceDaiTurni, fasceDelGiorno, fineDelTavolo, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
+  fasceDi, fasceValide, fasceDaiTurni, slotValidi, slotDi, slotDelGiorno, fasceDelGiorno, fineDelTavolo, passoDi, giriDelGiorno, FASCE_PER_GIORNO,
   servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI, turnoDellOra, numeroDaDire, rigaTurno, oraColTurno, arrivoDetto, fasciaDetta, ordinaleDi, interpretaTurno,
   tavoliDi, usaTavoli, capienzaDi, trovaTavolo, postoPer, ciStanno, gruppoMassimo, tavoliLiberi,
   chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, numeroDelTurno, tavoloCheResta, daAssegnare, tavoliPresiPer, minimoDi, adattoA, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,

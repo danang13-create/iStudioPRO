@@ -7190,7 +7190,7 @@ app.get('/api/bot/impostazioni', (req, res) => {
   // adesso. Un modulo vuoto direbbe «chiuso tutti i giorni», che è falso.
   res.json({ impostazioni: cfg, personale: db.prepare('SELECT * FROM bot_personale').all(),
              esclusi: db.prepare('SELECT id, nome, telefono, chat_id FROM bot_esclusi ORDER BY nome COLLATE NOCASE, id').all(),
-             fasce: bot.fasceDi(cfg), fasceSalvate: !!bot.fasceValide(cfg.bot_fasce),
+             fasce: bot.fasceDi(cfg), fasceSalvate: !!bot.fasceValide(cfg.bot_fasce), slot: bot.slotDi(cfg),
              // Come le ha scritte il titolare: la scheda le mostra e le risalva
              // così, anche i giorni che oggi sono chiusi (vedi `esperienzeDi`).
              esperienze: bot.esperienzeScritte(cfg), locali: bot.localiDi(cfg) });
@@ -7386,6 +7386,15 @@ app.post('/api/bot/impostazioni', (req, res) => {
     valori.bot_esperienze = esperienze.length ? JSON.stringify(esperienze) : '';
   }
 
+  // Gli orari da prenotare (vedi `slotDelGiorno`): si salvano ripuliti. Quelli
+  // fuori dall'apertura non si tolgono qui — le fasce possono cambiare dopo:
+  // non valgono, e basta, finché stanno fuori.
+  if (valori.bot_slot !== undefined) {
+    const slot = bot.slotValidi(valori.bot_slot);
+    if (!slot) return res.status(400).json({ error: 'Gli orari da prenotare non si leggono: ricarica la pagina e riprova.' });
+    valori.bot_slot = Object.keys(slot).length ? JSON.stringify(slot) : '';
+  }
+
   // I locali della prima domanda (vedi «I locali» in bot-prenotazioni.js):
   // come le esperienze, si salvano ripuliti, e uno scritto a metà (senza
   // data, orario o coperti) non si accetta in silenzio — si dice cosa manca.
@@ -7415,7 +7424,7 @@ app.post('/api/bot/impostazioni', (req, res) => {
   if (valori.bot_esperienze !== undefined) pulisciFileMenuEsperienze(salvata);
   if (fasceRipulite) ripuliti.bot_fasce = valori.bot_fasce;
   res.json({ ok: true, impostazioni: salvata, ripuliti,
-             fasce: bot.fasceDi(salvata), fasceSalvate: !!bot.fasceValide(salvata.bot_fasce),
+             fasce: bot.fasceDi(salvata), fasceSalvate: !!bot.fasceValide(salvata.bot_fasce), slot: bot.slotDi(salvata),
              esperienze: bot.esperienzeScritte(salvata), locali: bot.localiDi(salvata) });
 });
 
