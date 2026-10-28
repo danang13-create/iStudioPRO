@@ -143,12 +143,17 @@ Se invece è stata chiusa iStudio o si è spento il Mac, al riavvio l'invio rest
 e riparte quando premi tu ▶️: così non parte niente a tua insaputa.
 
 ### Chat
-Legge le conversazioni direttamente dal tuo WhatsApp: elenco a sinistra, messaggi a destra.
+Le ultime trenta conversazioni del tuo WhatsApp: elenco a sinistra, messaggi a destra. Foto,
+vocali e documenti sono indicati a parole («📷 Foto», «🎤 Vocale») e si aprono dal telefono.
 Puoi rispondere e allegare immagini con il pulsante 📎.
-Sotto ogni messaggio inviato compare lo stato: *inviato*, *non letto*, **letto** (azzurro).
+Sotto ogni messaggio inviato compare lo stato: *in attesa*, *inviato*, *non letto*, **letto**
+(azzurro), e *non partito* in rosso se WhatsApp non l'ha accettato.
+
+Quando rispondi da qui il bot tace con quel cliente per qualche ora, come quando rispondi dal
+telefono del locale: lo vedi scritto in Prenotazioni → Diagnostica.
 
 Dalla freccia ▾ accanto al nome della conversazione puoi **aggiungere il contatto in Rubrica**,
-con il numero già compilato.
+con il numero già compilato (anche per gli account Business).
 
 Si può disattivare da Impostazioni.
 
@@ -308,10 +313,10 @@ E ricorda che **per la massa c'è la newsletter email**, che non ha nessun risch
 Essendo non ufficiale, quando WhatsApp aggiorna il suo sito alcune funzioni possono smettere
 di funzionare finché la libreria non viene adeguata. È già successo con la lettura delle chat.
 
-### Contatti WhatsApp Business
-Per gli account business WhatsApp mostra nome e categoria **ma non il numero di telefono**.
-Con quei contatti «Aggiungi in rubrica» apre la scheda col solo nome: il numero va scritto a mano.
-Non è un errore: il dato proprio non è disponibile.
+### Contatti senza numero
+Di rado WhatsApp non dice il numero di una conversazione (succede con certi indirizzi nuovi, se
+quella persona non ha mai scritto da quando iStudio è accesa). «Aggiungi in rubrica» apre lo stesso
+la scheda col nome: il numero lo scrivi a mano. iStudio non lo inventa mai.
 
 ### Conferme di lettura
 Se il destinatario ha **disattivato le conferme di lettura**, il messaggio resterà sempre

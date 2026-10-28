@@ -7,7 +7,7 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const QRCode = require('qrcode');
 const nodemailer = require('nodemailer');
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia, Chat: ChatDellaLibreria } = require('whatsapp-web.js');
 const { execFileSync } = require('child_process');
 
 // ---------- Registro con data e ora ----------
@@ -2659,76 +2659,279 @@ app.post('/api/email/send', (req, res) => {
   res.json({ campaignId, total: contacts.length, esclusi });
 });
 
-// ---------- Chat WhatsApp ----------
-function anteprimaMessaggio(m) {
+// ---------- La Chat, sulla libreria (28 ottobre 2026) ----------
+// Fino alla 2026.10.27.4 la scheda Chat «cliccava» la pagina di WhatsApp Web
+// dentro al browser nascosto e ne leggeva l'HTML: la colonna delle chat, le
+// bolle, il pannello «info contatto» per il numero. Ogni pezzo dipendeva da
+// un'etichetta (`data-testid`, un `aria-label` in italiano) che WhatsApp
+// cambia senza avvisare, e ogni cambiamento toglieva un pezzo: l'ora,
+// l'anteprima, le spunte, il numero. Dal titolare (28 ottobre 2026): «non
+// funziona al 100%» — elenco e messaggi a buchi, «Aggiungi in rubrica» senza
+// numero.
+//
+// Ora la Chat chiede tutto alla libreria (`whatsapp-web.js`), la stessa con
+// cui il bot risponde da mesi: le conversazioni, i messaggi, l'invio di testo
+// e immagini, il numero di telefono — anche degli account Business, che il
+// pannello non mostrava. La nota di una volta («getChats() è rotto su questa
+// build») valeva per una libreria vecchia: con la 1.34 il bot usa già
+// `getChatById` e `getContact` a ogni messaggio.
+//
+// ⚠️ L'elenco NON passa da `client.getChats()`: quella prepara TUTTE le chat
+// dell'account — e per ogni gruppo chiede i suoi membri — mentre un locale ne
+// ha centinaia. Qui si prendono le più recenti DENTRO la pagina e si
+// preparano solo quelle, con la stessa funzione della libreria
+// (`WWebJS.getChatModel`). Se quella strada manca, si ripiega su `getChats()`.
+const CHAT_IN_ELENCO = 30;
+const MESSAGGI_PER_CHAT = 60;
+
+// Gira DENTRO la pagina di WhatsApp Web: di quello che sta qui fuori non vede
+// niente. Si prende qualche chat in più del necessario, perché stati e
+// canali si tolgono dopo.
+const ELENCO_CHAT_NELLA_PAGINA = async (quante) => {
+  const tutte = window.require('WAWebCollections').Chat.getModelsArray();
+  const recenti = tutte
+    .filter((c) => c && c.id && !c.archive)
+    .sort((a, b) => (b.t || 0) - (a.t || 0))
+    .slice(0, quante);
+  return Promise.all(recenti.map((c) => window.WWebJS.getChatModel(c)));
+};
+
+async function modelliDelleChat() {
+  try {
+    const modelli = await client.pupPage.evaluate(ELENCO_CHAT_NELLA_PAGINA, CHAT_IN_ELENCO * 2);
+    return (modelli || []).filter((m) => m && m.id).map((m) => new ChatDellaLibreria(client, m));
+  } catch (e) {
+    annotaRaro('chat-elenco-veloce', `la Chat: l'elenco veloce non si legge (${e.message}); provo con getChats()`);
+    return client.getChats();
+  }
+}
+
+// Che cos'è un messaggio senza testo: si scrive a parole, con la didascalia
+// sotto se c'è. I messaggi di sistema (la cifratura, chi entra nel gruppo, le
+// reazioni) non si mostrano.
+const COSA_E = {
+  image: '📷 Foto', album: '📷 Foto', video: '🎬 Video', ptt: '🎤 Vocale', audio: '🎵 Audio',
+  document: '📄 Documento', sticker: '🩵 Adesivo', location: '📍 Posizione',
+  vcard: '👤 Contatto', multi_vcard: '👤 Contatti', revoked: '🚫 Messaggio eliminato',
+  call_log: '📞 Chiamata', poll_creation: '📊 Sondaggio', order: '🛒 Ordine', product: '🛍️ Prodotto',
+  payment: '💶 Pagamento', groups_v4_invite: '👥 Invito a un gruppo', ciphertext: '⏳ Messaggio in arrivo',
+  scheduled_event_creation: '📅 Evento',
+};
+const DI_SISTEMA = new Set(['e2e_notification', 'notification', 'notification_template', 'gp2',
+  'group_notification', 'protocol', 'debug', 'broadcast_notification', 'reaction', 'hsm']);
+function testoDelMessaggio(m) {
   if (!m) return '';
-  if (m.type === 'chat') return m.body;
-  const tipi = {
-    image: '📷 Foto', video: '🎬 Video', audio: '🎵 Audio', ptt: '🎤 Vocale',
-    document: '📄 Documento', sticker: '🩵 Sticker', location: '📍 Posizione',
-    vcard: '👤 Contatto', revoked: '🚫 Messaggio eliminato',
-  };
-  return tipi[m.type] || '📎 Allegato';
+  const tipo = String(m.type || 'chat');
+  const corpo = typeof m.body === 'string' ? m.body.trim() : '';
+  if (tipo === 'chat') return corpo;
+  if (DI_SISTEMA.has(tipo)) return '';
+  const cosa = COSA_E[tipo] || (m.hasMedia ? '📎 Allegato' : '');
+  if (!cosa) return corpo;
+  const nomeFile = tipo === 'document' && m._data && m._data.filename ? String(m._data.filename).trim() : '';
+  const sotto = nomeFile || corpo;
+  return sotto ? `${cosa}\n${sotto}` : cosa;
+}
+// Nell'elenco: una riga sola.
+function primaRiga(testo) {
+  return String(testo || '').replace(/\s+/g, ' ').trim();
 }
 
-// Le conversazioni vengono lette DIRETTAMENTE dalla pagina di WhatsApp Web (il DOM),
-// come le vedi tu nel browser. Questo evita gli errori dello "Store" interno della libreria
-// quando WhatsApp aggiorna la sua pagina web.
-const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+// Le spunte, dall'`ack` della libreria: 0 in attesa, 1 inviato, 2 consegnato,
+// 3 letto (4: vocale ascoltato), sotto zero non partito.
+function statoDallAck(ack) {
+  const n = Number(ack);
+  if (n >= 3) return 'letto';
+  if (n === 2) return 'consegnato';
+  if (n === 1) return 'inviato';
+  if (n < 0) return 'errore';
+  return 'attesa';
+}
 
-// Legge l'elenco delle conversazioni dalla colonna di sinistra
-async function leggiListaChat() {
-  return client.pupPage.evaluate(() => {
-    // anche nelle anteprime le emoji sono <img alt="😀">
-    const estraiAnteprima = (el) => {
-      let out = '';
-      const percorri = (node) => {
-        for (const c of node.childNodes) {
-          const tag = (c.nodeName || '').toLowerCase();
-          if (tag === 'svg' || tag === 'title') continue; // salta le icone (spunte ecc.)
-          if (c.nodeType === 3) out += c.nodeValue;
-          else if (tag === 'img') out += c.getAttribute('alt') || '';
-          else percorri(c);
-        }
+const GIORNI_CHAT = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
+const MESI_CHAT = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
+  'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+const dueCifre = (n) => String(n).padStart(2, '0');
+function oraDiChat(ts) {
+  const d = new Date(Number(ts) * 1000);
+  return `${dueCifre(d.getHours())}:${dueCifre(d.getMinutes())}`;
+}
+// Il giorno di un messaggio, come lo separa la pagina: «oggi», «ieri»,
+// «martedì 20 ottobre» (con l'anno se non è questo).
+function giornoDiChat(ts, adesso = new Date()) {
+  const d = new Date(Number(ts) * 1000);
+  const stesso = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const ieri = new Date(adesso);
+  ieri.setDate(ieri.getDate() - 1);
+  if (stesso(d, adesso)) return 'oggi';
+  if (stesso(d, ieri)) return 'ieri';
+  return `${GIORNI_CHAT[d.getDay()]} ${d.getDate()} ${MESI_CHAT[d.getMonth()]}`
+    + (d.getFullYear() !== adesso.getFullYear() ? ` ${d.getFullYear()}` : '');
+}
+// Nell'elenco, come fa WhatsApp: l'ora se è di oggi, «ieri», il giorno della
+// settimana entro sei giorni, sennò la data.
+function quandoInElenco(ts, adesso = new Date()) {
+  if (!ts) return '';
+  const d = new Date(Number(ts) * 1000);
+  const giorno = giornoDiChat(ts, adesso);
+  if (giorno === 'oggi') return oraDiChat(ts);
+  if (giorno === 'ieri') return 'ieri';
+  if ((adesso - d) / 86400000 < 6) return GIORNI_CHAT[d.getDay()];
+  return `${dueCifre(d.getDate())}/${dueCifre(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)}`;
+}
+
+// Chi scrive in un gruppo: il nome che WhatsApp allega al messaggio, sennò lo
+// si chiede alla libreria una volta e lo si tiene un'ora.
+const nomiContatti = new Map();
+async function nomeDelContatto(id) {
+  const noto = nomiContatti.get(id);
+  if (noto && Date.now() - noto.quando < 60 * 60000) return noto.nome;
+  let nome = '';
+  try {
+    const c = await client.getContactById(id);
+    nome = (c && (c.name || c.pushname || c.shortName)) || (c && c.number ? `+${c.number}` : '') || '';
+  } catch { /* senza nome si mostra l'indirizzo */ }
+  if (!nome) nome = String(id || '').replace(/@.*$/, '');
+  nomiContatti.set(id, { nome, quando: Date.now() });
+  if (nomiContatti.size > 500) nomiContatti.delete(nomiContatti.keys().next().value);
+  return nome;
+}
+
+// I messaggi di una conversazione, dal più vecchio. `segnaLetta` fa quello che
+// fa aprirla sul telefono: le spunte blu a chi ha scritto.
+async function messaggiDellaChat(id, opzioni = {}) {
+  const chat = await client.getChatById(id);
+  const grezzi = (await chat.fetchMessages({ limit: MESSAGGI_PER_CHAT })) || [];
+  grezzi.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  const adesso = new Date();
+  const messaggi = [];
+  for (const m of grezzi) {
+    const testo = testoDelMessaggio(m);
+    if (!testo) continue;
+    let mittente = null;
+    if (chat.isGroup && !m.fromMe) {
+      mittente = (m._data && m._data.notifyName) || await nomeDelContatto(m.author || m.from);
+    }
+    messaggi.push({
+      id: m.id && m.id._serialized, testo, mio: !!m.fromMe,
+      ora: oraDiChat(m.timestamp), data: giornoDiChat(m.timestamp, adesso),
+      mittente, stato: m.fromMe ? statoDallAck(m.ack) : null,
+    });
+  }
+  if (opzioni.segnaLetta) { try { await chat.sendSeen(); } catch { /* le spunte blu sono un ornamento */ } }
+  return messaggi;
+}
+
+// Le foto profilo: si chiedono una volta per chat, dietro le quinte, e si
+// tengono mezz'ora. L'elenco intanto esce senza aspettarle.
+const fotoProfili = new Map();
+let fotoInCorso = false;
+function fotoProfilo(id) {
+  const f = fotoProfili.get(id);
+  if (f && Date.now() - f.quando < 30 * 60000) return f.url;
+  fotoProfili.set(id, { url: f ? f.url : '', quando: f ? f.quando : 0, daChiedere: true });
+  if (fotoProfili.size > 300) fotoProfili.delete(fotoProfili.keys().next().value);
+  scaricaFotoMancanti();
+  return f ? f.url : '';
+}
+async function scaricaFotoMancanti() {
+  if (fotoInCorso) return;
+  fotoInCorso = true;
+  try {
+    for (const [id, f] of fotoProfili) {
+      if (!f.daChiedere || state.status !== 'connesso') continue;
+      let url = '';
+      try { url = (await client.getProfilePicUrl(id)) || ''; } catch { /* senza foto resta l'iniziale */ }
+      fotoProfili.set(id, { url: String(url), quando: Date.now(), daChiedere: false });
+    }
+  } finally {
+    fotoInCorso = false;
+  }
+}
+
+function nomeDallIndirizzo(id) {
+  const [utente, server] = String(id || '').split('@');
+  if (server === 'c.us' && /^\d{8,15}$/.test(utente)) return `+${utente}`;
+  return server === 'g.us' ? 'Gruppo' : 'Contatto';
+}
+
+// Le ultime conversazioni, pronte per la pagina. Tenute quattro secondi: la
+// pagina le chiede ogni cinque, il controllo delle cancellazioni ogni dieci
+// minuti, e non serve rifare il lavoro per ognuno.
+let elencoInCache = { quando: 0, elenco: null };
+async function elencoChat() {
+  if (elencoInCache.elenco && Date.now() - elencoInCache.quando < 4000) return elencoInCache.elenco;
+  const chats = await modelliDelleChat();
+  const elenco = (chats || [])
+    .filter((c) => c && c.id && c.id._serialized && !c.archived
+      && ['privata', 'gruppo'].includes(tipoChat(c.id._serialized)))
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+    .slice(0, CHAT_IN_ELENCO)
+    .map((c) => {
+      const id = c.id._serialized;
+      const ultimo = c.lastMessage;
+      return {
+        id,
+        nome: String(c.name || '').trim() || nomeDallIndirizzo(id),
+        gruppo: !!c.isGroup,
+        ora: quandoInElenco(c.timestamp),
+        ultimoTesto: primaRiga(testoDelMessaggio(ultimo)),
+        ultimoMio: !!(ultimo && ultimo.fromMe),
+        nonLetti: c.unreadCount > 0 ? c.unreadCount : 0,
+        avatar: fotoProfilo(id),
       };
-      percorri(el);
-      return out.replace(/\s+/g, ' ').trim();
-    };
-    const rows = [...document.querySelectorAll('#pane-side [role="row"]')];
-    return rows.map((row) => {
-      const t = row.querySelector('span[title]');
-      const nome = t ? t.getAttribute('title') : '';
-      const img = row.querySelector('img');
-      const avatar = img ? img.getAttribute('src') : null;
-      const timeEl = row.querySelector('[data-testid="cell-frame-primary-detail"]');
-      const ora = timeEl ? timeEl.innerText.trim() : '';
-      const secEl = row.querySelector('[data-testid="cell-frame-secondary"]');
-      let ultimoTesto = secEl ? estraiAnteprima(secEl) : '';
-      let ultimoMio = false;
-      if (ultimoTesto.startsWith('Tu:')) { ultimoMio = true; ultimoTesto = ultimoTesto.slice(3).trim(); }
-      // Contatore messaggi non letti: solo il vero badge (aria-label "N messaggi non letti").
-      // Attenzione: l'avviso dei messaggi effimeri contiene "messaggi non saranno..." e
-      // farebbe leggere per errore il numero di giorni.
-      let nonLetti = 0;
-      const badge = row.querySelector('[aria-label*="non lett"], [aria-label*="unread"]');
-      if (badge) {
-        const testoBadge = (badge.innerText || '').trim();
-        if (/^\d+$/.test(testoBadge)) {
-          nonLetti = parseInt(testoBadge, 10);           // il badge mostra solo il numero
-        } else {
-          const m = (badge.getAttribute('aria-label') || '').match(/^\s*(\d+)\s/); // "3 messaggi non letti"
-          if (m) nonLetti = parseInt(m[1], 10);
-        }
-      }
-      const gruppo = !!row.querySelector('[data-icon="default-group"], [data-icon="group"]');
-      return { nome, ora, ultimoTesto, ultimoMio, nonLetti, gruppo, avatar };
-    }).filter((c) => c.nome);
-  });
+    });
+  elencoInCache = { quando: Date.now(), elenco };
+  return elenco;
 }
 
-// Le operazioni che pilotano WhatsApp Web (aprire chat, leggere pannelli, inviare)
-// devono essere eseguite UNA ALLA VOLTA: altrimenti l'aggiornamento automatico della
-// lista cambia conversazione mentre un'altra operazione è a metà.
+// Il numero di una conversazione singola. Con gli indirizzi di sempre
+// (`@c.us`) è scritto nell'indirizzo; con quelli nuovi (`@lid`) lo si chiede
+// alla libreria; e come ultima strada vale il numero imparato da un messaggio
+// ricevuto (`imparaNumero`). Mai inventarlo: meglio «non trovato».
+async function telefonoDellaChat(id, nome) {
+  if (tipoChat(id) !== 'privata') return '';
+  const utente = String(id).replace(/@.*$/, '').replace(/\D/g, '');
+  if (String(id).endsWith('@c.us') && numeroPlausibile(utente, id)) return `+${utente}`;
+  try {
+    const r = await client.getContactLidAndPhone([id]);
+    const pn = String((r && r[0] && r[0].pn) || '');
+    const cifre = pn.replace(/@.*$/, '').replace(/\D/g, '');
+    if (pn.endsWith('@c.us') && numeroPlausibile(cifre, id)) return `+${cifre}`;
+  } catch (e) {
+    annota('avviso', `la Chat: il numero di ${id} non arriva dalla libreria (${e.message})`);
+  }
+  try {
+    const c = await client.getContactById(id);
+    const cifre = String((c && c.number) || '').replace(/\D/g, '');
+    if (numeroPlausibile(cifre, id)) return `+${cifre}`;
+  } catch { /* si prova l'ultima strada */ }
+  try {
+    const visto = db.prepare('SELECT telefono FROM numeri_visti WHERE nome = ?').get(String(nome || ''));
+    const cifre = String((visto && visto.telefono) || '').replace(/\D/g, '');
+    if (numeroPlausibile(cifre, id)) return `+${cifre}`;
+  } catch { /* la tabella può non esserci */ }
+  return '';
+}
+
+// L'indirizzo di una chat come lo manda la pagina, e basta: tutto il resto
+// non arriva alla libreria.
+function idDiChat(valore) {
+  const v = String(valore || '').trim();
+  return /^[\w.-]{1,40}@(c\.us|lid|g\.us)$/.test(v) ? v : '';
+}
+
+// Un errore che si ripete a ogni giro (la pagina chiede l'elenco ogni cinque
+// secondi) si scrive nel registro una volta ogni dieci minuti, non mille.
+const ultimeNoteRare = new Map();
+function annotaRaro(chiave, testo) {
+  const prima = ultimeNoteRare.get(chiave) || 0;
+  if (Date.now() - prima < 10 * 60000) return;
+  ultimeNoteRare.set(chiave, Date.now());
+  annota('errore', testo);
+}
+
+// Le operazioni che toccano WhatsApp (il bot che risponde, la Chat che manda)
+// passano UNA ALLA VOLTA da qui: due invii insieme si pestano i piedi.
 let codaWhatsApp = Promise.resolve();
 function inCoda(operazione) {
   const risultato = codaWhatsApp.then(operazione, operazione);
@@ -2780,12 +2983,12 @@ function contattoDalNomeChat(nomeChat) {
 }
 
 // Guarda l'elenco delle conversazioni e annota chi sembra aver chiesto la cancellazione.
-// Legge soltanto (nessun click): è la parte meno fragile del ponte col DOM di WhatsApp.
+// Legge soltanto, dallo stesso elenco della scheda Chat.
 async function controllaRichiesteCancellazione() {
   if (state.status !== 'connesso' || !chatAbilitata()) return;
   let chats;
   try {
-    chats = await leggiListaChat();
+    chats = await elencoChat();
   } catch (err) {
     console.error('Controllo cancellazioni non riuscito:', err.message);
     return;
@@ -2819,124 +3022,6 @@ async function controllaRichiesteCancellazione() {
   return nuove;
 }
 setInterval(() => { controllaRichiesteCancellazione(); }, 10 * 60 * 1000);
-
-// Apre una conversazione cliccandola nella lista (per nome). Ritorna il nome effettivo aperto.
-async function apriChatPerNome(nome) {
-  const aperta = await client.pupPage.evaluate((nome) => {
-    const rows = [...document.querySelectorAll('#pane-side [role="row"]')];
-    const row = rows.find((r) => {
-      const t = r.querySelector('span[title]');
-      return t && t.getAttribute('title') === nome;
-    });
-    if (!row) return false;
-    const target = row.querySelector('[data-testid="cell-frame-title"]') || row.querySelector('span[title]');
-    const rect = target.getBoundingClientRect();
-    const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
-    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
-      target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window }));
-    }
-    return true;
-  }, nome);
-  if (!aperta) return null;
-  await sleepMs(900);
-  return nome;
-}
-
-// Legge i messaggi della conversazione aperta
-async function leggiMessaggiAperti() {
-  return client.pupPage.evaluate(() => {
-    const main = document.querySelector('#main');
-    if (!main) return null;
-
-    // Estrae il testo mantenendo le EMOJI (che WhatsApp rende come <img alt="😀">)
-    // e contando gli a-capo solo dai <br>, per non moltiplicare le righe vuote.
-    const estraiTesto = (el) => {
-      let out = '';
-      const percorri = (node) => {
-        for (const c of node.childNodes) {
-          const tag = (c.nodeName || '').toLowerCase();
-          if (tag === 'svg' || tag === 'title') continue;                 // icone: da ignorare
-          if (c.nodeType === 3) out += c.nodeValue;                       // testo
-          else if (tag === 'img') out += c.getAttribute('alt') || '';     // emoji
-          else if (tag === 'br') out += '\n';                             // a capo
-          else percorri(c);
-        }
-      };
-      percorri(el);
-      return out
-        .replace(/ /g, ' ')      // spazi unificatori
-        .replace(/[ \t]+\n/g, '\n')   // spazi a fine riga
-        .replace(/\n{3,}/g, '\n\n')   // max una riga vuota di seguito
-        .trim();
-    };
-
-    const mainRect = main.getBoundingClientRect();
-    const nodes = [...main.querySelectorAll('div[data-id]')];
-    return nodes.map((n) => {
-      const bubble = n.querySelector('[data-testid="msg-container"]') || n;
-      const rect = bubble.getBoundingClientRect();
-      const centro = (rect.left + rect.right) / 2 - mainRect.left;
-      let mio = centro > mainRect.width / 2; // le bolle in uscita stanno a destra
-      if (n.querySelector('[data-icon="tail-out"], [data-icon="msg-dblcheck"], [data-icon="msg-check"]')) mio = true;
-      if (n.querySelector('[data-icon="tail-in"]')) mio = false;
-      const t = n.querySelector('span.selectable-text, span.copyable-text span[dir], .copyable-text span')
-             || n.querySelector('.copyable-text');
-      let testo = t ? estraiTesto(t) : '';
-      if (!testo) {
-        if (n.querySelector('[data-icon="audio-play"], audio, [aria-label*="ocale"]')) testo = '🎤 Vocale/Audio';
-        else if (n.querySelector('img[src^="blob"], [data-icon="media-play"], [aria-label*="oto"]')) testo = '📷 Media';
-        else if (n.querySelector('[data-icon="document"], [aria-label*="ocumento"]')) testo = '📄 Documento';
-      }
-
-      // Data, ora e mittente da "data-pre-plain-text" = "[19:52, 20/07/2026] Mittente: "
-      const cop = n.querySelector('.copyable-text');
-      const pre = cop ? (cop.getAttribute('data-pre-plain-text') || '') : '';
-      const m = pre.match(/\[(\d{1,2}:\d{2}),\s*(\d{1,2}\/\d{1,2}\/\d{2,4})\]\s*(.*?):\s*$/);
-      const ora = m ? m[1] : '';
-      const data = m ? m[2] : '';
-      const mittente = m ? m[3] : null;
-
-      // Stato di consegna (spunte) dei messaggi in uscita
-      // ATTENZIONE: il nome dell'icona (svg title) è sempre "wds-ic-read" anche quando il
-      // messaggio è solo consegnato. Lo stato vero sta SOLO nell'aria-label localizzata.
-      let stato = null;
-      const meta = n.querySelector('[data-testid="msg-meta"]');
-      if (meta) {
-        const ariaEl = meta.querySelector('[aria-label]');
-        const aria = (ariaEl ? ariaEl.getAttribute('aria-label') : '').toLowerCase().trim();
-        if (aria) {
-          if (/consegn|deliver/.test(aria)) stato = 'consegnato';
-          else if (/letto|read/.test(aria)) stato = 'letto';
-          else if (/inviat|sent/.test(aria)) stato = 'inviato';
-          else if (/attesa|pending|orolog|clock/.test(aria)) stato = 'attesa';
-        }
-      }
-
-      return { testo, mio, ora, data, mittente, stato };
-    }).filter((m) => m.testo);
-  });
-}
-
-// Invia un messaggio nella conversazione aperta scrivendo nel campo, come faresti a mano
-async function inviaNellaChatAperta(nome, testo) {
-  // verifica che il campo di scrittura sia quello della persona giusta
-  const box = await client.pupPage.evaluate(() => {
-    const b = document.querySelector('#main footer div[contenteditable="true"]');
-    return b ? (b.getAttribute('aria-label') || '') : null;
-  });
-  if (box === null) throw new Error('Conversazione non aperta');
-  await client.pupPage.evaluate(() => {
-    const b = document.querySelector('#main footer div[contenteditable="true"]');
-    b.focus();
-  });
-  // inserisce il testo generando i giusti eventi che WhatsApp ascolta
-  await client.pupPage.evaluate((t) => {
-    document.execCommand('insertText', false, t);
-  }, testo);
-  await sleepMs(200);
-  await client.pupPage.keyboard.press('Enter');
-  return true;
-}
 
 // Funzioni attivabili
 function chatAbilitata() {
@@ -3032,250 +3117,92 @@ app.post('/api/ritmo', (req, res) => {
   res.json({ ok: true, attuale, disattivato: pauseDisattivate(), tettoEmail: tettoEmailGiornaliero() });
 });
 
+// ---------- Le rotte della Chat ----------
+// Tutte vogliono la Chat accesa e WhatsApp collegato; la pagina mostra il
+// motivo, che non è lo stesso nei due casi.
+function chatPronta(res) {
+  if (!chatAbilitata()) { res.status(403).json({ error: 'La chat è disattivata dalle Impostazioni' }); return false; }
+  if (state.status !== 'connesso') { res.status(409).json({ error: 'WhatsApp non è connesso' }); return false; }
+  return true;
+}
+
 app.get('/api/chats', async (req, res) => {
-  if (!chatAbilitata()) return res.status(403).json({ error: 'La chat è disattivata dalle Impostazioni' });
-  if (state.status !== 'connesso') return res.status(409).json({ error: 'WhatsApp non è connesso' });
+  if (!chatPronta(res)) return;
   try {
-    const chats = await leggiListaChat();
-    res.json(chats.slice(0, 30));
+    res.json(await elencoChat());
   } catch (err) {
+    annotaRaro('chat-elenco', `la Chat: l'elenco non si legge (${err.message})`);
     res.status(500).json({ error: 'Impossibile leggere le chat: ' + err.message });
   }
 });
 
-// Ricava il numero di telefono di una conversazione, aprendo la scheda informazioni
-app.post('/api/chat/telefono', async (req, res) => {
-  if (!chatAbilitata()) return res.status(403).json({ error: 'La chat è disattivata dalle Impostazioni' });
-  if (state.status !== 'connesso') return res.status(409).json({ error: 'WhatsApp non è connesso' });
-  const { nome, giaAperta } = req.body;
-  if (!nome) return res.status(400).json({ error: 'Chat non indicata' });
-
-  // se la conversazione è già intitolata con il numero, non serve aprire nulla
-  if (/^\+?[\d\s().-]{8,}$/.test(nome)) {
-    return res.json({ nome, telefono: nome.trim() });
-  }
-
-  // Prima strada, e la più affidabile: il numero imparato da un messaggio
-  // ricevuto. Sugli account WhatsApp Business il pannello informazioni il
-  // numero non lo mostra affatto, quindi senza questo non ci sarebbe modo di
-  // arrivarci — era il limite dichiarato «non risolvibile» in NOTE-TECNICHE.
-  try {
-    const visto = db.prepare('SELECT telefono FROM numeri_visti WHERE nome = ?').get(nome);
-    if (visto && visto.telefono) {
-      return res.json({ nome, telefono: '+' + visto.telefono, fonte: 'messaggio ricevuto' });
-    }
-  } catch { /* la tabella può non esserci: si prosegue col pannello */ }
-
-  let nomeRiferimento = nome; // nome della conversazione effettivamente letta
-
-  try {
-    const telefono = await inCoda(async () => {
-    // Legge lo stato del pannello laterale destro (informazioni contatto)
-    const leggiPannello = (rif) => client.pupPage.evaluate((nomeChat) => {
-      const paneSide = document.querySelector('#pane-side');
-      const main = document.querySelector('#main');
-      const cand = [...document.querySelectorAll('div,section,aside')].filter((e) => {
-        // né dentro la lista chat / conversazione…
-        if (e.closest('#pane-side') || e.closest('#main')) return false;
-        // …né un contenitore che le racchiude (altrimenti si leggono i numeri della lista!)
-        if (paneSide && e.contains(paneSide)) return false;
-        if (main && e.contains(main)) return false;
-        const r = e.getBoundingClientRect();
-        return r.width > 250 && r.height > 300 && (e.innerText || '').trim().length > 0;
-      });
-      cand.sort((a, b) => (a.innerText || '').length - (b.innerText || '').length);
-      const panel = cand[0];
-      if (!panel) return { aperto: false };
-      const testo = panel.innerText || '';
-      return {
-        aperto: true,
-        corrisponde: testo.includes(nomeChat),
-        numeri: [...new Set(testo.match(/\+\d[\d ]{7,}\d/g) || [])],
-      };
-    }, rif);
-
-    // Il punto cliccabile dell'intestazione cambia da contatto a contatto:
-    // provo in ordine finché il pannello non si apre.
-    const clickIntestazione = (variante = 0) => client.pupPage.evaluate((v) => {
-      const h = document.querySelector('#main header');
-      if (!h) return false;
-      const candidati = [
-        h.querySelector('span[title]'),   // è proprio il "clicca qui per info contatto"
-        h.querySelector('[role="button"]'),
-        h.querySelector('img'),
-        h.querySelector('div'),
-        h,
-      ].filter(Boolean);
-      const t = candidati[v % candidati.length];
-      if (!t) return false;
-      const r = t.getBoundingClientRect();
-      const x = r.left + r.width / 2, y = r.top + r.height / 2;
-      for (const ty of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
-        t.dispatchEvent(new MouseEvent(ty, { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window }));
-      }
-      return true;
-    }, variante);
-
-      // 1) Se la conversazione è già aperta dall'utente uso il nome che compare
-      //    nell'intestazione: WhatsApp tiene nel documento solo le chat visibili
-      //    nell'elenco, quindi ricercarle per nome può fallire senza motivo.
-      // ATTENZIONE: in #main header l'attributo title è "clicca qui per info contatto",
-      // NON il nome. Il nome della conversazione è la prima riga del testo.
-      const nomeIntestazione = () => client.pupPage.evaluate(() => {
-        const h = document.querySelector('#main header');
-        if (!h) return null;
-        const righe = (h.innerText || '').split('\n').map((r) => r.trim()).filter(Boolean);
-        return righe[0] || null;
-      });
-
-      const titoloAperto = await nomeIntestazione();
-      if (giaAperta && titoloAperto) {
-        nomeRiferimento = titoloAperto;      // è questa la conversazione da leggere
-      } else {
-        const aperta = await apriChatPerNome(nome);
-        if (!aperta) return 'CHAT_ASSENTE';
-        await sleepMs(600);
-        nomeRiferimento = (await nomeIntestazione()) || nome;
-      }
-
-      // 2) il pannello resta "appiccicato" al contatto precedente: se è aperto lo chiude
-      //    (il click sull'intestazione fa da interruttore), poi lo riapre pulito.
-      let trovato = null;
-      for (let variante = 0; variante < 4 && !trovato; variante++) {
-        // se è rimasto aperto il pannello di un altro contatto, lo chiude
-        if ((await leggiPannello(nomeRiferimento)).aperto) {
-          await clickIntestazione(variante);
-          for (let i = 0; i < 5 && (await leggiPannello(nomeRiferimento)).aperto; i++) await sleepMs(300);
-        }
-        await clickIntestazione(variante);           // apre quello della chat corrente
-        for (let i = 0; i < 6; i++) {
-          await sleepMs(400);
-          const p = await leggiPannello(nomeRiferimento);
-          if (p.aperto && p.corrisponde && p.numeri.length === 1) { trovato = p.numeri[0]; break; }
-        }
-      }
-
-      await client.pupPage.keyboard.press('Escape'); // richiude il pannello
-      await sleepMs(400);
-      return trovato;
-    });
-
-    if (telefono === 'CHAT_ASSENTE') return res.status(404).json({ error: 'Conversazione non trovata nella lista' });
-    if (!telefono) return res.status(404).json({ error: 'Numero non trovato per questa conversazione' });
-    res.json({ nome: nomeRiferimento, telefono });
-  } catch (err) {
-    res.status(500).json({ error: 'Impossibile leggere il numero: ' + err.message });
-  }
-});
-
 app.post('/api/chat/messages', async (req, res) => {
-  if (!chatAbilitata()) return res.status(403).json({ error: 'La chat è disattivata dalle Impostazioni' });
-  if (state.status !== 'connesso') return res.status(409).json({ error: 'WhatsApp non è connesso' });
-  const { nome } = req.body;
-  if (!nome) return res.status(400).json({ error: 'Chat non indicata' });
+  if (!chatPronta(res)) return;
+  const b = req.body || {};
+  const id = idDiChat(b.id);
+  if (!id) return res.status(400).json({ error: 'Chat non indicata' });
   try {
-    const esito = await inCoda(async () => {
-      const aperta = await apriChatPerNome(nome);
-      if (!aperta) return null;
-      return await leggiMessaggiAperti();
-    });
-    if (esito === null) return res.status(404).json({ error: 'Conversazione non trovata nella lista' });
-    res.json({ nome, messaggi: esito || [] });
+    res.json({ id, messaggi: await messaggiDellaChat(id, { segnaLetta: !!b.letta }) });
   } catch (err) {
+    annotaRaro(`chat-messaggi-${id}`, `la Chat: i messaggi di ${id} non si leggono (${err.message})`);
     res.status(500).json({ error: 'Impossibile leggere i messaggi: ' + err.message });
   }
 });
 
+// Un messaggio scritto dalla Chat è di una PERSONA, non del bot: non si segna
+// fra i «miei» (`segnaCheStoInviando`), così `message_create` lo tratta come
+// una risposta a mano — il bot tace per le sue ore e il cliente viene avvisato
+// che gli risponde qualcuno, esattamente come dal telefono del locale.
 app.post('/api/chat/send', async (req, res) => {
-  if (!chatAbilitata()) return res.status(403).json({ error: 'La chat è disattivata dalle Impostazioni' });
-  if (state.status !== 'connesso') return res.status(409).json({ error: 'WhatsApp non è connesso' });
-  const { nome, message } = req.body;
-  if (!nome || !message || !message.trim()) return res.status(400).json({ error: 'Chat e messaggio obbligatori' });
+  if (!chatPronta(res)) return;
+  const b = req.body || {};
+  const id = idDiChat(b.id);
+  const testo = String(b.message || '').trim();
+  if (!id || !testo) return res.status(400).json({ error: 'Chat e messaggio obbligatori' });
   try {
-    const aperta = await apriChatPerNome(nome);
-    if (!aperta) return res.status(404).json({ error: 'Conversazione non trovata nella lista' });
-    await inviaNellaChatAperta(nome, message.trim());
-    await sleepMs(600);
-    const messaggi = await leggiMessaggiAperti();
-    res.json({ ok: true, messaggi: messaggi || [] });
+    await inCoda(() => client.sendMessage(id, testo));
+    res.json({ ok: true, messaggi: await messaggiDellaChat(id) });
   } catch (err) {
+    annota('errore', `la Chat: invio a ${id} non riuscito (${err.message})`);
     res.status(500).json({ error: 'Invio non riuscito: ' + err.message });
   }
 });
 
-// Invio di un'immagine nella chat aperta (allegato)
+// Un'immagine, con la didascalia se c'è: la stessa strada del menu allegato
+// (`mandaAllegatoMenu`), toppa per i file compresa.
 app.post('/api/chat/send-image', async (req, res) => {
-  if (!chatAbilitata()) return res.status(403).json({ error: 'La chat è disattivata dalle Impostazioni' });
-  if (state.status !== 'connesso') return res.status(409).json({ error: 'WhatsApp non è connesso' });
-  const { nome, dataUrl, filename, caption } = req.body;
-  if (!nome || !dataUrl) return res.status(400).json({ error: 'Chat e immagine obbligatorie' });
-
-  const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl);
+  if (!chatPronta(res)) return;
+  const b = req.body || {};
+  const id = idDiChat(b.id);
+  if (!id || !b.dataUrl) return res.status(400).json({ error: 'Chat e immagine obbligatorie' });
+  const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(b.dataUrl));
   if (!m) return res.status(400).json({ error: 'Formato immagine non valido' });
-
-  const estensione = (filename && path.extname(filename)) || '.' + m[1].split('/')[1].replace('jpeg', 'jpg');
-  const tmpFile = path.join(os.tmpdir(), 'istudio-' + Date.now() + estensione);
-
+  const nomeFile = path.basename(String(b.filename || '')).slice(0, 80)
+    || `immagine.${m[1].split('/')[1].replace('jpeg', 'jpg')}`;
+  const didascalia = String(b.caption || '').trim();
   try {
-    fs.writeFileSync(tmpFile, Buffer.from(m[2], 'base64'));
-
-    const aperta = await apriChatPerNome(nome);
-    if (!aperta) return res.status(404).json({ error: 'Conversazione non trovata nella lista' });
-
-    // 1. apre il menu allegati di WhatsApp (pulsante "+")
-    const menuAperto = await client.pupPage.evaluate(() => {
-      const ic = document.querySelector('#main footer [data-icon="plus-rounded"]');
-      const b = ic && (ic.closest('button') || ic.closest('[role="button"]') || ic.parentElement);
-      if (!b) return false;
-      b.click();
-      return true;
-    });
-    if (!menuAperto) throw new Error('Pulsante allegati di WhatsApp non trovato');
-    await sleepMs(1200);
-
-    // 2. clicca "Foto e video" intercettando la finestra di selezione file
-    const [fileChooser] = await Promise.all([
-      client.pupPage.waitForFileChooser({ timeout: 12000 }),
-      client.pupPage.evaluate(() => {
-        const voce = [...document.querySelectorAll('li, [role="button"], [role="menuitem"]')]
-          .find((e) => (e.innerText || '').trim() === 'Foto e video');
-        if (voce) voce.click();
-      }),
-    ]);
-    await fileChooser.accept([tmpFile]);
-
-    // 3. attende il pannello di anteprima (immagine caricata + campo didascalia)
-    await client.pupPage
-      .waitForFunction(() => {
-        const composer = document.querySelector('#main footer div[contenteditable="true"]');
-        const box = [...document.querySelectorAll('div[contenteditable="true"]')].find((b) => b !== composer);
-        return !!box && document.querySelectorAll('img[src^="blob:"]').length > 0;
-      }, { timeout: 15000 })
-      .catch(() => { throw new Error('Anteprima immagine non comparsa: immagine non inviata'); });
-    await sleepMs(800);
-
-    // 4. didascalia nel campo dell'ANTEPRIMA (non in quello normale della chat!)
-    const scrittaNellAnteprima = await client.pupPage.evaluate((t) => {
-      const composer = document.querySelector('#main footer div[contenteditable="true"]');
-      const box = [...document.querySelectorAll('div[contenteditable="true"]')].find((b) => b !== composer);
-      if (!box) return false;
-      box.focus();
-      if (t) document.execCommand('insertText', false, t);
-      return true;
-    }, (caption || '').trim());
-    if (!scrittaNellAnteprima) throw new Error('Campo didascalia non trovato: immagine non inviata');
-    await sleepMs(400);
-
-    // 5. invia dall'anteprima
-    await client.pupPage.keyboard.press('Enter');
-    await sleepMs(3500);
-
-    const messaggi = await leggiMessaggiAperti();
-    res.json({ ok: true, messaggi: messaggi || [] });
+    const media = new MessageMedia(m[1], m[2], nomeFile);
+    await inCoda(() => client.sendMessage(id, media, didascalia ? { caption: didascalia } : {}));
+    res.json({ ok: true, messaggi: await messaggiDellaChat(id) });
   } catch (err) {
+    annota('errore', `la Chat: immagine a ${id} non partita (${err.message})`);
     res.status(500).json({ error: 'Invio immagine non riuscito: ' + err.message });
-  } finally {
-    try { fs.unlinkSync(tmpFile); } catch {}
+  }
+});
+
+// Il numero di telefono, per «Aggiungi in rubrica».
+app.post('/api/chat/telefono', async (req, res) => {
+  if (!chatPronta(res)) return;
+  const b = req.body || {};
+  const id = idDiChat(b.id);
+  if (!id) return res.status(400).json({ error: 'Chat non indicata' });
+  if (tipoChat(id) !== 'privata') return res.status(400).json({ error: 'Un gruppo non ha un numero di telefono' });
+  try {
+    const telefono = await telefonoDellaChat(id, b.nome);
+    if (!telefono) return res.status(404).json({ error: 'Numero non trovato per questa conversazione' });
+    res.json({ id, nome: String(b.nome || ''), telefono });
+  } catch (err) {
+    res.status(500).json({ error: 'Impossibile leggere il numero: ' + err.message });
   }
 });
 
@@ -3628,7 +3555,7 @@ function tipoDelMessaggio(msg) {
 
 // L'ultimo lucchetto: il bot non scrive in un gruppo, uno stato o un canale,
 // qualunque strada abbia preso il messaggio. La chat della piattaforma passa
-// da un'altra parte (`inviaNellaChatAperta`): lì scrive una persona.
+// da un'altra parte (la rotta `/api/chat/send`): lì scrive una persona.
 function nonInUnGruppo(chatId) {
   const tipo = tipoChat(chatId);
   if (tipo === 'gruppo' || tipo === 'stato' || tipo === 'canale') {

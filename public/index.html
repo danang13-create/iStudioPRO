@@ -4560,11 +4560,14 @@ async function seguiProgresso() {
   }
 }
 
-// ---- chat WhatsApp (lette direttamente dalla pagina di WhatsApp Web) ----
-let chatCorrente = null; // nome della chat aperta
+// ---- chat WhatsApp (dalla libreria, come il bot: vedi «La Chat, sulla libreria» in server.js) ----
+let chatCorrente = null; // l'indirizzo della chat aperta (es. 39333…@c.us), non il nome
+let chatCorrenteNome = '';
 let chatCorrenteGruppo = false;
 let chatsCache = [];
 let pausaAggiornamentoChat = false; // sospende i refresh durante operazioni delicate
+let invioChatInCorso = false;       // un invio alla volta: Invio premuto due volte mandava due messaggi
+let conversazioneDisegnata = false; // c'è una conversazione a schermo: un errore passeggero non la cancella
 
 function schedaChatAttiva() {
   return $('#scheda-chat').classList.contains('attiva');
@@ -4591,6 +4594,7 @@ function spunteHtml(stato) {
     inviato:    { testo: 'inviato',    colore: 'var(--grigio)', titolo: 'Inviato, non ancora consegnato' },
     consegnato: { testo: 'non letto',  colore: 'var(--grigio)', titolo: 'Consegnato ma non ancora letto' },
     letto:      { testo: 'letto',      colore: 'var(--chat-spunte)',       titolo: 'Letto dal destinatario' },
+    errore:     { testo: 'non partito', colore: 'var(--rosso)',  titolo: 'WhatsApp non lo ha accettato' },
   };
   const s = stili[stato];
   if (!s) return '';
@@ -4638,9 +4642,11 @@ async function caricaChats() {
       $('#chat-lista').innerHTML = '<p class="vuoto">Nessuna conversazione trovata.</p>';
       return;
     }
+    // La riga porta l'indirizzo della chat, non il nome: due contatti possono
+    // chiamarsi uguale, e un nome con un apice dentro rompeva l'onclick.
     $('#chat-lista').innerHTML = chats.map((c) => `
-      <div onclick="apriChat('${esc(c.nome).replace(/'/g, '&#39;')}', ${c.gruppo})"
-        style="padding:10px 12px;border-bottom:1px solid var(--bordo);cursor:pointer;display:flex;align-items:center;gap:10px;${c.nome === chatCorrente ? 'background:var(--ok-fondo)' : ''}">
+      <div class="chat-riga" data-chat-id="${esc(c.id)}" role="button" tabindex="0"
+        style="padding:10px 12px;border-bottom:1px solid var(--bordo);cursor:pointer;display:flex;align-items:center;gap:10px;${c.id === chatCorrente ? 'background:var(--ok-fondo)' : ''}">
         ${avatarHtml(c)}
         <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
@@ -4656,12 +4662,24 @@ async function caricaChats() {
   } catch {}
 }
 
-window.apriChat = async (nome, gruppo) => {
-  chatCorrente = nome;
-  chatCorrenteGruppo = !!gruppo;
-  const c = chatsCache.find((x) => x.nome === nome) || { nome, gruppo };
+$('#chat-lista').addEventListener('click', (e) => {
+  const riga = e.target.closest('.chat-riga');
+  if (riga) apriChat(riga.dataset.chatId);
+});
+$('#chat-lista').addEventListener('keydown', (e) => {
+  const riga = e.target.closest('.chat-riga');
+  if (riga && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); apriChat(riga.dataset.chatId); }
+});
+
+async function apriChat(id) {
+  const c = chatsCache.find((x) => x.id === id);
+  if (!c) return;
+  chatCorrente = id;
+  chatCorrenteNome = c.nome;
+  chatCorrenteGruppo = !!c.gruppo;
+  conversazioneDisegnata = false;
   $('#chat-intestazione').innerHTML =
-    `<div style="display:flex;align-items:center;gap:10px">${avatarHtml(c, 34)}<span>${esc(nome)}</span></div>`;
+    `<div style="display:flex;align-items:center;gap:10px">${avatarHtml(c, 34)}<span>${esc(c.nome)}</span></div>`;
   $('#chat-input').disabled = false;
   $('#chat-invia').disabled = false;
   $('#chat-allega').disabled = false;
@@ -4669,39 +4687,61 @@ window.apriChat = async (nome, gruppo) => {
   $('#chat-messaggi').innerHTML = '<p class="vuoto">Caricamento messaggi…</p>';
   await caricaMessaggi(true);
   caricaChats();
-};
+}
 
 async function caricaMessaggi(scorri) {
   if (!chatCorrente || !schedaChatAttiva()) return;
+  const chiesta = chatCorrente;
   try {
     const res = await fetch('/api/chat/messages', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nome: chatCorrente }),
+      // Aprendola si segna letta, come sul telefono; i giri successivi no.
+      body: JSON.stringify({ id: chiesta, letta: !!scorri }),
     });
     const data = await res.json();
-    if (!res.ok) { $('#chat-messaggi').innerHTML = '<p class="vuoto">' + esc(data.error || 'Errore') + '</p>'; return; }
+    // Nel frattempo si è aperta un'altra chat: questa risposta non è più sua.
+    if (chiesta !== chatCorrente) return;
+    if (!res.ok) {
+      // ⚠️ Un errore di un giro (WhatsApp che si ricollega) non cancella la
+      // conversazione a schermo: la sostituiva con «Errore» ogni cinque secondi.
+      if (!conversazioneDisegnata) $('#chat-messaggi').innerHTML = '<p class="vuoto">' + esc(data.error || 'Errore') + '</p>';
+      return;
+    }
     renderMessaggi(data.messaggi || [], scorri);
+    conversazioneDisegnata = true;
   } catch {}
 }
 
 async function inviaChat() {
   const testo = $('#chat-input').value.trim();
-  if (!testo || !chatCorrente) return;
+  if (!testo || !chatCorrente || invioChatInCorso) return;
+  invioChatInCorso = true;
   $('#chat-invia').disabled = true;
-  const res = await fetch('/api/chat/send', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nome: chatCorrente, message: testo }),
-  });
-  const data = await res.json();
-  $('#chat-invia').disabled = false;
-  if (!res.ok) return toast(data.error || 'Errore invio');
-  $('#chat-input').value = '';
-  if (data.messaggi) renderMessaggi(data.messaggi, true);
-  caricaChats();
+  $('#chat-input').disabled = true;
+  try {
+    const res = await fetch('/api/chat/send', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: chatCorrente, message: testo }),
+    });
+    const data = await res.json();
+    if (!res.ok) return toast(data.error || 'Errore invio');
+    $('#chat-input').value = '';
+    if (data.messaggi) { renderMessaggi(data.messaggi, true); conversazioneDisegnata = true; }
+    caricaChats();
+  } catch {
+    toast('Invio non riuscito: controlla il collegamento');
+  } finally {
+    invioChatInCorso = false;
+    $('#chat-invia').disabled = false;
+    $('#chat-input').disabled = false;
+    $('#chat-input').focus();
+  }
 }
 
 $('#chat-invia').addEventListener('click', inviaChat);
-$('#chat-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') inviaChat(); });
+$('#chat-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); inviaChat(); }
+});
 
 // ---- menu azioni su una conversazione (freccia accanto al nome) ----
 // Il menu sta nell'intestazione della conversazione aperta: così la chat è già
@@ -4724,8 +4764,9 @@ document.addEventListener('click', (e) => {
 
 $('#azione-aggiungi-anagrafica').addEventListener('click', async () => {
   $('#menu-chat-azioni').style.display = 'none';
-  const nome = chatCorrente;
-  if (!nome) return;
+  const nome = chatCorrenteNome;
+  if (!chatCorrente) return;
+  if (chatCorrenteGruppo) return toast('Un gruppo non ha un numero da mettere in rubrica');
 
   toast('Recupero il numero da WhatsApp…');
   let telefono = '';
@@ -4733,7 +4774,7 @@ $('#azione-aggiungi-anagrafica').addEventListener('click', async () => {
   try {
     const res = await fetch('/api/chat/telefono', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nome, giaAperta: true }),
+      body: JSON.stringify({ id: chatCorrente, nome }),
     });
     const d = await res.json();
     if (res.ok) telefono = d.telefono || '';
@@ -4813,24 +4854,32 @@ $('#file-immagine').addEventListener('change', async (e) => {
     r.readAsDataURL(file);
   });
 
+  if (invioChatInCorso) return toast('Aspetta: c\'è un invio in corso');
+  invioChatInCorso = true;
   toast('Invio immagine in corso…');
   $('#chat-allega').disabled = true;
   $('#chat-invia').disabled = true;
-  const res = await fetch('/api/chat/send-image', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nome: chatCorrente, dataUrl, filename: file.name, caption: didascalia }),
-  });
-  const data = await res.json();
-  $('#chat-allega').disabled = false;
-  $('#chat-invia').disabled = false;
-  if (!res.ok) return toast(data.error || 'Errore invio immagine');
-  $('#chat-input').value = '';
-  toast('Immagine inviata');
-  if (data.messaggi) renderMessaggi(data.messaggi, true);
-  caricaChats();
+  try {
+    const res = await fetch('/api/chat/send-image', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: chatCorrente, dataUrl, filename: file.name, caption: didascalia }),
+    });
+    const data = await res.json();
+    if (!res.ok) return toast(data.error || 'Errore invio immagine');
+    $('#chat-input').value = '';
+    toast('Immagine inviata');
+    if (data.messaggi) { renderMessaggi(data.messaggi, true); conversazioneDisegnata = true; }
+    caricaChats();
+  } catch {
+    toast('Immagine non partita: controlla il collegamento');
+  } finally {
+    invioChatInCorso = false;
+    $('#chat-allega').disabled = false;
+    $('#chat-invia').disabled = false;
+  }
 });
 setInterval(() => {
-  if (schedaChatAttiva() && !pausaAggiornamentoChat) { caricaChats(); caricaMessaggi(false); }
+  if (schedaChatAttiva() && !pausaAggiornamentoChat && !invioChatInCorso) { caricaChats(); caricaMessaggi(false); }
 }, 5000);
 
 // ---- newsletter email ----
