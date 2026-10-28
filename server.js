@@ -7,7 +7,7 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const QRCode = require('qrcode');
 const nodemailer = require('nodemailer');
-const { Client, LocalAuth, MessageMedia, Chat: ChatDellaLibreria } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const { execFileSync } = require('child_process');
 
 // ---------- Registro con data e ora ----------
@@ -2676,34 +2676,132 @@ app.post('/api/email/send', (req, res) => {
 // build») valeva per una libreria vecchia: con la 1.34 il bot usa già
 // `getChatById` e `getContact` a ogni messaggio.
 //
-// ⚠️ L'elenco NON passa da `client.getChats()`: quella prepara TUTTE le chat
-// dell'account — e per ogni gruppo chiede i suoi membri — mentre un locale ne
-// ha centinaia. Qui si prendono le più recenti DENTRO la pagina e si
-// preparano solo quelle, con la stessa funzione della libreria
-// (`WWebJS.getChatModel`). Se quella strada manca, si ripiega su `getChats()`.
+// ⚠️ L'elenco e i messaggi NON passano da `getChats()` / `getChatById()`
+// della libreria. La prima pubblicazione (2026.10.28.1) lo faceva, e sul Mac
+// del titolare è uscito «Impossibile leggere le chat: r» — l'errore
+// minificato della nota vecchia, che è ancora vero: la funzione con cui la
+// libreria «prepara» una chat (`WWebJS.getChatModel`: `serialize()`, i membri
+// dei gruppi, la migrazione degli indirizzi) si rompe su questa build di
+// WhatsApp, e `Promise.all` butta tutto l'elenco per una chat sola. Quello
+// che FUNZIONA (il bot ne vive): la raccolta delle chat, i loro campi, i
+// messaggi, l'invio, i contatti. Allora si leggono i campi grezzi dentro la
+// pagina — gli stessi che la libreria legge — chat per chat, con ogni campo
+// dentro il suo `try`: una chat strana perde quel campo, non l'elenco. La
+// libreria resta il ripiego, e quando anche quello cade parte una sonda
+// (`SONDA_NELLA_PAGINA`) che dice QUALE passo si rompe, nella pagina e nel
+// registro: la volta dopo non si tira a indovinare.
 const CHAT_IN_ELENCO = 30;
 const MESSAGGI_PER_CHAT = 60;
 
-// Gira DENTRO la pagina di WhatsApp Web: di quello che sta qui fuori non vede
-// niente. Si prende qualche chat in più del necessario, perché stati e
-// canali si tolgono dopo.
+// Le tre funzioni qui sotto girano DENTRO la pagina di WhatsApp Web: di
+// quello che sta qui fuori non vedono niente, e devono bastare a sé stesse.
+// `s(f, altrimenti)`: un campo che si rompe vale «altrimenti», non un errore.
+// Un messaggio grezzo diventa { id, type, body, hasMedia, fromMe, timestamp,
+// ack, author, from, notifyName, filename, isNotification }.
 const ELENCO_CHAT_NELLA_PAGINA = async (quante) => {
-  const tutte = window.require('WAWebCollections').Chat.getModelsArray();
-  const recenti = tutte
-    .filter((c) => c && c.id && !c.archive)
-    .sort((a, b) => (b.t || 0) - (a.t || 0))
-    .slice(0, quante);
-  return Promise.all(recenti.map((c) => window.WWebJS.getChatModel(c)));
+  const s = (f, altrimenti) => { try { const v = f(); return v === undefined || v === null ? altrimenti : v; } catch { return altrimenti; } };
+  const idDi = (x) => s(() => (x && x._serialized) || (typeof x === 'string' ? x : ''), '');
+  const messaggio = (u) => (!u ? null : {
+    id: idDi(s(() => u.id, null)), type: s(() => u.type, 'chat'),
+    body: s(() => (u.mediaObject || u.directPath ? u.caption : u.body), ''), hasMedia: s(() => !!(u.mediaObject || u.directPath), false),
+    fromMe: s(() => !!u.id.fromMe, false), timestamp: s(() => u.t, 0), ack: s(() => u.ack, null),
+    author: idDi(s(() => u.author, null)), from: idDi(s(() => u.from, null)),
+    notifyName: s(() => u.notifyName, '') || s(() => u.senderObj.pushname, ''), filename: s(() => u.filename, ''), isNotification: s(() => !!u.isNotification, false),
+  });
+  const Coll = window.require('WAWebCollections');
+  const tutte = Coll.Chat.getModelsArray();
+  return tutte
+    .filter((c) => c && c.id && !s(() => c.archive, false))
+    .sort((a, b) => s(() => b.t, 0) - s(() => a.t, 0))
+    .slice(0, quante)
+    .map((c) => {
+      const id = idDi(c.id);
+      // L'ultimo messaggio VERO: un avviso di sistema in coda («X è entrato») non è un'anteprima.
+      let ultimo = s(() => { const ms = c.msgs.getModelsArray(); for (let i = ms.length - 1; i >= 0; i--) if (!ms[i].isNotification) return ms[i]; return null; }, null);
+      if (!ultimo) ultimo = s(() => Coll.Msg.get(c.lastReceivedKey._serialized), null);
+      return {
+        id,
+        nome: s(() => c.formattedTitle, '') || s(() => c.name, '') || s(() => c.contact.name || c.contact.pushname, ''),
+        t: s(() => c.t, 0), unreadCount: s(() => c.unreadCount, 0),
+        isGroup: s(() => !!c.groupMetadata, false) || id.endsWith('@g.us'), archived: false,
+        ultimo: messaggio(ultimo),
+      };
+    });
 };
+const MESSAGGI_NELLA_PAGINA = async (chatId, quanti) => {
+  const s = (f, altrimenti) => { try { const v = f(); return v === undefined || v === null ? altrimenti : v; } catch { return altrimenti; } };
+  const idDi = (x) => s(() => (x && x._serialized) || (typeof x === 'string' ? x : ''), '');
+  const messaggio = (u) => (!u ? null : {
+    id: idDi(s(() => u.id, null)), type: s(() => u.type, 'chat'),
+    body: s(() => (u.mediaObject || u.directPath ? u.caption : u.body), ''), hasMedia: s(() => !!(u.mediaObject || u.directPath), false),
+    fromMe: s(() => !!u.id.fromMe, false), timestamp: s(() => u.t, 0), ack: s(() => u.ack, null),
+    author: idDi(s(() => u.author, null)), from: idDi(s(() => u.from, null)),
+    notifyName: s(() => u.notifyName, '') || s(() => u.senderObj.pushname, ''), filename: s(() => u.filename, ''), isNotification: s(() => !!u.isNotification, false),
+  });
+  const Coll = window.require('WAWebCollections');
+  const wid = s(() => window.require('WAWebWidFactory').createWid(chatId), chatId);
+  const chat = Coll.Chat.get(wid) || Coll.Chat.get(chatId);
+  if (!chat) return null;
+  let msgs = chat.msgs.getModelsArray();
+  // I messaggi più vecchi si caricano come fa la libreria, qualche giro al massimo.
+  for (let giri = 0; msgs.length < quanti && giri < 4; giri++) {
+    const prima = await s(() => window.require('WAWebChatLoadMessages').loadEarlierMsgs({ chat }), null);
+    if (!prima || !prima.length) break;
+    msgs = chat.msgs.getModelsArray();
+  }
+  return { isGroup: s(() => !!chat.groupMetadata, false) || String(chatId).endsWith('@g.us'), messaggi: msgs.slice(-quanti).map(messaggio).filter(Boolean) };
+};
+const FOTO_NELLA_PAGINA = async (chatId) => {
+  try {
+    const wid = window.require('WAWebWidFactory').createWid(chatId);
+    const chat = window.require('WAWebCollections').Chat.get(wid);
+    if (!chat) return '';
+    const foto = await window.require('WAWebContactProfilePicThumbBridge').requestProfilePicFromServer(chat);
+    return (foto && foto.eurl) || '';
+  } catch { return ''; }
+};
+// La sonda: ogni passo della lettura, uno per uno, con l'errore se si rompe.
+const SONDA_NELLA_PAGINA = async () => {
+  const esiti = [];
+  const passo = async (nome, f) => { try { const v = await f(); esiti.push(`${nome}: ${v === undefined ? 'ok' : v}`); return v; } catch (e) { esiti.push(`${nome}: ERRORE ${e && e.message}`); return undefined; } };
+  const Coll = await passo('WAWebCollections', () => window.require('WAWebCollections') && 'ok');
+  const chats = await passo('Chat.getModelsArray', () => window.require('WAWebCollections').Chat.getModelsArray().length);
+  if (!Coll || !chats) return esiti.join(' · ');
+  const c = window.require('WAWebCollections').Chat.getModelsArray()[0];
+  await passo('id', () => c.id._serialized);
+  await passo('t', () => c.t);
+  await passo('formattedTitle', () => c.formattedTitle);
+  await passo('unreadCount', () => c.unreadCount);
+  await passo('msgs', () => c.msgs.getModelsArray().length);
+  await passo('serialize', () => c.serialize() && 'ok');
+  await passo('getChatModel', async () => (await window.WWebJS.getChatModel(c)) && 'ok');
+  return esiti.join(' · ');
+};
+async function sondaChat() {
+  try { return await client.pupPage.evaluate(SONDA_NELLA_PAGINA); } catch (e) { return `la sonda non parte: ${e.message}`; }
+}
 
+// Un messaggio della libreria, nella stessa forma di quelli letti in pagina.
+function daMessaggioDellaLibreria(m) {
+  if (!m) return null;
+  return {
+    id: m.id && m.id._serialized, type: m.type, body: m.body, hasMedia: !!m.hasMedia, fromMe: !!m.fromMe, timestamp: m.timestamp,
+    ack: m.ack, author: m.author, from: m.from, notifyName: (m._data && m._data.notifyName) || '', filename: (m._data && m._data.filename) || '',
+    isNotification: false,
+  };
+}
 async function modelliDelleChat() {
   try {
-    const modelli = await client.pupPage.evaluate(ELENCO_CHAT_NELLA_PAGINA, CHAT_IN_ELENCO * 2);
-    return (modelli || []).filter((m) => m && m.id).map((m) => new ChatDellaLibreria(client, m));
+    const letti = await client.pupPage.evaluate(ELENCO_CHAT_NELLA_PAGINA, CHAT_IN_ELENCO * 2);
+    return (letti || []).filter((c) => c && c.id);
   } catch (e) {
-    annotaRaro('chat-elenco-veloce', `la Chat: l'elenco veloce non si legge (${e.message}); provo con getChats()`);
-    return client.getChats();
+    annotaRaro('chat-elenco-veloce', `la Chat: l'elenco non si legge dalla pagina (${e.message}); provo con getChats()`);
   }
+  const chats = await client.getChats();
+  return (chats || []).filter((c) => c && c.id && c.id._serialized).map((c) => ({
+    id: c.id._serialized, nome: c.name, t: c.timestamp, unreadCount: c.unreadCount, isGroup: !!c.isGroup, archived: !!c.archived,
+    ultimo: daMessaggioDellaLibreria(c.lastMessage),
+  }));
 }
 
 // Che cos'è un messaggio senza testo: si scrive a parole, con la didascalia
@@ -2727,7 +2825,7 @@ function testoDelMessaggio(m) {
   if (DI_SISTEMA.has(tipo)) return '';
   const cosa = COSA_E[tipo] || (m.hasMedia ? '📎 Allegato' : '');
   if (!cosa) return corpo;
-  const nomeFile = tipo === 'document' && m._data && m._data.filename ? String(m._data.filename).trim() : '';
+  const nomeFile = tipo === 'document' && m.filename ? String(m.filename).trim() : '';
   const sotto = nomeFile || corpo;
   return sotto ? `${cosa}\n${sotto}` : cosa;
 }
@@ -2796,11 +2894,21 @@ async function nomeDelContatto(id) {
   return nome;
 }
 
-// I messaggi di una conversazione, dal più vecchio. `segnaLetta` fa quello che
-// fa aprirla sul telefono: le spunte blu a chi ha scritto.
+// I messaggi di una conversazione, dal più vecchio: letti in pagina, o dalla
+// libreria se la pagina non ha quella chat. `segnaLetta` fa quello che fa
+// aprirla sul telefono: le spunte blu a chi ha scritto.
 async function messaggiDellaChat(id, opzioni = {}) {
-  const chat = await client.getChatById(id);
-  const grezzi = (await chat.fetchMessages({ limit: MESSAGGI_PER_CHAT })) || [];
+  let letti = null;
+  try {
+    letti = await client.pupPage.evaluate(MESSAGGI_NELLA_PAGINA, id, MESSAGGI_PER_CHAT);
+  } catch (e) {
+    annotaRaro('chat-messaggi-veloce', `la Chat: i messaggi non si leggono dalla pagina (${e.message}); provo con fetchMessages()`);
+  }
+  if (!letti) {
+    const chat = await client.getChatById(id);
+    letti = { isGroup: !!chat.isGroup, messaggi: ((await chat.fetchMessages({ limit: MESSAGGI_PER_CHAT })) || []).map(daMessaggioDellaLibreria) };
+  }
+  const grezzi = (letti.messaggi || []).filter((m) => m && !m.isNotification);
   grezzi.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
   const adesso = new Date();
   const messaggi = [];
@@ -2808,16 +2916,14 @@ async function messaggiDellaChat(id, opzioni = {}) {
     const testo = testoDelMessaggio(m);
     if (!testo) continue;
     let mittente = null;
-    if (chat.isGroup && !m.fromMe) {
-      mittente = (m._data && m._data.notifyName) || await nomeDelContatto(m.author || m.from);
-    }
+    if (letti.isGroup && !m.fromMe) mittente = m.notifyName || await nomeDelContatto(m.author || m.from);
     messaggi.push({
-      id: m.id && m.id._serialized, testo, mio: !!m.fromMe,
+      id: m.id, testo, mio: !!m.fromMe,
       ora: oraDiChat(m.timestamp), data: giornoDiChat(m.timestamp, adesso),
       mittente, stato: m.fromMe ? statoDallAck(m.ack) : null,
     });
   }
-  if (opzioni.segnaLetta) { try { await chat.sendSeen(); } catch { /* le spunte blu sono un ornamento */ } }
+  if (opzioni.segnaLetta) { try { await client.sendSeen(id); } catch { /* le spunte blu sono un ornamento */ } }
   return messaggi;
 }
 
@@ -2840,7 +2946,8 @@ async function scaricaFotoMancanti() {
     for (const [id, f] of fotoProfili) {
       if (!f.daChiedere || state.status !== 'connesso') continue;
       let url = '';
-      try { url = (await client.getProfilePicUrl(id)) || ''; } catch { /* senza foto resta l'iniziale */ }
+      // In pagina, senza «preparare» la chat (vedi sopra): `getProfilePicUrl` passa di lì.
+      try { url = (await client.pupPage.evaluate(FOTO_NELLA_PAGINA, id)) || ''; } catch { /* senza foto resta l'iniziale */ }
       fotoProfili.set(id, { url: String(url), quando: Date.now(), daChiedere: false });
     }
   } finally {
@@ -2862,18 +2969,17 @@ async function elencoChat() {
   if (elencoInCache.elenco && Date.now() - elencoInCache.quando < 4000) return elencoInCache.elenco;
   const chats = await modelliDelleChat();
   const elenco = (chats || [])
-    .filter((c) => c && c.id && c.id._serialized && !c.archived
-      && ['privata', 'gruppo'].includes(tipoChat(c.id._serialized)))
-    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+    .filter((c) => c && c.id && !c.archived && ['privata', 'gruppo'].includes(tipoChat(c.id)))
+    .sort((a, b) => (b.t || 0) - (a.t || 0))
     .slice(0, CHAT_IN_ELENCO)
     .map((c) => {
-      const id = c.id._serialized;
-      const ultimo = c.lastMessage;
+      const id = c.id;
+      const ultimo = c.ultimo;
       return {
         id,
-        nome: String(c.name || '').trim() || nomeDallIndirizzo(id),
+        nome: String(c.nome || '').trim() || nomeDallIndirizzo(id),
         gruppo: !!c.isGroup,
-        ora: quandoInElenco(c.timestamp),
+        ora: quandoInElenco(c.t),
         ultimoTesto: primaRiga(testoDelMessaggio(ultimo)),
         ultimoMio: !!(ultimo && ultimo.fromMe),
         nonLetti: c.unreadCount > 0 ? c.unreadCount : 0,
@@ -3131,8 +3237,11 @@ app.get('/api/chats', async (req, res) => {
   try {
     res.json(await elencoChat());
   } catch (err) {
-    annotaRaro('chat-elenco', `la Chat: l'elenco non si legge (${err.message})`);
-    res.status(500).json({ error: 'Impossibile leggere le chat: ' + err.message });
+    // Con la sonda: dice QUALE passo si rompe, nella pagina e nel registro tecnico.
+    const sonda = await sondaChat();
+    annotaRaro('chat-elenco', `la Chat: l'elenco non si legge (${err.message}) — ${sonda}`);
+    console.error(`La Chat: l'elenco non si legge (${err.message}). Sonda: ${sonda}`);
+    res.status(500).json({ error: `Impossibile leggere le chat: ${err.message}. Sonda: ${sonda}` });
   }
 });
 
