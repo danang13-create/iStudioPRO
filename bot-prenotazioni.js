@@ -4118,6 +4118,24 @@ function segnaRichiamata(db, telefono, adesso = new Date()) {
 // un'amnesia a sorpresa — a quel cliente il bot ha già chiesto «sei ancora lì?».
 const DOPO_IL_RICHIAMO = 4;
 
+// ⚠️ L'attesa si conta DAL RICHIAMO, e insieme dall'ultimo messaggio: vale la
+// più corta delle due. Si contava solo dall'ultimo messaggio del cliente, e un
+// richiamo partito tardi chiudeva la conversazione nello stesso minuto in cui
+// partiva. Visto dal titolare in una chat vera (9 novembre 2026): la domanda
+// delle allergie alle 16:36, «Sei ancora lì?» alle 18:30 (prima non poteva
+// partire: fuori dagli orari degli avvisi, o WhatsApp non collegato), e alle
+// 18:30 stesse — 114 minuti di silenzio, più di un'ora — la conversazione
+// veniva lasciata andare. Alle 19:03 il cliente rispondeva «non mangiamo
+// latticini ma non siamo allergici», e il bot si ripresentava da capo: «Ciao,
+// sono Aurora…». La prenotazione era persa, e il cliente aveva fatto tutto giusto.
+// L'ultimo messaggio resta nel conto per chi RISPONDE al richiamo e poi si
+// ferma di nuovo: il richiamo è uno solo, e un'ora dopo la sua ultima
+// risposta si lascia andare come prima.
+function minutiDa(quando, adesso = new Date()) {
+  if (!quando) return null;
+  const d = new Date(String(quando).replace(' ', 'T'));
+  return Number.isNaN(d.getTime()) ? null : (adesso - d) / 60000;
+}
 function daLasciareAndare(db, cfg, adesso = new Date()) {
   const minuti = num(cfg.bot_richiamo_minuti, 15);
   if (minuti <= 0) return [];
@@ -4125,7 +4143,9 @@ function daLasciareAndare(db, cfg, adesso = new Date()) {
     .filter((r) => {
       if (!PASSI_DA_RICHIAMARE.includes(r.passo)) return false;
       const fermi = minutiFermi(r, adesso);
-      return fermi !== null && fermi >= minuti * DOPO_IL_RICHIAMO;
+      const dalRichiamo = minutiDa(r.richiamata_at, adesso);
+      if (fermi === null || dalRichiamo === null) return false;
+      return Math.min(fermi, dalRichiamo) >= minuti * DOPO_IL_RICHIAMO;
     });
 }
 
