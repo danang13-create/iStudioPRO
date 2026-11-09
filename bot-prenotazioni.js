@@ -236,6 +236,10 @@ function preparaDatabase(db) {
   // Quando gli è stato chiesto «sei ancora lì?». Una volta sola per
   // conversazione: si azzera quando la conversazione riparte da capo.
   try { db.exec('ALTER TABLE bot_conversazioni ADD COLUMN richiamata_at TEXT'); } catch {}
+  // La prenotazione lasciata andare dopo il richiamo (vedi «lasciaAndare»): il
+  // passo e i dati, per ricordarla al cliente quando riscrive. In una colonna
+  // sua, e non dentro `dati`, perché quelli si copiano di passo in passo.
+  try { db.exec('ALTER TABLE bot_conversazioni ADD COLUMN lasciata TEXT'); } catch {}
   // Quando al cliente è stato detto che gli risponde una PERSONA. Serve a dirlo
   // una volta sola per presa in carico: chi risponde dal telefono del locale
   // scrive dieci righe, e l'annuncio va davanti alla prima, non a tutte.
@@ -1082,6 +1086,10 @@ const PREDEFINITI = {
   // volta, ma «riscrivilo», con un esempio adatto alla domanda ({esempio}).
   bot_t_riscrivi: 'Scusami, non ho capito bene 🙏 Me lo riscrivi in un altro modo?\n{esempio}',
   bot_t_richiamo: 'Sei ancora lì? 🙂\n\nTi stavo chiedendo {cosa}: rispondi pure qui e finiamo in un attimo.\n\nSe preferisci ripartire da capo scrivi RICOMINCIA.',
+  // La prenotazione lasciata a metà, ricordata a chi riscrive (vedi «gestisciLaLasciata»).
+  bot_t_ripresa: 'Bentornato! 🙂\n\nEravamo rimasti alla prenotazione {prenotazione}.\n\nVuoi che la completiamo? Scrivi SÌ, oppure dimmi pure cosa ti serve.',
+  bot_t_ripresa_si: 'Perfetto, riprendiamo da dove eravamo! 👍',
+  bot_t_ripresa_no: 'Va bene, lascio stare quella prenotazione.',
   // In cima alla presentazione: la domanda la fa il primo messaggio (20 ottobre 2026).
   bot_t_ricominciato: 'Va bene, ricominciamo da capo! 🙂',
   // «Torna indietro»: in cima alla domanda di prima, riscritta com'era.
@@ -4103,8 +4111,19 @@ function daRichiamare(db, cfg, adesso = new Date()) {
 // Si lascia andare: passo a «inizio» e dati buttati. ⚠️ Passa da «scriviStato»
 // di proposito, che è l'unico posto che sa cosa NON si deve toccare su quella
 // riga — «muto_fino» sopra tutto.
+// (9 novembre 2026, dal titolare: «fallo ricordare la prenotazione».) Prima
+// di buttarli, il passo e i dati si mettono da parte nella colonna `lasciata`:
+// se il cliente riscrive, il bot gliela ricorda (vedi «gestisciLaLasciata»).
+// Solo se c'è qualcosa da ricordare — le persone o il giorno: una
+// conversazione ferma alla prima domanda non ha niente da riprendere.
 function lasciaAndare(db, telefono, adesso = new Date()) {
+  const r = db.prepare('SELECT passo, dati FROM bot_conversazioni WHERE telefono = ?').get(telefono);
+  let dati = {};
+  try { dati = JSON.parse((r && r.dati) || '{}') || {}; } catch { dati = {}; }
   scriviStato(db, telefono, 'inizio', {}, adesso);
+  const lasciata = r && PASSI_DA_RICHIAMARE.includes(r.passo) && (dati.persone || dati.data)
+    ? JSON.stringify({ passo: r.passo, dati, quando: quandoLeggibile(adesso) }) : null;
+  db.prepare('UPDATE bot_conversazioni SET lasciata = ? WHERE telefono = ?').run(lasciata, telefono);
 }
 
 function segnaRichiamata(db, telefono, adesso = new Date()) {
@@ -6011,7 +6030,136 @@ function senzaRigheDiTroppo(esito) {
   return esito;
 }
 
+// ---------------------------------------------------------------------------
+//  La prenotazione lasciata a metà, ricordata (9 novembre 2026)
+// ---------------------------------------------------------------------------
+//  Dal titolare, dopo una chat vera: il cliente risponde al «sei ancora lì?»
+//  troppo tardi, la conversazione è già stata lasciata andare, e il bot si
+//  ripresenta da capo come a uno sconosciuto. «Fallo ricordare la
+//  prenotazione»: al primo messaggio dopo, il bot dice dove si era rimasti —
+//  «Bentornato! Eravamo rimasti alla prenotazione per domani alle 20:00, 4
+//  persone. Vuoi che la completiamo? Scrivi SÌ, oppure dimmi pure cosa ti
+//  serve.» (`bot_t_ripresa`) — e aspetta la risposta nel passo «riprendi».
+//   - SÌ: si torna al passo e ai dati di allora. Se il messaggio che l'aveva
+//     fatto tornare era la risposta alla domanda di allora («non mangiamo
+//     latticini», «20:30»), vale quella: si prova, e si tiene solo se il passo
+//     la prende (sennò si annulla tutto e si rifà la domanda).
+//   - un «no» e basta: si lascia stare, e si risponde al messaggio di prima
+//     come a un messaggio nuovo («dimmi pure cosa ti serve»: l'aveva detto).
+//   - qualsiasi altra cosa: è quello che gli serve, e si risponde a quello.
+//  Una volta sola: la colonna si svuota alla prima proposta. E mai se è vecchia
+//  (le ore di una conversazione), se il giorno è passato o l'orario di oggi è
+//  già andato. La parola dell'operatore e RICOMINCIA passano sempre avanti.
+function lasciataValida(testo, adesso) {
+  let l = null;
+  try { l = JSON.parse(String(testo || '') || 'null'); } catch { return null; }
+  if (!l || !l.passo || !l.dati || !PASSI_DA_RICHIAMARE.includes(l.passo)) return null;
+  const quando = new Date(String(l.quando || '').replace(' ', 'T'));
+  if (Number.isNaN(quando.getTime()) || (adesso - quando) / 3600000 >= CONVERSAZIONE_ORE) return null;
+  const oggi = comeData(adesso);
+  if (l.dati.data && l.dati.data < oggi) return null;
+  if (l.dati.data === oggi && l.dati.ora && inMinuti(l.dati.ora) <= adesso.getHours() * 60 + adesso.getMinutes()) return null;
+  return l;
+}
+// «per domani alle 20:00, 4 persone, Menù Degustazione»: quello che si sa, nell'ordine.
+function prenotazioneLasciataDetta(d, adesso) {
+  const oggi = comeData(adesso);
+  const domani = comeData(piuGiorni(new Date(oggi + 'T12:00:00'), 1));
+  const quando = [d.data ? `per ${d.data === oggi ? 'oggi' : d.data === domani ? 'domani' : dataItaliana(d.data)}` : '',
+    d.ora ? `alle ${oraDetta(d.ora)}` : ''].filter(Boolean).join(' ');
+  const persone = d.persone ? `${d.persone} ${Number(d.persone) === 1 ? 'persona' : 'persone'}` : '';
+  const dove = d.fuoriSala && d.localeScelto ? d.localeScelto : '';
+  const cosa = !d.fuoriSala && d.esperienza ? d.esperienza : '';
+  const tutto = [quando, persone, dove, cosa].filter(Boolean).join(', ');
+  return quando ? tutto : (tutto ? `per ${tutto}` : '');
+}
+function esitoVuoto() {
+  return { risposte: [], passaAUmano: false, prenotazione: null, annullata: null, spostata: null, attesa: null };
+}
+// Il primo testo dell'esito con `testa` davanti, nello stesso messaggio.
+function conInTesta(esito, testa) {
+  if (!testa) return esito;
+  const i = (esito.risposte || []).findIndex((r) => typeof r === 'string' && r.trim());
+  if (i < 0) esito.risposte = [testa, ...(esito.risposte || [])];
+  else esito.risposte[i] = `${testa}\n\n${esito.risposte[i]}`;
+  return esito;
+}
+// Prima di tutto il resto, in `elaboraMessaggio`. Restituisce:
+//  - { esito }: ha risposto lei;
+//  - { testo, testa }: si va avanti come sempre, con questo messaggio (il
+//    nuovo, o quello di prima per il «no») e con `testa` in cima alla risposta;
+//  - null: non c'era niente da ricordare.
+const NON_LA_PRENDE = Symbol('il passo non prende il messaggio');
+function gestisciLaLasciata(db, telefono, testo, adesso, contesto) {
+  const riga = db.prepare('SELECT passo, lasciata FROM bot_conversazioni WHERE telefono = ?').get(telefono);
+  if (!riga) return null;
+  const cfg = config(db);
+  const t = normalizza(testo);
+  const operatore = normalizza(cfg.bot_parola_operatore);
+  const passaAvanti = (operatore && t.includes(operatore)) || /^(ricomincia|ricominciamo|da capo|riparti|annulla tutto)\b/i.test(t);
+  const valori = { locale: cfg.bot_locale || 'noi', assistente: cfg.bot_assistente || '' };
+  const stato = statoDi(db, telefono, adesso);
+
+  // --- La risposta alla proposta ---
+  if (stato.passo === 'riprendi') {
+    const l = lasciataValida(JSON.stringify((stato.dati || {}).lasciata || null), adesso);
+    const primo = String((stato.dati || {}).messaggio || '');
+    scriviStato(db, telefono, 'inizio', {}, adesso);
+    if (passaAvanti || !l) return { testo };
+    if (interpretaSiNo(testo) === true) {
+      const testa = riempi(cfg.bot_t_ripresa_si, valori).trim();
+      // Il messaggio che l'aveva fatto tornare, se era una risposta: si prova.
+      const proviamo = primo.trim() && !eSaluto(primo) && !eSalutoStorto(primo) && interpretaSiNo(primo) === null;
+      if (proviamo) {
+        try {
+          const esito = db.transaction(() => {
+            scriviStato(db, telefono, l.passo, l.dati, adesso);
+            const primaR = statoDi(db, telefono, adesso);
+            const e = senzaRigheDiTroppo(rispondiAlMessaggio(db, telefono, primo, adesso, contesto));
+            const dopo = statoDi(db, telefono, adesso);
+            if (dopo.passo === l.passo || dopo.passo === 'inizio' || e.passaAUmano) throw NON_LA_PRENDE;
+            ricordaLaDomanda(db, telefono, primaR, e, adesso);
+            return e;
+          })();
+          return { esito: conInTesta(esito, testa) };
+        } catch (e) {
+          if (e !== NON_LA_PRENDE) throw e;
+        }
+      }
+      scriviStato(db, telefono, l.passo, l.dati, adesso);
+      const domanda = String(l.dati.domanda || '').trim()
+        || `Ti stavo chiedendo ${COSA_MANCA[l.passo] || 'i dettagli della prenotazione'}.`;
+      const esito = esitoVuoto();
+      esito.risposte.push(`${testa}\n\n${domanda}`.trim());
+      return { esito };
+    }
+    if (soloUnNo(testo, cfg) || vuoleRinunciare(testo)) {
+      return { testo: primo || testo, testa: riempi(cfg.bot_t_ripresa_no, valori).trim() };
+    }
+    return { testo };
+  }
+
+  // --- Il primo messaggio dopo: la proposta ---
+  if (stato.passo !== 'inizio' || !riga.lasciata) return null;
+  db.prepare('UPDATE bot_conversazioni SET lasciata = NULL WHERE telefono = ?').run(telefono);
+  const l = lasciataValida(riga.lasciata, adesso);
+  if (!l || passaAvanti || soloUnNo(testo, cfg) || vuoleRinunciare(testo)) return null;
+  const detta = prenotazioneLasciataDetta(l.dati, adesso);
+  if (!detta) return null;
+  scriviStato(db, telefono, 'riprendi', { lasciata: l, messaggio: String(testo || '').slice(0, 500) }, adesso);
+  const esito = esitoVuoto();
+  esito.risposte.push(riempi(cfg.bot_t_ripresa, { ...valori, prenotazione: detta }).trim());
+  return { esito };
+}
+
 function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {}) {
+  const ripresa = gestisciLaLasciata(db, telefono, testo, adesso, contesto);
+  if (ripresa && ripresa.esito) return senzaRigheDiTroppo(ripresa.esito);
+  const esito = elaboraComeSempre(db, telefono, ripresa ? ripresa.testo : testo, adesso, contesto);
+  return ripresa && ripresa.testa ? conInTesta(esito, ripresa.testa) : esito;
+}
+
+function elaboraComeSempre(db, telefono, testo, adesso = new Date(), contesto = {}) {
   const prima = statoDi(db, telefono, adesso);
   const passoPrima = prima.passo;
   // «Torna indietro» prima di tutto: dentro il passo una parola come
