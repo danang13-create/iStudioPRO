@@ -6312,6 +6312,18 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     ? normalizza(x).replace(/\bda\s*€?\s*(\d+)\b/g, (intero, n) => (numeriDeiNomi.has(n) ? ' ' : intero)) : x);
   // Gli eventi (vedi «Gli eventi»): accesi solo con un collegamento vero.
   const eventiAttivi = eventiAccesi(cfg);
+  // ⚠️ Chi ha appena ricevuto la risposta sugli eventi è GIÀ in conversazione
+  // (12 novembre 2026, dal titolare: «fallo senza ripresentarsi»). La risposta
+  // gli dice «se vuoi anche prenotare un tavolo, scrivi PRENOTA», lui lo
+  // scrive, e il bot ripartiva da «Buonasera ✨ Sono Aurora…» — due volte la
+  // presentazione nella stessa chat. `rispostaEventi` lascia scritto quando ha
+  // risposto; per le ore di una conversazione chi riscrive riceve la domanda
+  // e basta, come chi ha già un tavolo, e a un «grazie» un cenno. Con l'ora
+  // dentro, e non un segno e basta: il passo «inizio» non scade mai, e un
+  // segno rimasto lì farebbe saltare il benvenuto anche un mese dopo.
+  const minutiDagliEventi = stato.passo === 'inizio' && dati.dopoEventi ? minutiDa(dati.dopoEventi, adesso) : null;
+  const giaInConversazione = minutiDagliEventi !== null && minutiDagliEventi >= 0 && minutiDagliEventi < CONVERSAZIONE_ORE * 60;
+  const ancoraInConversazione = () => (giaInConversazione ? { dopoEventi: dati.dopoEventi } : {});
   // I locali della prima domanda (vedi «I locali»): vuoto se non c'è da scegliere.
   const localiProposti = localiDaProporre(cfg, adesso);
   const conLocali = localiProposti.length >= 2;
@@ -6742,7 +6754,8 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // a chi arriva, «che bello rivederti» a chi è già stato qui.
   function chiediLaScelta(testa = '') {
     salvaStato(db, telefono, 'scelta', {});
-    const frase = testa ? 'bot_t_scelta' : (giaVisto ? 'bot_t_scelta_bentornato' : 'bot_t_scelta_benvenuto');
+    // La domanda secca anche a chi ha appena parlato col bot (vedi «giaInConversazione»).
+    const frase = testa || giaInConversazione ? 'bot_t_scelta' : (giaVisto ? 'bot_t_scelta_bentornato' : 'bot_t_scelta_benvenuto');
     risposte.push([testa, di(frase).trim() || riempi(PREDEFINITI[frase], valori)].filter(Boolean).join('\n\n'));
     return esito;
   }
@@ -6751,7 +6764,8 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   function rispostaEventi() {
     const link = linkDiMenu(cfg.bot_eventi_link);
     annotaEvento(db, telefono, adesso);
-    azzeraStato(db, telefono);
+    // Chiusa, ma con l'ora: chi riscrive fra poco è già in conversazione.
+    salvaStato(db, telefono, 'inizio', { dopoEventi: quandoLeggibile(adesso) });
     const scritta = String(cfg.bot_t_eventi || '');
     const frase = di('bot_t_eventi', { link }).trim();
     risposte.push(scritta.includes('{link}') ? frase : [frase, `👉 ${link}`].filter(Boolean).join('\n\n'));
@@ -7047,8 +7061,10 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // A un cenno del capo si risponde con un cenno del capo. Ripetere il
     // ricordino identico è un muro, e contarlo come equivoco porta a mettere
     // un operatore addosso a chi ha solo detto che andava bene.
-    if (gia && eSoloDaccordo(testo)) {
-      salvaStato(db, telefono, 'inizio', { tentativi: 0 });
+    // Vale anche per chi ha appena ricevuto il collegamento degli eventi: al
+    // suo «grazie» non si risponde ripresentandosi.
+    if ((gia || giaInConversazione) && eSoloDaccordo(testo)) {
+      salvaStato(db, telefono, 'inizio', { tentativi: 0, ...ancoraInConversazione() });
       risposte.push(di('bot_t_daccordo'));
       return esito;
     }
@@ -7144,17 +7160,17 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       if (eventiAttivi && !gia && !contesto.sceltoIlTavolo && !parlaDiPrenotare && !haDettoQualcosa) {
         return chiediLaScelta();
       }
-      return presentati({ ...conServizio({}), ...conGiorno }, gia || !!contesto.sceltoIlTavolo);
+      return presentati({ ...conServizio({}), ...conGiorno }, gia || !!contesto.sceltoIlTavolo || giaInConversazione);
     }
     // Le persone già nel primo messaggio: con le esperienze si tengono da
     // parte, si chiede l'esperienza, e la domanda delle persone non si rifà.
     if (conLocali) {
       return chiediLocale({ ...conServizio({}), persone, ...conGiorno },
-        gia || contesto.sceltoIlTavolo ? '' : (giaVisto ? 'bot_t_bentornato_locali' : 'bot_t_benvenuto_locali'));
+        gia || contesto.sceltoIlTavolo || giaInConversazione ? '' : (giaVisto ? 'bot_t_bentornato_locali' : 'bot_t_benvenuto_locali'));
     }
     if (conEsperienze) {
       return chiediEsperienza({ ...conServizio({}), persone, ...conGiorno },
-        gia || contesto.sceltoIlTavolo ? '' : (giaVisto ? 'bot_t_bentornato_esperienze' : 'bot_t_benvenuto_esperienze'));
+        gia || contesto.sceltoIlTavolo || giaInConversazione ? '' : (giaVisto ? 'bot_t_bentornato_esperienze' : 'bot_t_benvenuto_esperienze'));
     }
     return passoPersone(persone, giornoDelPrimo, {});
   }
