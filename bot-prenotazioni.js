@@ -459,6 +459,11 @@ function preparaDatabase(db) {
 // dalla storia del progetto — ogni frase che è stata riscritta lascia qui
 // dietro quella di prima.
 const TESTI_SUPERATI = {
+  // «…scrivimi pure.» → «…scrivi PRENOTA.» (12 novembre 2026, chiesto dal
+  // titolare il giorno stesso): una parola precisa da scrivere, come MENU e
+  // RICOMINCIA. «Prenota» al primo messaggio comincia già una prenotazione.
+  bot_t_eventi: [
+    'Che bello! 🎉 Organizziamo eventi privati, cene aziendali, feste e ricorrenze.\n\nTrovi le proposte e il modulo di richiesta qui:\n👉 {link}\n\nSe vuoi anche prenotare un tavolo, scrivimi pure.',  ],
   bot_t_locali: [
     'Vuoi prenotare per {nomi}?\n\n{scelte}',  ],
   // «Scrivimi il nome o il numero» → «Scrivi il numero: 1, 2 o 3» (19 ottobre 2026).
@@ -1108,7 +1113,7 @@ const PREDEFINITI = {
   bot_t_scelta_benvenuto: '{saluto} ✨\n\nSono {assistente} l\'assistente virtuale di {locale}\n\nCome posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',
   bot_t_scelta_bentornato: 'Che bello rivederti, {nome}! ✨\n\nCome posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',
   bot_t_scelta: 'Come posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',
-  bot_t_eventi: 'Che bello! 🎉 Organizziamo eventi privati, cene aziendali, feste e ricorrenze.\n\nTrovi le proposte e il modulo di richiesta qui:\n👉 {link}\n\nSe vuoi anche prenotare un tavolo, scrivimi pure.',
+  bot_t_eventi: 'Che bello! 🎉 Organizziamo eventi privati, cene aziendali, feste e ricorrenze.\n\nTrovi le proposte e il modulo di richiesta qui:\n👉 {link}\n\nSe vuoi anche prenotare un tavolo, scrivi PRENOTA.',
   // In cima alla presentazione: la domanda la fa il primo messaggio (20 ottobre 2026).
   bot_t_ricominciato: 'Va bene, ricominciamo da capo! 🙂',
   // «Torna indietro»: in cima alla domanda di prima, riscritta com'era.
