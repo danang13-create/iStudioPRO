@@ -352,6 +352,14 @@ function preparaDatabase(db) {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_tavoli_nome ON bot_tavoli(nome COLLATE NOCASE);
   `);
+  // Chi ha chiesto degli eventi, e quando (vedi «Gli eventi»): serve al report.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bot_eventi_richieste (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      telefono TEXT NOT NULL,
+      quando TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+  `);
   // Quale menu è partito (menu, degustazione, tutti): colonna arrivata dopo.
   try { db.exec("ALTER TABLE bot_menu_richieste ADD COLUMN quale TEXT NOT NULL DEFAULT 'menu'"); } catch {}
   // Il minimo è arrivato dopo: i tavoli già fatti partono da 1, cioè come prima.
@@ -723,6 +731,11 @@ const PREDEFINITI = {
   // richiede come si chiama. Si può spegnere — un locale che prende molte
   // prenotazioni «per conto di» dallo stesso telefono può preferire di no.
   bot_riconosci: 'true',
+  // Gli eventi (vedi «Gli eventi»): spenti finché il locale non li accende e
+  // non scrive il collegamento alla sua pagina.
+  bot_eventi_attivo: 'false',
+  bot_eventi_link: '',
+  bot_eventi_parole: 'evento, eventi',
   bot_chiedi_note: 'false',
   bot_chiedi_telefono: 'false',
 
@@ -1090,6 +1103,12 @@ const PREDEFINITI = {
   bot_t_ripresa: 'Bentornato! 🙂\n\nEravamo rimasti alla prenotazione {prenotazione}.\n\nVuoi che la completiamo? Scrivi SÌ, oppure dimmi pure cosa ti serve.',
   bot_t_ripresa_si: 'Perfetto, riprendiamo da dove eravamo! 👍',
   bot_t_ripresa_no: 'Va bene, lascio stare quella prenotazione.',
+  // Gli eventi: la prima scelta (a chi arriva, a chi torna, e la domanda secca)
+  // e la risposta col collegamento.
+  bot_t_scelta_benvenuto: '{saluto} ✨\n\nSono {assistente} l\'assistente virtuale di {locale}\n\nCome posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',
+  bot_t_scelta_bentornato: 'Che bello rivederti, {nome}! ✨\n\nCome posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',
+  bot_t_scelta: 'Come posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',
+  bot_t_eventi: 'Che bello! 🎉 Organizziamo eventi privati, cene aziendali, feste e ricorrenze.\n\nTrovi le proposte e il modulo di richiesta qui:\n👉 {link}\n\nSe vuoi anche prenotare un tavolo, scrivimi pure.',
   // In cima alla presentazione: la domanda la fa il primo messaggio (20 ottobre 2026).
   bot_t_ricominciato: 'Va bene, ricominciamo da capo! 🙂',
   // «Torna indietro»: in cima alla domanda di prima, riscritta com'era.
@@ -2896,6 +2915,7 @@ const ESEMPI_FISSI = {
   sposta_servizio: 'Per esempio «pranzo» oppure «cena».',
   esperienza: 'Per esempio il numero: «1».',
   persone: 'Per esempio «4».',
+  scelta: 'Per esempio «1» per un tavolo, «2» per un evento.',
   nome: 'Per esempio «Mario Rossi».',
   nome_altro: 'Per esempio «Mario Rossi».',
   nome_nuovo: 'Per esempio «Mario Rossi».',
@@ -3326,6 +3346,44 @@ function cercaFaq(db, testo) {
     }
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+//  Gli eventi (12 novembre 2026)
+// ---------------------------------------------------------------------------
+//  Dal titolare: «informare i clienti che possiamo organizzare eventi… una
+//  prima domanda dove chiediamo se vuoi prenotare oppure organizzare un evento;
+//  se scrivono eventi il bot risponde con un testo e un link… che nel pannello
+//  può essere attivato o disattivato». Deciso con lui:
+//   - la scelta («1. Prenotare un tavolo  2. Organizzare un evento») si chiede
+//     SOLO a chi non ha ancora detto cosa vuole: un saluto, una domanda su
+//     altro. «Vorrei prenotare per 4 sabato» va dritto alla prenotazione, e
+//     chi ha già un tavolo riceve il suo promemoria, come sempre;
+//   - a chi sceglie gli eventi (o li nomina nel primo messaggio): il testo col
+//     collegamento, e la conversazione si chiude lì — «se vuoi anche prenotare
+//     un tavolo, scrivimi pure». Niente persona da disturbare;
+//   - ogni richiesta si segna, per il report («Hanno chiesto degli eventi»);
+//   - UN interruttore: spento — o senza un collegamento vero — non c'è niente
+//     di tutto questo, e il bot è quello di prima.
+function eventiAccesi(cfg) {
+  return boolDi(cfg.bot_eventi_attivo) && !!linkDiMenu(cfg.bot_eventi_link);
+}
+// Le parole che portano agli eventi le sceglie il locale (`bot_eventi_parole`):
+// «evento, eventi» di partenza. Parola intera: «eventualmente» non è un evento.
+function parlaDiEventi(cfg, testo) {
+  const t = ` ${normalizza(testo).replace(/[^a-z0-9]+/g, ' ').trim()} `;
+  return elencoParole(cfg.bot_eventi_parole || PREDEFINITI.bot_eventi_parole)
+    .map((x) => x.replace(/[^a-z0-9]+/g, ' ').trim()).filter(Boolean)
+    .some((x) => t.includes(` ${x} `));
+}
+function annotaEvento(db, telefono, adesso) {
+  db.prepare('INSERT INTO bot_eventi_richieste (telefono, quando) VALUES (?, ?)').run(telefono, quandoLeggibile(adesso));
+}
+// Quante richieste di eventi nel periodo, e da quante persone.
+function statisticheEventi(db, dal, al) {
+  const righe = db.prepare('SELECT telefono, COUNT(*) AS volte FROM bot_eventi_richieste '
+    + 'WHERE substr(quando, 1, 10) >= ? AND substr(quando, 1, 10) <= ? GROUP BY telefono').all(dal, al);
+  return { richieste: righe.reduce((n, r) => n + r.volte, 0), persone: righe.length };
 }
 
 // Ogni volta che il menu parte, si segna chi l'ha chiesto e a che punto era.
@@ -3895,6 +3953,7 @@ function statisticheMenu(db, dal, al) {
 const DOMANDA_DOPO_IL_MENU = {
   inizio: '', persone: '',          // niente da riprendere: si propone di prenotare
   esperienza: 'quale esperienza preferisci',
+  scelta: 'vuoi prenotare un tavolo o organizzare un evento',
   locale: 'dove vuoi prenotare', altro_locale_persone: 'per quante persone',
   giorno: 'per che giorno', servizio: 'pranzo o cena', ora: 'a che ora',
   telefono: 'il numero di telefono', telefono_altro: 'il numero di telefono',
@@ -3998,6 +4057,7 @@ function riapreConUnSaluto(cfg, riga, testo, adesso = new Date()) {
 // «Ti stavo chiedendo …»: «Eravamo rimasti a {cosa}» dava «a quale esperienza
 // preferisci», «a per che giorno», «a l'orario» (20 ottobre 2026).
 const COSA_MANCA = {
+  scelta: 'se vuoi prenotare un tavolo o organizzare un evento',
   locale: 'dove vuoi prenotare',
   altro_locale_persone: 'per quante persone',
   esperienza: 'quale esperienza preferisci',
@@ -4832,6 +4892,7 @@ function dimenticaPersona(db, id, adesso = new Date()) {
       conti.richieste = db.prepare(`DELETE FROM bot_richieste WHERE chat_id IN (${seg}) OR telefono IN (${seg})`)
         .run(...chiavi, ...chiavi).changes;
       db.prepare(`DELETE FROM bot_menu_richieste WHERE telefono IN (${seg})`).run(...chiavi);
+      db.prepare(`DELETE FROM bot_eventi_richieste WHERE telefono IN (${seg})`).run(...chiavi);
     }
     if (numeri.length) {
       db.prepare(`DELETE FROM numeri_visti WHERE telefono IN (${numeri.map(() => '?').join(',')})`).run(...numeri);
@@ -5432,6 +5493,7 @@ function reportPrenotazioni(db, cfg, dal, al) {
     soldOut: pieniConta,
     clienti: { totali: clienti.size, diRitorno, nuovi: clienti.size - diRitorno },
     menu: statisticheMenu(db, dal, al),
+    eventi: statisticheEventi(db, dal, al),
     perServizio,
     perEsperienza,
     anticipo,
@@ -6243,6 +6305,8 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   const numeriDeiNomi = new Set(esperienze.flatMap((e) => pezziDelNome(e.nome)).filter((x) => /^\d+$/.test(x)));
   const personeDette = (x) => interpretaPersone(numeriDeiNomi.size
     ? normalizza(x).replace(/\bda\s*€?\s*(\d+)\b/g, (intero, n) => (numeriDeiNomi.has(n) ? ' ' : intero)) : x);
+  // Gli eventi (vedi «Gli eventi»): accesi solo con un collegamento vero.
+  const eventiAttivi = eventiAccesi(cfg);
   // I locali della prima domanda (vedi «I locali»): vuoto se non c'è da scegliere.
   const localiProposti = localiDaProporre(cfg, adesso);
   const conLocali = localiProposti.length >= 2;
@@ -6385,7 +6449,8 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     azzeraStato(db, telefono);
     const testa = primaDellaDomanda(di('bot_t_ricominciato')) || riempi(PREDEFINITI.bot_t_ricominciato, valori);
     DA_CAPO.set(esito, testa);
-    return presentati({}, null, testa);
+    // Con gli eventi accesi la prima domanda è la scelta: da capo è da lì.
+    return eventiAttivi ? chiediLaScelta(testa) : presentati({}, null, testa);
   }
 
   // --- «Non voglio più prenotare» (vedi «vuoleRinunciare») ---
@@ -6667,6 +6732,58 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     return nonCapito('annulla_conferma', dati, 'Non ho capito: scrivi SÌ per annullare o NO per lasciare tutto com\'è.');
   }
 
+  // --- Gli eventi (vedi «Gli eventi») ---
+  // La domanda secca a chi ricomincia (con la sua frase in cima), il benvenuto
+  // a chi arriva, «che bello rivederti» a chi è già stato qui.
+  function chiediLaScelta(testa = '') {
+    salvaStato(db, telefono, 'scelta', {});
+    const frase = testa ? 'bot_t_scelta' : (giaVisto ? 'bot_t_scelta_bentornato' : 'bot_t_scelta_benvenuto');
+    risposte.push([testa, di(frase).trim() || riempi(PREDEFINITI[frase], valori)].filter(Boolean).join('\n\n'));
+    return esito;
+  }
+  // Il testo lo scrive il locale, il collegamento lo mette il programma: se
+  // nella frase {link} non c'è più, va in fondo (come per l'elenco).
+  function rispostaEventi() {
+    const link = linkDiMenu(cfg.bot_eventi_link);
+    annotaEvento(db, telefono, adesso);
+    azzeraStato(db, telefono);
+    const scritta = String(cfg.bot_t_eventi || '');
+    const frase = di('bot_t_eventi', { link }).trim();
+    risposte.push(scritta.includes('{link}') ? frase : [frase, `👉 ${link}`].filter(Boolean).join('\n\n'));
+    esito.evento = true;
+    return esito;
+  }
+  // Nominati al primo messaggio, o alla scelta: il collegamento, subito. Prima
+  // delle domande frequenti — l'interruttore è una scelta esplicita del locale.
+  if (eventiAttivi && (stato.passo === 'inizio' || stato.passo === 'scelta') && parlaDiEventi(cfg, testo)) {
+    return rispostaEventi();
+  }
+  if (stato.passo === 'scelta') {
+    // Spenti nel frattempo: si riparte come se fosse il primo messaggio.
+    if (!eventiAttivi) {
+      azzeraStato(db, telefono);
+      return rispondiAlMessaggio(db, telefono, testo, adesso, contesto);
+    }
+    const secca = t.replace(/[^a-z0-9]+/g, ' ').trim();
+    if (/^(1|uno|una|la prima|il primo|prima|primo|numero 1|n 1)$/.test(secca)) return presentati({}, true);
+    if (/^(2|due|la seconda|il secondo|seconda|secondo|numero 2|n 2)$/.test(secca)) return rispostaEventi();
+    // Un saluto non è una risposta e non è un equivoco: la domanda, di nuovo.
+    if (eSaluto(testo) || eSalutoStorto(testo)) {
+      risposte.push(di('bot_t_scelta'));
+      return esito;
+    }
+    // Qualcosa che parla già di prenotare («prenotare», «un tavolo per 4
+    // sabato», «siamo in 6»): avanti come dal primo messaggio — che tiene le
+    // persone e il giorno già detti — senza ripresentarsi e senza richiedere.
+    if (/(prenot|tavolo|posto|posti|coperti|disponibil|riserv)/.test(t) || personeDette(testo) !== null
+      || giornoDettoInsieme(testo) || servizioDetto(testo)) {
+      azzeraStato(db, telefono);
+      return rispondiAlMessaggio(db, telefono, testo, adesso, { ...contesto, sceltoIlTavolo: true });
+    }
+    // Il resto (il menu, gli orari, una domanda frequente) lo guardano i rami
+    // qui sotto; quello che non capisce nessuno torna alla scelta, più giù.
+  }
+
   // --- Una risposta pronta alle domande frequenti, se siamo a inizio conversazione ---
   // A metà prenotazione NON si guarda la FAQ: «due» dopo la domanda sulle
   // persone è un numero, non una richiesta di informazioni.
@@ -6858,6 +6975,9 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     return esito;
   }
 
+  // Alla scelta fra tavolo ed evento, quello che non ha capito nessuno.
+  if (stato.passo === 'scelta') return nonCapito('scelta', dati, di('bot_t_scelta'));
+
   // ================= La macchina a stati =================
 
   if (stato.passo === 'inizio') {
@@ -7012,17 +7132,24 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       const sembraPrenotazione = !domandaSuAltro
         && (parlaDiPrenotare || /(vorrei|possibile)/.test(t) || eSalutoStorto(testo));
       if (gia && !sembraPrenotazione) return ricordaIlTavolo(true);
-      return presentati({ ...conServizio({}), ...conGiorno }, gia);
+      // --- Gli eventi: la prima scelta, a chi non ha ancora detto cosa vuole ---
+      // Un saluto, una domanda su altro. Chi parla di prenotare, o ha già detto
+      // un giorno o «a cena», sta prenotando: nessuna domanda in più.
+      const haDettoQualcosa = Object.keys({ ...conServizio({}), ...conGiorno }).length > 0;
+      if (eventiAttivi && !gia && !contesto.sceltoIlTavolo && !parlaDiPrenotare && !haDettoQualcosa) {
+        return chiediLaScelta();
+      }
+      return presentati({ ...conServizio({}), ...conGiorno }, gia || !!contesto.sceltoIlTavolo);
     }
     // Le persone già nel primo messaggio: con le esperienze si tengono da
     // parte, si chiede l'esperienza, e la domanda delle persone non si rifà.
     if (conLocali) {
       return chiediLocale({ ...conServizio({}), persone, ...conGiorno },
-        gia ? '' : (giaVisto ? 'bot_t_bentornato_locali' : 'bot_t_benvenuto_locali'));
+        gia || contesto.sceltoIlTavolo ? '' : (giaVisto ? 'bot_t_bentornato_locali' : 'bot_t_benvenuto_locali'));
     }
     if (conEsperienze) {
       return chiediEsperienza({ ...conServizio({}), persone, ...conGiorno },
-        gia ? '' : (giaVisto ? 'bot_t_bentornato_esperienze' : 'bot_t_benvenuto_esperienze'));
+        gia || contesto.sceltoIlTavolo ? '' : (giaVisto ? 'bot_t_bentornato_esperienze' : 'bot_t_benvenuto_esperienze'));
     }
     return passoPersone(persone, giornoDelPrimo, {});
   }
@@ -8291,6 +8418,7 @@ module.exports = {
   interpretaPersone,
   interpretaData,
   interpretaOra,
+  eventiAccesi, parlaDiEventi, statisticheEventi, linkDiMenu,
   interpretaSiNo, soloUnNo, eUnaRichiesta, senzaRigheVuote, elencoParole,
   interpretaTelefono,
   colTelefono,

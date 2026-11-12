@@ -2653,6 +2653,37 @@
     </div>
 
     <div id="sotto-esperienze" class="sotto-scheda">
+      <!-- GLI EVENTI. In cima: quando sono accesi, la scelta fra tavolo ed
+           evento è la PRIMA domanda, prima dei locali e delle esperienze. -->
+      <div class="card" id="pren-card-eventi">
+        <h2 style="font-size:1rem;margin:0 0 6px">Gli eventi</h2>
+        <p class="conteggio" style="margin:0 0 14px">
+          Per dire ai clienti che organizzate eventi. Acceso, a chi scrive solo un saluto il bot chiede per prima cosa
+          <b>«1. Prenotare un tavolo · 2. Organizzare un evento»</b>. A chi sceglie gli eventi — o li nomina nel primo
+          messaggio — manda un testo col <b>collegamento alla vostra pagina</b>, e si ferma lì. Chi scrive già «vorrei
+          prenotare per 4 sabato» va dritto alla prenotazione, senza domande in più, e chi ha già un tavolo riceve il
+          suo promemoria come sempre. <b>Spento</b>, il bot lavora esattamente come prima. Le frasi sono in «Frasi e
+          domande», gruppo «Gli eventi»; quante persone li chiedono si legge nel Report.
+        </p>
+        <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer;margin:0 0 12px">
+          <input type="checkbox" id="cfg-bot_eventi_attivo" autocomplete="off">
+          Proponi gli eventi ai clienti
+        </label>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
+          <label>Collegamento alla pagina degli eventi
+            <input id="cfg-bot_eventi_link" type="url" inputmode="url" autocomplete="off" maxlength="500" placeholder="https://eventi.iltuolocale.it/">
+            <span class="conteggio" style="margin:0">Comincia con <b>https://</b>. Senza, gli eventi non si possono accendere: il bot non saprebbe dove mandare il cliente.</span>
+          </label>
+          <label>Parole che portano agli eventi
+            <input id="cfg-bot_eventi_parole" autocomplete="off" placeholder="evento, eventi">
+            <span class="conteggio" style="margin:0">Separate da virgola. Chi ne scrive una nel primo messaggio riceve subito il collegamento. Puoi aggiungerne («festa privata, cena aziendale»), ma attento a quelle che si usano anche per un tavolo: «compleanno» manderebbe agli eventi chi vuole solo cenare in quattro.</span>
+          </label>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:8px;align-items:center">
+          <button class="btn" id="eventi-salva" type="button">Salva</button>
+          <span id="eventi-salvato" class="conteggio" style="margin:0"></span>
+        </div>
+      </div>
       <div class="card" id="pren-card-locali">
         <h2 style="font-size:1rem;margin:0 0 6px">I locali</h2>
         <p class="conteggio" style="margin:0 0 14px">
@@ -5507,6 +5538,7 @@ const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_menu_link', 'bot_menu_de
   'bot_pagamento_minuti', 'bot_pagamento_obbligatorio', 'bot_pagamento_chiave', 'bot_pagamento_ritorno',
   'bot_lista_attesa', 'bot_attesa_minuti',
   'bot_riapre_minuti', 'bot_tentativi', 'bot_max_risposte', 'bot_richiamo_minuti',
+  'bot_eventi_link', 'bot_eventi_parole',
   'bot_parole_richiesta', 'bot_parole_nessuna', 'bot_parole_altro_nome',
   'bot_avvisi_da', 'bot_avvisi_a', 'bot_sollecito_minuti',
   'bot_email_oggetto', 'bot_email_testo', 'bot_email_logo', 'bot_email_html'];
@@ -5560,6 +5592,11 @@ const TESTI_BOT = [
   ['bot_t_bentornato', 'Chi torna: «che bello rivederti»', 'Sostituisce il primo messaggio per chi ha già prenotato da te (spunta «Riconoscere chi ha già prenotato»): non ci si ripresenta a chi ci conosce. <b>{nome}</b> è solo il nome, senza cognome.'],
   ['bot_t_quante', 'Chiede le persone a chi conosce già', 'Sostituisce il primo messaggio quando la conversazione è già aperta: chi scrive NUOVA, o chi ha già un tavolo da te. Non ci si ripresenta a chi ha appena letto un nostro messaggio.'],
   ['bot_t_persone_no', 'Non ha capito quante persone', ''],
+  [null, 'Gli eventi: «un tavolo o un evento?»'],
+  ['bot_t_scelta_benvenuto', 'Il primo messaggio, con gli eventi accesi', 'Sostituisce «Il primo messaggio» quando nella scheda Esperienze, card «Gli eventi», la spunta è accesa, per chi scrive solo un saluto o una domanda su altro. Chi parla già di prenotare non lo riceve: va dritto alla prenotazione. <b>{saluto}</b>, <b>{assistente}</b> e <b>{locale}</b> come nel primo messaggio. Lascia le due righe numerate: il cliente risponde 1 o 2.'],
+  ['bot_t_scelta_bentornato', 'La scelta, a chi torna', 'Come sopra, per chi ha già prenotato da te: <b>{nome}</b> è il suo nome.'],
+  ['bot_t_scelta', 'La scelta, senza saluto', 'La domanda e basta: a chi scrive RICOMINCIA (sotto «Va bene, ricominciamo da capo!»), a chi alla scelta risponde con un altro saluto, e quando il bot non ha capito la risposta.'],
+  ['bot_t_eventi', 'La risposta sugli eventi', 'A chi sceglie 2, o scrive una delle parole degli eventi nel primo messaggio. <b>{link}</b> è il collegamento scritto nella card «Gli eventi»: se lo togli dalla frase, il bot lo mette in fondo. Dopo questa risposta la conversazione è chiusa: se il cliente vuole anche un tavolo, lo scrive.'],
   [null, 'I locali: «dove vuoi prenotare?»'],
   ['bot_t_benvenuto_locali', 'Il primo messaggio, con più locali', 'Sostituisce «Il primo messaggio» quando nella scheda Esperienze, card «I locali», c\'è un altro locale ancora aperto: sotto arriva la domanda «dove?». <b>{locale}</b> è il nome di tutto (RO WORLD), <b>{assistente}</b> il nome dell\'assistente.'],
   ['bot_t_bentornato_locali', 'Chi torna, con più locali', 'Come sopra, per chi ha già prenotato da te.'],
@@ -5706,7 +5743,7 @@ const TESTI_BOT = [
 
 const CFG_SPUNTE = ['bot_chiedi_nome', 'bot_chiedi_telefono', 'bot_chiedi_note', 'bot_chiedi_email',
   'bot_promemoria_attivo', 'bot_recensione_attiva', 'bot_sala_attiva', 'bot_pagamento_attivo',
-  'bot_email_attiva', 'bot_richiamo_attivo', 'bot_riconosci'];
+  'bot_email_attiva', 'bot_richiamo_attivo', 'bot_eventi_attivo', 'bot_riconosci'];
 
 const NOMI_GIORNI_UI = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
 let simSessione = Date.now() % 100000;
@@ -7013,6 +7050,15 @@ function disegnaReport(d, prima = null) {
       confronto && confronto.menu ? deltaTesto(d.menu.persone, confronto.menu.persone, d.giorni) : '']);
   }
 
+  // Gli eventi: quante persone li hanno chiesti (scelta 2, o la parola nel
+  // primo messaggio) e hanno ricevuto il collegamento. Se poi hanno compilato
+  // il modulo lo sa la pagina degli eventi, non il bot.
+  if (d.eventi && d.eventi.richieste) {
+    kpi.push(['Hanno chiesto degli eventi', d.eventi.persone,
+      `${d.eventi.richieste === 1 ? '1 richiesta' : `${d.eventi.richieste} richieste`} · mandato il collegamento`,
+      confronto && confronto.eventi ? deltaTesto(d.eventi.persone, confronto.eventi.persone, d.giorni) : '']);
+  }
+
   let html = '<div class="rep-kpi">' + kpi.map(([nome, n, p, delta]) => `
     <div><div class="n">${n}</div><div class="t">${nome}</div>
     ${p ? `<div class="p">${testoSicuro(p)}</div>` : ''}${delta || ''}</div>`).join('') + '</div>';
@@ -8254,6 +8300,7 @@ async function salvaConfigBot(doveDirlo) {
 $('#pren-salva').addEventListener('click', () => salvaConfigBot('pren-salvato'));
 $('#promemoria-salva').addEventListener('click', () => salvaConfigBot('promemoria-salvato'));
 $('#meta-salva').addEventListener('click', () => salvaConfigBot('meta-salvato'));
+$('#eventi-salva').addEventListener('click', () => salvaConfigBot('eventi-salvato'));
 $('#parole-salva').addEventListener('click', () => salvaConfigBot('parole-salvato'));
 $('#orari-avvisi-salva').addEventListener('click', () => salvaConfigBot('orari-avvisi-salvato'));
 $('#recensioni-salva').addEventListener('click', () => salvaConfigBot('recensioni-salvato'));

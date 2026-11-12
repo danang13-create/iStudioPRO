@@ -5020,6 +5020,7 @@ if (botDisponibile()) {
       else if (esito.prenotazione) await mandaEmailPrenotazione(esito.prenotazione);
       await hoFinitoDiScrivere(chatId);
       if (esito.risposte.length) annota('risposto', esito.risposte[0].split('\n')[0]);
+      if (esito.evento) annota('eventi', 'ha chiesto degli eventi: mandato il collegamento alla pagina');
       if (esito.passaAUmano) {
         // ⚠️ Se il bot ha GIÀ risposto qualcosa, al cliente non si dice una
         // seconda volta «ti passo a una persona»: arrivavano due messaggi di
@@ -7283,6 +7284,23 @@ app.post('/api/bot/impostazioni', (req, res) => {
       error: `I posti da tenere liberi (${tenutiLiberi}) devono essere meno dei coperti del turno `
         + `(${perTurno}): così com'è, il bot direbbe «siamo al completo» anche a locale vuoto.`,
     });
+  }
+
+  // Gli eventi (vedi «Gli eventi» in bot-prenotazioni.js). Accesi senza un
+  // collegamento vero non farebbero niente — e il locale crederebbe di sì:
+  // si dice qui, invece di salvare una spunta che non accende nulla.
+  if (typeof valori.bot_eventi_link === 'string') valori.bot_eventi_link = valori.bot_eventi_link.trim();
+  if (valori.bot_eventi_link !== undefined || valori.bot_eventi_attivo !== undefined) {
+    const linkEventi = String(valori.bot_eventi_link !== undefined ? valori.bot_eventi_link : (dopo.bot_eventi_link || '')).trim();
+    const eventiAccesi = String(valori.bot_eventi_attivo !== undefined ? valori.bot_eventi_attivo : dopo.bot_eventi_attivo) === 'true';
+    if (linkEventi && !bot.linkDiMenu(linkEventi)) {
+      return res.status(400).json({ error: 'Il collegamento alla pagina degli eventi deve cominciare con https:// '
+        + '(per esempio https://eventi.iltuolocale.it/), senza spazi.' });
+    }
+    if (eventiAccesi && !linkEventi) {
+      return res.status(400).json({ error: 'Per accendere gli eventi scrivi il collegamento alla pagina: '
+        + 'senza, il bot non saprebbe dove mandare il cliente.' });
+    }
   }
 
   // ⚠️ La password della sala si salva SENZA spazi ai bordi. Un campo password
