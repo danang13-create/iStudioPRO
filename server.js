@@ -890,13 +890,7 @@ async function runCampaign(campaignId, opzioni) {
           const numberId = await client.getNumberId(phone);
           if (!numberId) throw new Error('Numero non registrato su WhatsApp');
           const testo = renderTemplate(camp.message, contact);
-          if (immagine) {
-            // immagine con il messaggio come didascalia
-            const media = new MessageMedia(immagine.mime, immagine.base64, immagine.filename || 'immagine');
-            await client.sendMessage(numberId._serialized, media, { caption: testo });
-          } else {
-            await client.sendMessage(numberId._serialized, testo);
-          }
+          await mandaDiUnInvio(numberId._serialized, testo, immagine);
         }
         updateMsg.run('inviato', null, campaignId, contact.id);
         bump.run(1, 0, campaignId);
@@ -3621,6 +3615,29 @@ function segnaCheStoInviando(chatId, testo) {
   testiInviati.push({ chatId: String(chatId), testo: String(testo), quando: Date.now() });
   while (testiInviati.length > 60) testiInviati.shift();
 }
+// ⚠️ UN INVIO NON È UNA RISPOSTA A MANO (22 novembre 2026). I messaggi degli
+// Invii partivano con `client.sendMessage` e basta, senza segnarsi fra i
+// «miei»: per `message_create` ognuno era una persona che scriveva dal
+// telefono del locale. A OGNI destinatario dell'invio, quindi:
+//   - il bot si zittiva per le ore della presa in carico (sei, di fabbrica):
+//     chi rispondeva «vorrei prenotare» non riceveva più niente;
+//   - gli arrivava «👋 Da qui ti risponde una persona di …», subito dopo la
+//     promozione;
+//   - ogni sua risposta — anche un «grazie» — apriva una richiesta «in attesa»
+//     e, senza un responsabile di sala, un'email «aspetta un operatore».
+// Trovato leggendo quelle email, ed eseguendo il gestore vero con un
+// messaggio non segnato. Qui l'invio si segna PRIMA di partire, col testo —
+// l'id arriva dopo l'annuncio di WhatsApp, vedi sopra — e poi con l'id.
+// La didascalia di un'immagine è il «corpo» del messaggio che WhatsApp annuncia.
+async function mandaDiUnInvio(indirizzo, testo, immagine) {
+  segnaCheStoInviando(indirizzo, testo);
+  const inviato = immagine
+    ? await client.sendMessage(indirizzo,
+      new MessageMedia(immagine.mime, immagine.base64, immagine.filename || 'immagine'), { caption: testo })
+    : await client.sendMessage(indirizzo, testo);
+  if (inviato && inviato.id && inviato.id._serialized) mieiMessaggi.add(inviato.id._serialized);
+  return inviato;
+}
 function loHoMandatoIo(chatId, testo, id) {
   if (id && mieiMessaggi.has(id)) return true;
   const adesso = Date.now();
@@ -4198,7 +4215,7 @@ function chiudiConversazioniFinite() {
 // avvisi (lo stesso di «WhatsApp si è scollegato»). Se non parte — indirizzo
 // vuoto, posta non configurata, server di posta che rifiuta — lo si scrive
 // nel registro: credersi avvisati da una rete che non c'è è peggio che saperlo.
-async function avvisaAmministratoreInAttesa({ codice, chi, telefono, testo, aperto }) {
+async function avvisaAmministratoreInAttesa({ codice, chi, telefono, testo, aperto, seguitaAMano }) {
   const dove = indirizzoAvvisi();
   if (!dove) {
     annota('avviso', `${codice}: nessun responsabile e nessun indirizzo per gli avvisi — non lo sa nessuno`);
@@ -4211,17 +4228,25 @@ async function avvisaAmministratoreInAttesa({ codice, chi, telefono, testo, aper
   }
   const locale = bot.leggi(db, 'bot_locale') || getSetting('smtp_from_name') || 'iStudio';
   const quando = new Date().toLocaleString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  // ⚠️ In una chat SEGUITA A MANO il bot non ha detto niente a nessuno (22
+  // novembre 2026): lì tace, e il messaggio viene solo passato. L'email diceva
+  // lo stesso «il bot gli ha detto che gli rispondono» — una frase che nessuno
+  // aveva mai scritto al cliente. Si dice com'è andata davvero.
   const righe = [
-    `Un cliente aspetta di parlare con una persona, e nessun responsabile di sala riceve queste richieste su WhatsApp.`,
+    seguitaAMano
+      ? 'Un cliente ha scritto in una chat che il locale sta seguendo a mano: lì il bot tace, e nessun responsabile di sala riceve questi messaggi su WhatsApp.'
+      : `Un cliente aspetta di parlare con una persona, e nessun responsabile di sala riceve queste richieste su WhatsApp.`,
     '',
     `Cliente: ${chi}${telefono && !String(chi).includes(telefono) ? ` (+${telefono})` : ''}`,
     `Ha scritto: «${String(testo || '').slice(0, 300)}»`,
     `Quando: ${quando}`,
     `Codice: ${codice}`,
     '',
-    aperto
-      ? 'Il bot gli ha detto che una persona del locale gli risponde appena si libera.'
-      : 'Il locale adesso è chiuso: il bot gli ha detto che gli rispondono alla riapertura.',
+    seguitaAMano
+      ? 'Il bot non gli ha risposto niente: su quella chat qualcuno del locale ha scritto a mano, e per qualche ora risponde solo una persona.'
+      : aperto
+        ? 'Il bot gli ha detto che una persona del locale gli risponde appena si libera.'
+        : 'Il locale adesso è chiuso: il bot gli ha detto che gli rispondono alla riapertura.',
     '',
     'Per rispondergli: scrivigli dal WhatsApp del locale, oppure dalla scheda Chat della piattaforma. Appena rispondi tu, il bot si fa da parte su quella chat.',
     'Per far arrivare queste richieste su WhatsApp a chi lavora in sala: Prenotazioni → Chi avvisare → «Responsabile di sala».',
@@ -4263,6 +4288,25 @@ async function passaAUnaPersona(chatId, telefono, nomeChat, testo, opzioni = {})
   const aperta = db.prepare(
     "SELECT * FROM bot_richieste WHERE chat_id = ? AND stato != 'chiusa' ORDER BY id DESC LIMIT 1"
   ).get(chatId);
+  // ⚠️ UN «GRAZIE» NON APRE UNA RICHIESTA (22 novembre 2026). In una chat che
+  // il locale segue a mano il bot tace, e ogni messaggio del cliente arriva
+  // qui per essere passato a una persona. Ma «grazie mille» in risposta a
+  // quello che gli ha scritto il cameriere non è una domanda: apriva un codice
+  // R nuovo, un «🔔 Cliente in attesa» ai responsabili — o un'email «aspetta un
+  // operatore» al titolare — e una riga «in attesa di risposta» che nessuno
+  // avrebbe mai chiuso. Sei email su dieci, in venti giorni (vedi
+  // «NON_CHIEDE_NIENTE» nel motore).
+  // Solo se una richiesta aperta NON c'è: dentro una conversazione che qualcuno
+  // sta seguendo col codice il «grazie» gli arriva come in una chat, ed è
+  // giusto. E si scrive nel registro: un silenzio senza motivo è un guasto che
+  // non si trova più.
+  if (opzioni.seguitaAMano) {
+    if (!aperta && bot.nonChiedeNiente(testo)) {
+      annota('ignorato', `la conversazione è di una persona e questo non chiede niente: non apro una richiesta — «${String(testo || '').slice(0, 60)}»`);
+      return;
+    }
+    annota('inoltrato', 'la conversazione è di una persona: passo il messaggio a lei');
+  }
   const codice = aperta ? aperta.codice : nuovoCodice();
   if (aperta) {
     // Torna «in attesa»: c'è una domanda nuova senza risposta. Senza questo, chi
@@ -4301,7 +4345,8 @@ async function passaAUnaPersona(chatId, telefono, nomeChat, testo, opzioni = {})
   // richiesta restava solo nella piattaforma, e al cliente era già stato detto
   // che una persona gli avrebbe risposto. Chiesto dal titolare, 18 ottobre 2026.
   if (!responsabili.length && !aperta) {
-    await avvisaAmministratoreInAttesa({ codice, chi: nomeChat || (telefono ? '+' + telefono : 'Un cliente'), telefono, testo, aperto });
+    await avvisaAmministratoreInAttesa({ codice, chi: nomeChat || (telefono ? '+' + telefono : 'Un cliente'), telefono, testo, aperto,
+      seguitaAMano: !!opzioni.seguitaAMano });
   }
 
   if (aperta && aggancioVivo(aperta, new Date())) {
@@ -4984,9 +5029,10 @@ if (botDisponibile()) {
       // e non lo leggeva più nessuno. Ora ogni messaggio arriva al
       // responsabile, con lo stesso codice di prima.
       if (bot.eMuto(db, chatId, new Date())) {
-        annota('inoltrato', 'la conversazione è di una persona: passo il messaggio a lei');
+        // Il registro lo scrive `passaAUnaPersona`: è lì che si sa se il
+        // messaggio viene passato davvero, o se è solo un «grazie».
         await passaAUnaPersona(chatId, telefono, (msg._data && msg._data.notifyName) || '', testo,
-          { silenzioso: true });
+          { silenzioso: true, seguitaAMano: true });
         return;
       }
 
@@ -8335,7 +8381,10 @@ const rottaModificaPrenotazione = async (req, res) => {
     persone: Number.isInteger(+b.persone) && +b.persone > 0 ? +b.persone : p.persone,
     nome: typeof b.nome === 'string' ? b.nome.slice(0, 60) : p.nome,
     cognome: typeof b.cognome === 'string' ? b.cognome.slice(0, 60) : p.cognome,
-    note: typeof b.note === 'string' ? b.note.slice(0, 200) : p.note,
+    // «nessuna», «no», «niente di particolare» battuti nel campo delle note
+    // non sono una nota: restando scritti diventano «Attenzione: nessuna» sul
+    // foglio della sala (vedi «notaDaScrivere» nel motore).
+    note: typeof b.note === 'string' ? bot.notaDaScrivere(b.note, cfg) : p.note,
     // ⚠️ Si accetta anche «telefono»: la pagina della sala manda quello, e
     // leggendo solo `telefono_contatto` il numero corretto a mano spariva
     // senza un errore — restava quello vecchio, o nessuno.
@@ -8782,7 +8831,7 @@ const rottaNuovaPrenotazione = async (req, res) => {
     + 'telefono_contatto, email, tavolo, esperienza, origine, locale_scelto, fuori_sala) '
     + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(telefono, nomeGiusto.nome, nomeGiusto.cognome,
-         data, ora, persone, String(b.note || '').slice(0, 200), telefono, email,
+         data, ora, persone, bot.notaDaScrivere(b.note, cfg), telefono, email,
          tavolo, esperienza, 'manuale', localeScelto, altro ? 1 : 0);
   const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(info.lastInsertRowid);
   // ⚠️ Se quel cliente stava in lista d'attesa per quel giorno, adesso ha un

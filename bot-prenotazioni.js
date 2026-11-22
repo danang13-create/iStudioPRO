@@ -425,6 +425,23 @@ function preparaDatabase(db) {
     }
   }
 
+  // Le note che dicono «niente» (vedi «NIENTE_DA_SEGNALARE», 22 novembre 2026):
+  // «nessuna allergia», «no nessuna», «niente di particolare» scritte quando
+  // il bot le prendeva per una nota. Restavano sul foglio della sala come
+  // «Attenzione: nessuna allergia», e nella scheda del cliente fra le cose
+  // «da ricordare» — in cima, perché si ripetono a ogni prenotazione. Si
+  // tolgono qui con la STESSA regola con cui da oggi non si scrivono più: a
+  // ogni avvio, e dalla seconda volta non trova più niente.
+  {
+    const parole = { bot_parole_nessuna: leggi(db, 'bot_parole_nessuna') };
+    const righe = db.prepare("SELECT id, note FROM prenotazioni WHERE trim(COALESCE(note, '')) <> ''").all()
+      .filter((r) => soloUnNo(r.note, parole));
+    if (righe.length) {
+      const svuota = db.prepare("UPDATE prenotazioni SET note = '' WHERE id = ?");
+      db.transaction(() => { for (const r of righe) svuota.run(r.id); })();
+    }
+  }
+
   // Le prenotazioni prese PRIMA che il numero si salvasse da solo hanno il
   // recapito vuoto anche quando la chat lo conteneva. Si riempie qui, una
   // volta, così la sala trova il telefono anche sui tavoli di ieri — sennò la
@@ -1229,17 +1246,19 @@ const NUMERI_A_PAROLE = {
 // Quante persone. Accetta «4», «siamo 4», «quattro», «4 persone».
 // NON accetta «io, mia moglie e i suoceri»: lì restituisce null e passa a una
 // persona, che è meglio di prenotare per il numero sbagliato.
-function interpretaPersone(testo) {
+function interpretaPersone(testo, adesso = new Date()) {
   // ⚠️ «No, business lunch da 45 euro» diventava «per 45 persone preferisco
   // farti parlare con il locale» (19 ottobre 2026). Un prezzo non è un
   // numero di persone: «45 euro», «45€», «€45», «45,50 €» si tolgono prima.
-  const t = normalizza(testo).replace(/€\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:€|euro\b|eur\b)/g, ' ')
+  const senzaOre = normalizza(testo).replace(/€\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:€|euro\b|eur\b)/g, ' ')
     // ⚠️ Nemmeno un orario (23 ottobre 2026, da una chat vera): «20.30»,
     // scritto da chi aveva un tavolo subito dopo il promemoria, erano venti
     // persone e una prenotazione nuova. Via «20.30», «20:30», «alle 20».
     .replace(/\b\d{1,2}\s*[:.]\s*\d{2}\b/g, ' ')
-    .replace(new RegExp(`\\b${PAROLE_DELL_ORA}\\s*\\d{1,2}\\b`, 'g'), ' ')
-    .trim();
+    .replace(new RegExp(`\\b${PAROLE_DELL_ORA}\\s*\\d{1,2}\\b`, 'g'), ' ');
+  // ⚠️ E nemmeno una DATA (22 novembre 2026, da due email «aspetta un
+  // operatore»): vedi «senzaLeDate».
+  const t = senzaLeDate(senzaOre, adesso).trim();
   if (!t) return null;
   const cifre = t.match(/\b(\d{1,2})\b/);
   if (cifre) {
@@ -1301,6 +1320,58 @@ function dataItaliana(iso) {
   const [a, m, g] = String(iso).split('-').map(Number);
   const d = new Date(a, m - 1, g);
   return `${NOMI_GIORNI[d.getDay()]} ${g} ${NOMI_MESI[m - 1]}`;
+}
+
+// ⚠️ IL NUMERO DI UNA DATA NON È UN NUMERO DI PERSONE (22 novembre 2026).
+// Trovato leggendo le email «aspetta un operatore» del titolare, e rifatto
+// uguale sul motore:
+//
+//     «Per quante persone?» → «Domenica 15 novembre»
+//         → «Per 15 persone preferisco farti parlare con il locale»
+//     «posso prenotare in business lunch per martedì 17 novembre»
+//         → «Per 17 persone preferisco farti parlare con il locale»
+//
+// Due clienti che volevano un tavolo, passati a una persona per un numero
+// letto nel posto sbagliato. I prezzi e gli orari si toglievano già (vedi
+// `interpretaPersone`); le date no. Qui si tolgono le forme che sono una data
+// e basta:
+//   - «15/11», «15/11/2026», «15-11» — ma «4/5» e «4-5» restano: sono «in
+//     quattro o cinque», ed è così che lo si scrive;
+//   - «15 novembre», «15 di novembre» (anche col mese storto: «15 novenbre»);
+//   - «il 15», «giorno 15», «del 15» — se dopo non c'è «persone»;
+//   - «martedì 17»: il giorno della settimana col SUO numero. Si guarda il
+//     calendario (vedi `giornoConNumero`): «sabato 28» è una data se il 28 è
+//     davvero un sabato dei prossimi giorni, sennò «sabato 4» resta «sabato,
+//     in quattro».
+// Chi dice tutt'e due le cose — «4 persone sabato 28 novembre» — resta in
+// quattro: si toglie solo la data.
+const PAROLE_DI_PERSONE = '(?:persone|persona|pers|pax|coperti|adulti|ospiti|posti|bambini|bimbi)';
+// Il numero dopo il giorno della settimana, quando NON è seguito da qualcosa
+// che lo fa essere altro: «sabato 4 persone», «giovedì 20:30», «giovedì 20 e mezza».
+const GIORNO_COL_NUMERO = new RegExp(`\\b(${Object.keys(GIORNI_SETTIMANA).join('|')})\\s+(?:il\\s+)?(\\d{1,2})\\b`
+  + `(?!\\s*(?:${PAROLE_DI_PERSONE}\\b|[:.,]\\s*\\d|e\\s+(?:mezza|mezzo|un quarto|\\d)|[°º]|turno))`, 'g');
+// Quanto avanti si cerca: chi scrive «martedì 17» senza il mese parla delle
+// prossime settimane. Più in là il numero combacerebbe quasi sempre con
+// QUALCHE martedì dell'anno, e «sabato 4» non sarebbe mai più «in quattro».
+const GIORNI_PER_IL_NUMERO = 45;
+// La data di «martedì 17»: il primo giorno, da oggi in avanti, che è martedì
+// ED è il 17. null se nei prossimi giorni non ce n'è uno.
+function giornoConNumero(nome, numero, adesso) {
+  const indice = GIORNI_SETTIMANA[nome];
+  if (indice === undefined || !(numero >= 1 && numero <= 31)) return null;
+  for (let n = 0; n <= GIORNI_PER_IL_NUMERO; n++) {
+    const d = piuGiorni(adesso, n);
+    if (d.getDay() === indice && d.getDate() === numero) return comeData(d);
+  }
+  return null;
+}
+function senzaLeDate(t, adesso = new Date()) {
+  return dateRaddrizzate(String(t || ''))
+    .replace(/\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/g,
+      (intero, a, b, anno) => (!anno && +b === +a + 1 ? intero : ' '))
+    .replace(new RegExp(`\\b\\d{1,2}\\s+(?:di\\s+)?(?:${NOMI_MESI.join('|')})\\b`, 'g'), ' ')
+    .replace(new RegExp(`\\b(?:il|giorno|del)\\s+\\d{1,2}\\b(?!\\s*(?:${PAROLE_DI_PERSONE}\\b|[:.,]\\s*\\d|[°º]|turno))`, 'g'), ' ')
+    .replace(GIORNO_COL_NUMERO, (intero, nome, numero) => (giornoConNumero(nome, +numero, adesso) ? `${nome} ` : intero));
 }
 
 // ⚠️ LE DATE SCRITTE STORTE: «15 ottore», «3 nomembre», «sabto», «domai».
@@ -1395,6 +1466,20 @@ function interpretaData(testo, adesso, { storti = false } = {}) {
     if (d.getDate() !== g) return null;
     if (comeData(d) < comeData(adesso)) d.setFullYear(adesso.getFullYear() + 1);
     return comeData(d);
+  }
+
+  // ⚠️ «MARTEDÌ 17», SENZA IL MESE (22 novembre 2026). Finiva qui sotto, al
+  // nome del giorno: il 5 novembre «martedì 17» diventava martedì 10 — il
+  // primo che viene — e il 17 spariva. Il bot la data la ripete, ma chi ha
+  // scritto «17» legge «martedì» e conferma la settimana sbagliata. Vale solo
+  // se nei prossimi giorni c'è davvero un martedì 17: sennò il numero è
+  // un'altra cosa («sabato 4» = sabato, in quattro) e resta la regola di sempre.
+  GIORNO_COL_NUMERO.lastIndex = 0;
+  const colNumero = GIORNO_COL_NUMERO.exec(t);
+  GIORNO_COL_NUMERO.lastIndex = 0;
+  if (colNumero) {
+    const preciso = giornoConNumero(colNumero[1], +colNumero[2], adesso);
+    if (preciso) return preciso;
   }
 
   // ⚠️ Il nome del giorno va cercato PER ULTIMO, dopo tutte le forme che
@@ -1603,6 +1688,72 @@ function eSoloDaccordo(testo) {
   }
   t = t.replace(CORTESIA, ' ').replace(/\s+/g, ' ').trim();
   return t === '' && normalizza(testo) !== '';
+}
+
+// ⚠️ UN «GRAZIE» NON È UN CLIENTE IN ATTESA (22 novembre 2026). Sei delle dieci
+// email «aspetta un operatore» arrivate al titolare in venti giorni erano
+// questo: «Grazie», «grazie mille», «Perfetto 👌🏻», «Perfetto grazie» — e la
+// risposta automatica di uno studio legale. Tutte in chat che il locale stava
+// seguendo a mano, dove il bot tace e ogni messaggio del cliente viene passato
+// a una persona: giusto per una domanda, rumore per un cenno. E il rumore ha un
+// prezzo — chi riceve dieci avvisi di cui sei non dicono niente smette di
+// aprirli, e a rimetterci è quello vero.
+//
+// Qui si riconosce il messaggio che NON CHIEDE NIENTE: fatto soltanto di
+// ringraziamenti, cenni («perfetto», «ok», «va bene»), saluti e commiati («a
+// dopo», «buona serata»), faccine. ⚠️ «Sì» e «no» NO: in una chat seguita a
+// mano sono la risposta a una domanda che ha fatto una persona («confermate
+// per le 21?»), e quella deve arrivare. E basta una parola in più — «grazie,
+// avete il parcheggio?», «ok ma siamo in 5» — perché torni un messaggio vero.
+const NON_CHIEDE_NIENTE = [
+  'grazie mille', 'grazie tante', 'grazie infinite', 'mille grazie', 'grazie ancora', 'grazie di tutto',
+  'grazie di cuore', 'grazie a voi', 'grazie a te', 'grazie a lei', 'grazie', 'ti ringrazio', 'vi ringrazio',
+  'la ringrazio', 'gentilissimo', 'gentilissima', 'gentilissimi', 'gentilissime', 'molto gentile', 'molto gentili',
+  'troppo gentile', 'troppo gentili', 'ricevuto', 'perfetto', 'perfettissimo', 'benissimo', 'va benissimo',
+  'va bene', 'vabene', 'bene', 'ottimo', 'ok', 'okay', 'okey', 'oki', 'd accordo', 'daccordo', 'capito',
+  'a dopo', 'a piu tardi', 'a presto', 'a stasera', 'a domani', 'a tra poco', 'a fra poco', 'ci vediamo',
+  'ci vediamo dopo', 'ci vediamo stasera', 'ci vediamo domani', 'ci vediamo presto', 'ci vediamo li',
+  'buona giornata', 'buona serata', 'buona sera', 'buona notte', 'buonanotte', 'buona domenica',
+  'buon pomeriggio', 'buon lavoro', 'buon weekend', 'buon fine settimana',
+  'arrivederci', 'saluti', 'un saluto', 'anche a voi', 'anche a te', 'anche a lei', 'altrettanto', 'a voi',
+].sort((x, y) => y.length - x.length);
+// ⚠️ Il saluto che APRE non è un cenno: «Buonasera» da solo è qualcuno che sta
+// per chiedere qualcosa, e chi segue la chat deve saperlo. Vale solo come
+// contorno di un cenno vero: «Buonasera, grazie mille».
+const CONTORNO_DI_UN_CENNO = ['buongiorno', 'buonasera', 'buon giorno', 'ciao', 'salve', 'allora', 'davvero',
+  'tutto', 'molto', 'e'].sort((x, y) => y.length - x.length);
+// Faccine, mani, cuori — con il colore della pelle e i giunti che si portano dietro.
+const FACCINE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu;
+function eSoloUnaCortesia(testo) {
+  const grezzo = normalizza(testo);
+  // Un «?» chiede sempre qualcosa — anche da solo: è chi sollecita.
+  if (!grezzo || grezzo.includes('?')) return false;
+  const senzaFaccine = grezzo.replace(FACCINE, ' ');
+  let t = senzaFaccine.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Serve almeno UN cenno: la punteggiatura da sola («…», «!!») non lo è, e
+  // nemmeno il saluto che apre. Una faccina sì.
+  let cenni = senzaFaccine !== grezzo ? 1 : 0;
+  for (const frase of NON_CHIEDE_NIENTE) {
+    t = t.replace(new RegExp(`(^|\\s)${frase}(?=\\s|$)`, 'g'), (intero, prima) => { cenni++; return `${prima} `; });
+  }
+  for (const frase of CONTORNO_DI_UN_CENNO) {
+    t = t.replace(new RegExp(`(^|\\s)${frase}(?=\\s|$)`, 'g'), '$1 ');
+  }
+  return t.trim() === '' && cenni > 0;
+}
+// La risposta automatica di un WhatsApp Business («Grazie per aver contattato
+// lo Studio… Al momento non siamo disponibili ma risponderemo appena
+// possibile»): non l'ha scritta nessuno, e nessuno aspetta una risposta.
+const RISPOSTA_AUTOMATICA = new RegExp('\\b(?:(?:messaggio|risposta) automatic[ao]'
+  + '|grazie per aver(?:ci)? contattat[oaie]|grazie per aver(?:ci)? scritto'
+  + '|grazie per il (?:tuo|vostro|suo) messaggio'
+  + '|(?:al momento|attualmente|in questo momento|momentaneamente) non (?:siamo|sono) disponibil[ei]'
+  + '|(?:ti |vi |le )?risponder(?:emo|o) (?:appena|il prima|al piu presto|quanto prima))\\b');
+function eRispostaAutomatica(testo) {
+  return RISPOSTA_AUTOMATICA.test(normalizza(testo).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' '));
+}
+function nonChiedeNiente(testo) {
+  return eSoloUnaCortesia(testo) || eRispostaAutomatica(testo);
 }
 
 // Vero solo se il messaggio è UN SALUTO E BASTA. «Ciao, avete il parcheggio?»
@@ -1837,6 +1988,38 @@ const NON_SOLO_UN_NO = new RegExp('^non\\s+(ho|abbiamo|c\'?e|ci sono)\\s+'
   + '(nulla|niente|allergie|intolleranze|esigenze|preferenze|richieste|problemi'
   + '|allergie particolari|esigenze particolari|richieste particolari)$');
 
+// ⚠️ «NESSUNA ALLERGIA» SCRITTA IN SALA COME UN'ALLERGIA (dal titolare, 22
+// novembre 2026). La domanda dice «se non c'è nulla, scrivi NESSUNA», e chi
+// risponde con una parola in più — «nessuna allergia», «no nessuna», «niente
+// di particolare», «nulla da segnalare» — si ritrovava la frase sulla riga:
+// in sala «Attenzione: nessuna allergia», in rosso come una celiachia, e al
+// cliente «Me la sono segnata 📝». Un'attenzione che non dice niente insegna a
+// non guardare più le attenzioni: è il modo di perdere quella vera.
+//
+// La regola di sopra NON cambia: un no vale solo se il messaggio è soltanto
+// quello. Qui si allarga il «soltanto quello» alle frasi fatte di una negazione
+// e di parole GENERICHE (allergie, intolleranze, esigenze…), mai di un alimento:
+// «niente glutine», «no lattosio», «zero pesce» restano note, perché la parola
+// dopo non sta in questo elenco. E basta una coda qualsiasi — «…ma siamo con un
+// bimbo», «…solo un seggiolone» — perché la frase intera torni a essere una nota.
+const COSA_GENERICA = '(?:(?:tipo|genere) di )?(?:allergi[ae]|intolleranz[ae]|esigenz[ae]|richiest[ae]'
+  + '|segnalazion[ei]|preferenz[ae]|problem[ai]|necessita|restrizion[ei]|particolarita|not[ae]|cosa)'
+  + '(?: alimentar[ei])?';
+const ELENCO_GENERICO = `${COSA_GENERICA}(?: (?:o|e|ed|ne|oppure|e o) (?:nessun[oa]? )?${COSA_GENERICA})*`;
+const COME_GENERICO = '(?: (?:(?:di |in )?(?:particolar[ei]|special[ei]|rilevant[ei]|important[ei]|rilievo)'
+  + '|da (?:segnalare|dichiarare|dire|comunicare|annunciare|aggiungere|riferire|sapere|conoscere))){0,2}';
+const UN_NIENTE = `(?:(?:no|nessun[oa]?|niente|nulla|zero)(?: ${ELENCO_GENERICO})?${COME_GENERICO}`
+  + `|non (?:ho|abbiamo|c'?e|ci sono)(?: (?:nessun[oa]?|alcun[oa]?))? ${ELENCO_GENERICO}${COME_GENERICO}`
+  + `|non (?:ho|abbiamo|c'?e|ci sono) (?:niente|nulla)${COME_GENERICO}`
+  + `|nessuno(?: di noi)? (?:ha|ne ha)(?: (?:nessun[oa]?|alcun[oa]?))?(?: ${ELENCO_GENERICO})?${COME_GENERICO}`
+  + "|non (?:ne ho|ne abbiamo|ce ne sono|ce n'?e|ci sono|c'?e|serve|servono|occorre|occorrono))";
+const INTORNO_AL_NIENTE = '(?:ok|okay|direi|al momento|per ora|per adesso|per il momento|assolutamente)';
+const NIENTE_DA_SEGNALARE = new RegExp(`^(?:${INTORNO_AL_NIENTE} )?${UN_NIENTE}`
+  + `(?: (?:(?:e|o|ne) )?${UN_NIENTE})*(?: ${INTORNO_AL_NIENTE})?$`);
+// «ok», «va bene» e basta: alla domanda sulle allergie è «a posto così», e
+// sulla riga «Attenzione: ok» non dice niente a nessuno.
+const SOLO_UN_VA_BENE = /^(?:ok+|okay|okey|va bene|ok va bene|va bene cosi|ok cosi|a posto cosi|tutto a posto cosi)$/;
+
 // ⚠️ Il danno peggiore che questo programma possa fare è promettere qualcosa
 // al posto del ristorante. «Si può avere una torta?» seguito da «OK, grazie» è
 // un sì che il locale non ha mai dato: quel cliente si presenta aspettandosi la
@@ -1894,15 +2077,26 @@ function eUnaRichiesta(testo, cfg) {
   return coseDaChiedere(cfg).some((parola) => n.includes(parola));
 }
 
+// La nota COME VA SCRITTA sulla riga, da qualunque parte arrivi — il cliente
+// alla domanda del bot, la sala che detta con NUOVA, chi la batte a mano nella
+// piattaforma: tagliata a 200, e vuota se dice soltanto «niente».
+function notaDaScrivere(testo, cfg) {
+  const nota = String(testo || '').trim().slice(0, 200);
+  return soloUnNo(nota, cfg) ? '' : nota;
+}
+
 function soloUnNo(testo, cfg) {
   const t = normalizza(testo)
+    // «allergie/intolleranze» è «allergie o intolleranze»
+    .replace(/\//g, ' o ')
     .replace(/[!?.,;:…]/g, ' ')
-    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, ' ')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, ' ')
     .replace(/\b(grazie|mille|per favore|per cortesia|comunque)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   if (!t) return false;
   if (SOLO_UN_NO.test(t) || NON_SOLO_UN_NO.test(t)) return true;
+  if (NIENTE_DA_SEGNALARE.test(t) || SOLO_UN_VA_BENE.test(t)) return true;
   // ⚠️ Queste si AGGIUNGONO a quelle incorporate, non le sostituiscono: un
   // campo svuotato per sbaglio non deve far finire «no» sulla riga delle
   // allergie di ogni prenotazione. Il confronto è esatto — la frase deve essere
@@ -5833,7 +6027,11 @@ function elaboraMessaggioSala(db, chiave, testo, adesso = new Date()) {
   }
 
   if (stato.passo === 'sala_note') {
-    const note = interpretaSiNo(t) === false ? '' : t.slice(0, 200);
+    // ⚠️ `soloUnNo`, la stessa regola del cliente — non `interpretaSiNo` (22
+    // novembre 2026). Con quello, dettando «no glutine» o «niente pesce per
+    // uno» la nota veniva letta come un NO e buttata: l'allergia non arrivava
+    // sulla riga. E «nessuna», che un no per lui non è, ci finiva scritta.
+    const note = notaDaScrivere(t, cfg);
     const d = { ...dati, note };
     salvaStato(db, chiave, 'sala_conferma', d);
     // Il numero che serve qui e' quello che resta DOPO aver segnato questa,
@@ -6308,8 +6506,37 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // (visto in una chat vera, 19 ottobre 2026). Solo «da» + un numero che sta
   // nel nome di un'esperienza: «siamo in 45» resta 45.
   const numeriDeiNomi = new Set(esperienze.flatMap((e) => pezziDelNome(e.nome)).filter((x) => /^\d+$/.test(x)));
-  const personeDette = (x) => interpretaPersone(numeriDeiNomi.size
-    ? normalizza(x).replace(/\bda\s*€?\s*(\d+)\b/g, (intero, n) => (numeriDeiNomi.has(n) ? ' ' : intero)) : x);
+  // ⚠️ E nemmeno il numero che sta DENTRO il nome (22 novembre 2026, da
+  // un'email «aspetta un operatore»): alla domanda delle persone «Menu 7
+  // portate» erano sette persone — il bot andava avanti per sette, o passava
+  // la mano dove il massimo è sei. Si tolgono il nome intero e le sue parole
+  // («7 portate», «sette portate»), e il numero attaccato a una parola del
+  // nome («menu 7»). Mai un numero da solo, e mai accanto a una parola corta:
+  // con «Cena per 2» fra le esperienze, «per 2» resta due persone.
+  const pezziConUnNumero = (() => {
+    const numero = new RegExp(`^(?:\\d+|${Object.keys(NUMERI_A_PAROLE).join('|')})$`);
+    const parola = (x) => !!x && x.length >= 4 && !numero.test(x) && !new RegExp(`^${PAROLE_DI_PERSONE}$`).test(x);
+    const trovati = new Set();
+    for (const e of esperienze) {
+      for (const frase of paroleDellEsperienza(e)) {
+        const pezzi = pezziDelNome(frase);
+        if (pezzi.some((x) => numero.test(x)) && pezzi.some(parola)) trovati.add(pezzi.join(' '));
+        pezzi.forEach((x, i) => {
+          if (!numero.test(x)) return;
+          if (parola(pezzi[i - 1])) trovati.add(`${pezzi[i - 1]} ${x}`);
+          if (parola(pezzi[i + 1])) trovati.add(`${x} ${pezzi[i + 1]}`);
+        });
+      }
+    }
+    return [...trovati].sort((x, y) => y.length - x.length)
+      .map((f) => new RegExp(`(^|[^a-z0-9])${f.split(' ').join('[^a-z0-9]+')}(?=[^a-z0-9]|$)`, 'g'));
+  })();
+  const personeDette = (x) => {
+    let t = normalizza(x);
+    if (numeriDeiNomi.size) t = t.replace(/\bda\s*€?\s*(\d+)\b/g, (intero, n) => (numeriDeiNomi.has(n) ? ' ' : intero));
+    for (const re of pezziConUnNumero) t = t.replace(re, '$1 ');
+    return interpretaPersone(t, adesso);
+  };
   // Gli eventi (vedi «Gli eventi»): accesi solo con un collegamento vero.
   const eventiAttivi = eventiAccesi(cfg);
   // ⚠️ Chi ha appena ricevuto la risposta sugli eventi è GIÀ in conversazione
@@ -7426,7 +7653,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       if (faq) { risposte.push(riempi(faq, valori)); return esito; }
       // «Siamo in 4», «sabato»: si tiene da parte e si richiede il locale. Non
       // è un equivoco: ha risposto a una domanda che viene dopo.
-      const persone = interpretaPersone(testo);
+      const persone = interpretaPersone(testo, adesso);
       const giorno = giornoDettoInsieme(testo);
       if (persone !== null || giorno) {
         salvaStato(db, telefono, 'locale', { ...avanzato(dati), ...conServizio(),
@@ -7448,7 +7675,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       azzeraStato(db, telefono);
       return rispondiAlMessaggio(db, telefono, testo, adesso, contesto);
     }
-    const persone = interpretaPersone(testo);
+    const persone = interpretaPersone(testo, adesso);
     if (persone === null) return nonCapito('altro_locale_persone', dati, di('bot_t_persone_no'));
     return personeAltroLocale(a, persone);
   }
@@ -7517,6 +7744,19 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       // Dopo il benvenuto il cliente può fare tutt'altro: «avete il
       // parcheggio?». Rispondergli «non ho capito il numero di persone»
       // sarebbe da sordi, e ripeterlo all'infinito lo farebbe andare via.
+      // ⚠️ Ha risposto col GIORNO invece che col numero (22 novembre 2026):
+      // «Per quante persone?» → «Domenica 15 novembre». Non è un «non ho
+      // capito»: il giorno si tiene — lo ritrova `passoPersone` appena arriva
+      // il numero — e le persone si richiedono, senza contare un tentativo.
+      // Una volta sola per giorno: chi lo ripete uguale torna al conto di
+      // sempre, sennò il giro non finirebbe mai. Con un «?» è una domanda
+      // («domenica siete aperti?»), e la guardano le domande frequenti.
+      const giornoRisposto = String(testo || '').includes('?') ? null : giornoDettoInsieme(testo);
+      if (giornoRisposto && giornoRisposto !== dati.giornoDetto) {
+        salvaStato(db, telefono, 'persone', { ...avanzato(dati), giornoDetto: giornoRisposto });
+        risposte.push(`Va bene, ${dataItaliana(giornoRisposto)} 👍\n\n${di('bot_t_quante')}`);
+        return esito;
+      }
       const faq = cercaFaq(db, testo);
       if (faq) { risposte.push(riempi(faq, valori)); return esito; }
       if (eSaluto(testo)) { risposte.push(di('bot_t_persone_no')); return esito; }
@@ -8172,7 +8412,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
 
   if (stato.passo === 'note') {
     // ⚠️ NON «interpretaSiNo»: qui la domanda non è da sì o no. Vedi «soloUnNo».
-    const note = soloUnNo(testo, cfg) ? '' : String(testo || '').trim().slice(0, 200);
+    const note = notaDaScrivere(testo, cfg);
     if (note) {
       // ⚠️ La frase è la STESSA per qualunque nota, e non conferma mai niente.
       // Prima dipendeva dal riconoscere una domanda, e bastava un «ho bisogno di
@@ -8440,7 +8680,7 @@ module.exports = {
   interpretaData,
   interpretaOra,
   eventiAccesi, parlaDiEventi, statisticheEventi, linkDiMenu,
-  interpretaSiNo, soloUnNo, eUnaRichiesta, senzaRigheVuote, elencoParole,
+  interpretaSiNo, soloUnNo, notaDaScrivere, eSoloUnaCortesia, eRispostaAutomatica, nonChiedeNiente, eUnaRichiesta, senzaRigheVuote, elencoParole,
   interpretaTelefono,
   colTelefono,
   nomeInSala,
