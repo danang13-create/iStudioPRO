@@ -1002,11 +1002,6 @@ const PREDEFINITI = {
   // («Venerdì 25 dicembre (Natale)»), {orari} le sue righe.
   bot_t_orari_giorno: '{data} siamo aperti:\n{orari}',
   bot_t_orari_giorno_chiuso: '{data} siamo chiusi.',
-  // Le feste delle prossime settimane (23 novembre 2026, dal titolare, con le
-  // parole sue): sotto l'elenco del primo messaggio, prima della domanda, e
-  // sotto gli orari della settimana — che per quei giorni direbbero il falso.
-  // {feste} è «Cenone della Vigilia (24), Pranzo di Natale (25) e …».
-  bot_t_feste: '🎄 Per le feste: {feste}. Per prenotarli scrivimi il giorno.',
   // Un giorno in cui il locale c'è ma quell'esperienza no: non è «chiuso».
   bot_t_esperienza_chiusa: '{esperienza}: per {data} non è disponibile ({quando}).\n\nTi va di scegliere un altro giorno?',
   // ⚠️ Quando il cliente ha fatto una DOMANDA chiara — «è possibile
@@ -4279,36 +4274,6 @@ function orariDelGiorno(db, cfg, iso) {
   }
   return righe.join('\n');
 }
-// Le feste dei prossimi giorni, per «bot_t_feste»: «Cenone della Vigilia (24),
-// Pranzo di Natale (25) e Cenone di Capodanno (31)». Per ogni festa il nome
-// delle SUE esperienze da festa (quelle «solo nelle festività»); se non ne ha
-// — solo il tavolo, o le esperienze di sempre — il nome della festa. Le feste
-// in cui si è chiusi (senza turni, o un giorno di chiusura) non ci sono: non
-// si propone quello che non si può prenotare. Il giorno basta nel mese della
-// prima; dopo, dove il mese cambia, col mese. Vuoto se non ce n'è nessuna.
-function festeDaProporre(db, cfg, adesso = new Date(), giorni = 45) {
-  const speciali = new Map(esperienzeScritte(cfg).filter((e) => e.soloFeste).map((e) => [normalizza(e.nome), e.nome]));
-  const voci = new Map();
-  for (let n = 0; n <= giorni; n++) {
-    const iso = comeData(piuGiorni(adesso, n));
-    const f = festivitaDelGiorno(cfg, iso);
-    if (!f || !fasceDelGiorno(cfg, iso).length || (db && eChiuso(db, iso))) continue;
-    const sue = (f.esperienze || []).map((x) => speciali.get(normalizza(x))).filter(Boolean);
-    for (const nome of sue.length ? sue : [f.nome]) {
-      if (!voci.has(nome)) voci.set(nome, []);
-      voci.get(nome).push(iso);
-    }
-  }
-  const tutte = [...voci].slice(0, 8);
-  // Il solo giorno per il mese della prima; col mese solo quelle dopo, dove
-  // cambia: «Cenone di Capodanno (31) e Capodanno (1 gennaio)». (Prima, una
-  // data di gennaio metteva il mese a tutte: «(24 dicembre), (25 dicembre)».)
-  const primo = tutte.length ? tutte[0][1][0].slice(0, 7) : '';
-  const quando = (iso) => (iso.slice(0, 7) === primo ? String(Number(iso.slice(8))) : dataItaliana(iso).replace(/^\S+\s/, ''));
-  const pezzi = tutte.map(([nome, date]) => `${nome} (${date.length <= 2 ? date.map(quando).join(' e ') : `dal ${quando(date[0])} al ${quando(date[date.length - 1])}`})`);
-  return pezzi.length <= 1 ? pezzi.join('') : `${pezzi.slice(0, -1).join(', ')} e ${pezzi[pezzi.length - 1]}`;
-}
-
 // Gli orari di UNA esperienza, nello stesso formato: solo i suoi giorni, a
 // ogni servizio, con gli orari di «Orari e tavoli» di quei giorni
 // («🍽️ Pranzo: 12:30–15:30, dal lunedì al venerdì.»). Andavano sotto
@@ -7592,11 +7557,10 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       const suoi = orariDelGiorno(db, cfg, giorno);
       detto = suoi ? di('bot_t_orari_giorno', { data, orari: suoi }) : di('bot_t_orari_giorno_chiuso', { data });
     } else {
-      // Senza un giorno: la settimana, e — se nelle prossime settimane c'è una
-      // festività — le feste da chiedere a parte. Non quando sotto arriva
-      // l'elenco delle esperienze: lì ci sono già (vedi «elencoDaProporre»).
-      const sotto = !cosa && !conLocali && conEsperienze && stato.passo === 'inizio';
-      detto = [di('bot_t_orari'), sotto ? '' : rigaDelleFeste()].map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
+      // Senza un giorno: la settimana. (Una riga automatica con le feste in
+      // arrivo c'è stata per un'ora, il 23 novembre 2026: il titolare la
+      // scrive a mano nella frase dell'elenco, e due erano una di troppo.)
+      detto = di('bot_t_orari');
     }
     if (!cosa && conLocali && stato.passo === 'inizio') return chiediLocale({}, '', detto);
     if (!cosa && conEsperienze && stato.passo === 'inizio') return chiediEsperienza({}, '', detto);
@@ -7792,24 +7756,15 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // L'elenco da proporre: tutte, oppure — se il giorno l'ha già detto — solo
   // quelle che valgono quel giorno («sabato sera» non ha il business lunch).
   // I numeri dell'elenco ristretto si ricordano in `scelte`.
-  // La riga delle feste in arrivo (vedi «festeDaProporre»): vuota se non ce
-  // ne sono, o se il titolare ha svuotato la frase.
-  function rigaDelleFeste() {
-    const feste = festeDaProporre(db, cfg, adesso);
-    return feste && String(cfg.bot_t_feste || '').trim() ? di('bot_t_feste', { feste }).trim() : '';
-  }
   function elencoDaProporre(d) {
     // ⚠️ Senza un giorno si propongono quelle di tutti i giorni: il «Menu di
     // Natale» compare a chi chiede Natale, non a chi scrive «ciao» ad agosto.
     const solite = esperienze.filter(diTuttiIGiorni);
-    // Sotto l'elenco di sempre, prima della domanda, le feste in arrivo
-    // (dal titolare, 23 novembre 2026): stanno nel posto di {esperienze}.
-    const conLeFeste = (righe) => [righe, rigaDelleFeste()].filter(Boolean).join('\n\n');
     const tutte = solite.length === esperienze.length
       ? { valide: esperienze, ristrette: false,
-        testo: diConElenco('bot_t_esperienze', conLeFeste(elencoEsperienze(esperienze)), { numeri: numeriDetti(daUnoA(esperienze.length)) }) }
+        testo: diConElenco('bot_t_esperienze', elencoEsperienze(esperienze), { numeri: numeriDetti(daUnoA(esperienze.length)) }) }
       : { valide: solite, ristrette: true,
-        testo: diConElenco('bot_t_esperienze', conLeFeste(elencoEsperienze(solite)), { numeri: numeriDetti(daUnoA(solite.length)) }) };
+        testo: diConElenco('bot_t_esperienze', elencoEsperienze(solite), { numeri: numeriDetti(daUnoA(solite.length)) }) };
     // Il servizio senza il giorno («a cena»): quelle che a cena ci sono, in
     // qualche giorno (24 ottobre 2026: «A cena» non si capiva).
     if (!d.giornoDetto && d.servizio) {
@@ -7989,9 +7944,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     salvaStato(db, telefono, 'persone', { ...d, ...nomeEsperienza({}) });
     const invito = !gia && Object.keys(menuAttivi(cfg)).length && String(cfg.bot_t_menu_invito || '').trim()
       ? `\n\n${di('bot_t_menu_invito')}` : '';
-    // Senza esperienze le feste vanno sotto il benvenuto: «sempre nell'intro».
-    risposte.push([testa, di(gia ? 'bot_t_quante' : (giaVisto ? 'bot_t_bentornato' : 'bot_t_benvenuto')) + invito,
-      gia ? '' : rigaDelleFeste()].filter(Boolean).join('\n\n'));
+    risposte.push([testa, di(gia ? 'bot_t_quante' : (giaVisto ? 'bot_t_bentornato' : 'bot_t_benvenuto')) + invito].filter(Boolean).join('\n\n'));
     return esito;
   }
   function chiediLocale(d, benvenuto, testaInPiu = '') {
@@ -9110,7 +9063,7 @@ module.exports = {
   interpretaOra,
   eventiAccesi, parlaDiEventi, statisticheEventi, linkDiMenu,
   chiamataRicevuta, chiamataRisposta, statisticheChiamate,
-  nomeDelFileMenu, orariDelGiorno, festeDaProporre,
+  nomeDelFileMenu, orariDelGiorno,
   festivitaValide, erroriFestivita, festivitaDi, festivitaDelGiorno, soloIlTavolo,
   interpretaSiNo, soloUnNo, notaDaScrivere, eSoloUnaCortesia, eRispostaAutomatica, nonChiedeNiente, eUnaRichiesta, senzaRigheVuote, elencoParole,
   interpretaTelefono,
