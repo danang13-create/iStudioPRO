@@ -9108,9 +9108,12 @@ app.post('/api/bot/simula', async (req, res) => {
   // dall'altra parte. E l'esito si dice: un'email che non parte, nel
   // simulatore, non lascia nessuna traccia visibile — sembrerebbe tutto a
   // posto.
-  // Gli allegati nel simulatore: non si mandano, si dicono.
+  // Gli allegati nel simulatore: non si mandano, si dicono — col nome che vedrà
+  // il cliente (`a.nome`, vedi `nomeDelFileMenu`), non con quello del disco:
+  // il titolare provava qui e vedeva ancora «esp-cba1e9555a50.pdf», e credeva
+  // che la correzione non fosse arrivata.
   for (const a of [...(esito.allegati || [])].reverse()) {
-    esito.risposte.unshift(`📎 (solo nel simulatore) allegato ${a.file}\n${a.didascalia}`);
+    esito.risposte.unshift(`📎 (solo nel simulatore) allegato ${a.nome || a.file}\n${a.didascalia}`);
   }
   if (esito.simulaEmail) {
     esito.risposte.push(esito.simulaEmail.ok
