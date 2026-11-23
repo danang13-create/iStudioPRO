@@ -2390,9 +2390,19 @@ function festivitaValide(valore) {
     if (!al || al < dal) al = dal;
     const ultimo = piuGiorni(dal, GIORNI_DI_UNA_FESTIVITA - 1);
     if (al > ultimo) al = ultimo;
-    const fasce = (fasceValide({ 0: Array.isArray(f.fasce) ? f.fasce.map((x) => ({ ...x, turno: true })) : [] }) || { 0: [] })[0];
+    // ⚠️ «COME SEMPRE» (24 novembre 2026, dal titolare: «per gli orari in
+    // queste feste il REAR è operativo»): la Vigilia si lavora solo a cena, ma
+    // con i turni e gli orari di ogni giovedì sera. Riscriverli a mano in ogni
+    // festività vorrebbe dire sbagliarne uno, o dimenticarsi di cambiarli
+    // quando cambiano quelli di sempre. `soliti` sono i servizi che quel
+    // giorno seguono gli orari del giorno della settimana: i loro turni non
+    // si scrivono qui (vedi `fasceDellaFesta`).
+    const soliti = SERVIZI.filter((sv) => Array.isArray(f.soliti) && f.soliti.includes(sv));
+    const fasce = (fasceValide({ 0: Array.isArray(f.fasce) ? f.fasce.map((x) => ({ ...x, turno: true })) : [] }) || { 0: [] })[0]
+      .filter((x) => !soliti.includes(x.servizio));
     const slot = {};
     for (const sv of SERVIZI) {
+      if (soliti.includes(sv)) continue;
       const orari = [...new Set(turniValidi(Array.isArray(f.slot && f.slot[sv]) ? f.slot[sv].join(',') : String((f.slot && f.slot[sv]) || '')))].sort();
       if (orari.length) slot[sv] = orari.slice(0, 24);
     }
@@ -2402,7 +2412,7 @@ function festivitaValide(valore) {
       if (pulito && !esperienze.some((x) => normalizza(x) === normalizza(pulito))) esperienze.push(pulito);
     }
     buone.push({ nome, dal: comeData(dal), al: comeData(al), ogniAnno: f.ogniAnno === true, fasce, slot,
-      esperienze: esperienze.slice(0, ESPERIENZE_MASSIME) });
+      esperienze: esperienze.slice(0, ESPERIENZE_MASSIME), ...(soliti.length ? { soliti } : {}) });
   }
   return buone.slice(0, FESTIVITA_MASSIME);
 }
@@ -2475,6 +2485,24 @@ function festivitaDelGiorno(cfg, iso) {
   }
   return null;
 }
+// I turni e gli orari da prenotare di QUEL giorno di festa: i suoi, più — per
+// i servizi «come sempre» — quelli del giorno della settimana in cui cade.
+function fasceDellaFesta(cfg, festa, iso) {
+  const soliti = festa.soliti || [];
+  if (!soliti.length) return festa.fasce;
+  const [a, m, g] = String(iso).split('-').map(Number);
+  const diSempre = (fasceDi(cfg)[new Date(a, m - 1, g).getDay()] || []).filter((f) => soliti.includes(f.servizio));
+  return [...festa.fasce, ...diSempre].sort((x, y) => inMinuti(x.da) - inMinuti(y.da));
+}
+function slotDellaFesta(cfg, festa, iso) {
+  const soliti = festa.soliti || [];
+  if (!soliti.length) return festa.slot;
+  const [a, m, g] = String(iso).split('-').map(Number);
+  const diSempre = slotDi(cfg)[new Date(a, m - 1, g).getDay()] || {};
+  const slot = { ...festa.slot };
+  for (const sv of soliti) if ((diSempre[sv] || []).length) slot[sv] = diSempre[sv];
+  return slot;
+}
 // Quel giorno si prenota solo il tavolo: una festività senza esperienze spuntate.
 function soloIlTavolo(cfg, iso) {
   const f = iso ? festivitaDelGiorno(cfg, iso) : null;
@@ -2506,9 +2534,9 @@ function slotDelGiorno(cfg, iso) {
   // Una festività ha i suoi turni e i suoi orari: quelli del giorno della
   // settimana, per le sue date, non valgono.
   const festa = festivitaDelGiorno(cfg, iso);
-  const scelti = festa ? festa.slot : slotDi(cfg)[giorno];
+  const scelti = festa ? slotDellaFesta(cfg, festa, iso) : slotDi(cfg)[giorno];
   if (!scelti) return {};
-  const fasce = festa ? festa.fasce : (fasceDi(cfg)[giorno] || []);
+  const fasce = festa ? fasceDellaFesta(cfg, festa, iso) : (fasceDi(cfg)[giorno] || []);
   const esito = {};
   for (const s of SERVIZI) {
     const sue = fasce.filter((f) => f.servizio === s);
@@ -2539,7 +2567,7 @@ function orariDellaFascia(f, passo) {
 function fasceDelGiorno(cfg, iso) {
   const [a, m, g] = String(iso).split('-').map(Number);
   const festa = festivitaDelGiorno(cfg, iso);
-  const fasce = festa ? festa.fasce : (fasceDi(cfg)[new Date(a, m - 1, g).getDay()] || []);
+  const fasce = festa ? fasceDellaFesta(cfg, festa, iso) : (fasceDi(cfg)[new Date(a, m - 1, g).getDay()] || []);
   // Le fasce di un servizio a orari scelti portano il segno `slot`: lì dicono
   // solo quando si apre e si chiude (vedi `fineDelTavolo`, `numeroDelTurno`).
   const slot = slotDelGiorno(cfg, iso);
@@ -3824,7 +3852,9 @@ function annotaMenu(db, telefono, adesso, passo, quale = 'menu') {
 //  ⚠️ Con MENO DI DUE esperienze il bot non chiede niente e lavora come
 //  sempre: la lista vuota è la regola, non l'eccezione. Con una sola vale
 //  senza domanda: i suoi giorni filtrano, il nome finisce sulla prenotazione.
-const ESPERIENZE_MASSIME = 6;
+// Dodici, da sei che erano (24 novembre 2026): con le festività alle esperienze
+// di tutti i giorni si aggiungono il cenone, il pranzo di Natale, Santo Stefano…
+const ESPERIENZE_MASSIME = 12;
 // Il menu dell'esperienza: nessuno, uno dei due della scheda Menu, oppure uno
 // SUO ('suo': un file caricato nella sua scheda, o un collegamento).
 const MENU_DELLE_ESPERIENZE = ['', 'menu', 'degustazione', 'suo'];
@@ -4154,7 +4184,7 @@ const daUnoA = (k) => Array.from({ length: k }, (_, i) => i + 1);
 // giorno della settimana (serve `cfg`: senza, si guarda la settimana).
 function valeIlGiorno(e, iso, servizio, cfg) {
   const festa = cfg ? festivitaDelGiorno(cfg, iso) : null;
-  if (festa) return laNomina(festa, e) && (!servizio || festa.fasce.some((f) => f.servizio === servizio));
+  if (festa) return laNomina(festa, e) && (!servizio || fasceDellaFesta(cfg, festa, iso).some((f) => f.servizio === servizio));
   const g = new Date(`${iso}T12:00:00`).getDay();
   return (servizio ? [servizio] : SERVIZI).some((s) => (s === 'pranzo' ? e.pranzo : e.cena).includes(g));
 }

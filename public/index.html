@@ -2107,7 +2107,8 @@
           I giorni in cui il locale <b>non segue gli orari di sempre</b>: Natale solo a pranzo, il cenone con un turno
           solo, un lunedì di festa aperto anche se di lunedì si chiude. Per quelle date valgono <b>i turni scritti qui</b>
           al posto di quelli del giorno della settimana, e le <b>esperienze spuntate qui</b>: se non ne spunti nessuna,
-          quel giorno si prenota solo il tavolo. Senza nessun turno, quel giorno il locale è chiuso.
+          quel giorno si prenota solo il tavolo. Per il pranzo e per la cena scegli: chiuso, aperto <b>con gli orari di
+          sempre</b>, oppure aperto con orari suoi. Chiusi tutti e due, quel giorno il locale è chiuso.
           «Ogni anno» la tiene per sempre (Natale); senza, vale solo per le date scritte (Pasqua).
         </p>
         <div id="festivita-elenco"></div>
@@ -9110,6 +9111,13 @@ function mostraFestivita(d) {
     slot: { pranzo: ((f.slot || {}).pranzo || []).join(', '), cena: ((f.slot || {}).cena || []).join(', ') },
     esperienze: [...(f.esperienze || [])],
   }));
+  // Per ogni servizio: chiuso, come sempre (gli orari del giorno della
+  // settimana in cui cade), oppure con orari suoi.
+  for (const f of festivitaUI) {
+    const soliti = ((d.festivita || [])[festivitaUI.indexOf(f)] || {}).soliti || [];
+    f.modo = {};
+    for (const [s] of FESTA_SERVIZI) f.modo[s] = soliti.includes(s) ? 'solito' : (f[s].length ? 'suoi' : 'chiuso');
+  }
   disegnaFestivita();
 }
 // I nomi delle esperienze salvate: quelle che si possono spuntare.
@@ -9129,7 +9137,8 @@ function anteprimaFestivita(f) {
     ? `dal ${giornoDettoFestaUI(f.dal, f.ogniAnno)} al ${giornoDettoFestaUI(f.al, f.ogniAnno)}`
     : `il ${giornoDettoFestaUI(f.dal, f.ogniAnno)}`;
   const servizi = FESTA_SERVIZI.map(([s, nome]) => {
-    const turni = f[s].filter((t) => t.da && t.a);
+    if (f.modo[s] === 'solito') return `${nome.toLowerCase()} con gli orari di sempre`;
+    const turni = f.modo[s] === 'suoi' ? f[s].filter((t) => t.da && t.a) : [];
     return turni.length ? `${nome.toLowerCase()} ${turni.map((t) => `${t.da}–${t.a}`).join(' e ')}` : '';
   }).filter(Boolean);
   const ogni = f.ogniAnno ? ', ogni anno' : '';
@@ -9156,12 +9165,23 @@ function disegnaFestivita() {
           ${campoOra(t.a, `data-turno="${k}" data-campo-ora="a"`, `${qui}, fine del ${k + 1}° turno`)}
           <button type="button" class="tasto-togli" data-togli-turno-festa="${k}" aria-label="Togli il ${k + 1}° turno di ${esc(qui)}">✕</button>
         </div>`).join('');
+      const modo = f.modo[s];
+      const sotto = modo === 'suoi'
+        ? `${turni}
+          <div><button type="button" class="btn btn-secondario btn-piccolo" data-aggiungi-turno-festa>+ Turno</button></div>
+          <label>Orari da prenotare, se diversi dall'inizio dei turni (facoltativi)
+            <input data-slot="${s}" autocomplete="off" placeholder="12:30, 13:00, 13:30" value="${testoSicuro(f.slot[s])}"></label>`
+        : modo === 'solito'
+          ? '<p class="festa-chiuso">I turni e gli orari da prenotare del giorno della settimana in cui cade. Se cambi quelli di sempre, cambiano anche qui.</p>'
+          : '';
       return `<div class="festa-sv" data-servizio="${s}">
         <b>${nome}</b>
-        ${turni || '<p class="festa-chiuso">Chiuso: nessun turno.</p>'}
-        <div><button type="button" class="btn btn-secondario btn-piccolo" data-aggiungi-turno-festa>+ Turno</button></div>
-        ${f[s].length ? `<label>Orari da prenotare, se diversi dall'inizio dei turni (facoltativi)
-          <input data-slot="${s}" autocomplete="off" placeholder="12:30, 13:00, 13:30" value="${testoSicuro(f.slot[s])}"></label>` : ''}
+        <select data-modo autocomplete="off" style="width:auto" aria-label="${esc(qui)}">
+          <option value="chiuso"${modo === 'chiuso' ? ' selected' : ''}>Chiuso</option>
+          <option value="solito"${modo === 'solito' ? ' selected' : ''}>Aperto, con gli orari di sempre</option>
+          <option value="suoi"${modo === 'suoi' ? ' selected' : ''}>Aperto, con orari suoi</option>
+        </select>
+        ${sotto}
       </div>`;
     }).join('');
     const spunte = nomi.length
@@ -9195,8 +9215,9 @@ function festivitaDaSalvare() {
   const orari = (testo) => String(testo || '').split(/[,;\s]+/).map((x) => oraScritta(x)).filter(Boolean);
   return festivitaUI.map((f) => ({
     nome: f.nome.trim(), dal: f.dal, al: f.al || f.dal, ogniAnno: !!f.ogniAnno,
-    fasce: FESTA_SERVIZI.flatMap(([s]) => f[s].map((t) => ({ da: t.da, a: t.a, servizio: s }))),
-    slot: { pranzo: f.pranzo.length ? orari(f.slot.pranzo) : [], cena: f.cena.length ? orari(f.slot.cena) : [] },
+    soliti: FESTA_SERVIZI.map(([s]) => s).filter((s) => f.modo[s] === 'solito'),
+    fasce: FESTA_SERVIZI.flatMap(([s]) => (f.modo[s] === 'suoi' ? f[s].map((t) => ({ da: t.da, a: t.a, servizio: s })) : [])),
+    slot: { pranzo: f.modo.pranzo === 'suoi' ? orari(f.slot.pranzo) : [], cena: f.modo.cena === 'suoi' ? orari(f.slot.cena) : [] },
     esperienze: f.esperienze.filter((n) => nomi.includes(n)),
   }));
 }
@@ -9231,6 +9252,14 @@ $('#festivita-elenco').addEventListener('input', (e) => {
 // «1930» diventa «19:30» appena si lascia il campo, come negli orari di apertura.
 $('#festivita-elenco').addEventListener('change', (e) => {
   if (e.target.matches('input.ora-fascia')) e.target.value = oraScritta(e.target.value);
+  if (!e.target.matches('select[data-modo]')) return;
+  const f = festaDi(e.target);
+  const s = e.target.closest('[data-servizio]').dataset.servizio;
+  f.modo[s] = e.target.value;
+  // Aprendo con orari suoi si parte da un turno sensato, non da campi vuoti.
+  if (f.modo[s] === 'suoi' && !f[s].length) f[s].push(s === 'pranzo' ? { da: '12:30', a: '15:00' } : { da: '20:00', a: '23:00' });
+  festivitaToccate = true;
+  disegnaFestivita();
 });
 $('#festivita-elenco').addEventListener('click', (e) => {
   const f = festaDi(e.target);
@@ -9241,7 +9270,7 @@ $('#festivita-elenco').addEventListener('click', (e) => {
     festivitaUI.splice(festivitaUI.indexOf(f), 1);
   } else if (e.target.closest('[data-aggiungi-turno-festa]') && s) {
     // Si parte da un turno sensato, non da due campi vuoti.
-    f[s].push(f[s].length ? { da: '', a: '' } : { ...(s === 'pranzo' ? { da: '12:30', a: '15:00' } : { da: '20:00', a: '23:00' }) });
+    f[s].push({ da: '', a: '' });
   } else if (e.target.closest('[data-togli-turno-festa]') && s) {
     f[s].splice(+e.target.closest('[data-togli-turno-festa]').dataset.togliTurnoFesta, 1);
   } else {
@@ -9251,7 +9280,8 @@ $('#festivita-elenco').addEventListener('click', (e) => {
   disegnaFestivita();
 });
 $('#festivita-aggiungi').addEventListener('click', () => {
-  festivitaUI.push({ nome: '', dal: '', al: '', ogniAnno: false, pranzo: [], cena: [], slot: { pranzo: '', cena: '' }, esperienze: [] });
+  festivitaUI.push({ nome: '', dal: '', al: '', ogniAnno: false, pranzo: [], cena: [], slot: { pranzo: '', cena: '' }, esperienze: [],
+    modo: { pranzo: 'chiuso', cena: 'chiuso' } });
   festivitaToccate = true;
   disegnaFestivita();
   const ultimo = $('#festivita-elenco .festa:last-child [data-campo="nome"]');
@@ -9330,7 +9360,7 @@ $('#esperienze-elenco').addEventListener('click', (e) => {
   disegnaEsperienze();
 });
 $('#esperienze-aggiungi').addEventListener('click', () => {
-  if (esperienzeUI.length >= 6) { toast('Al massimo sei esperienze'); return; }
+  if (esperienzeUI.length >= 12) { toast('Al massimo dodici esperienze'); return; }
   esperienzeUI.push({ nome: '', parole: '', riga: '', pranzo: [], cena: [], menu: '', cappello: '', menuFile: '', menuNome: '', menuLink: '', soloFeste: false });
   esperienzeToccate = true;
   disegnaEsperienze();
