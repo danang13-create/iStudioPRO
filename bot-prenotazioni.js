@@ -4284,8 +4284,8 @@ function orariDelGiorno(db, cfg, iso) {
 // delle SUE esperienze da festa (quelle «solo nelle festività»); se non ne ha
 // — solo il tavolo, o le esperienze di sempre — il nome della festa. Le feste
 // in cui si è chiusi (senza turni, o un giorno di chiusura) non ci sono: non
-// si propone quello che non si può prenotare. Il giorno basta, se sono tutte
-// nello stesso mese; sennò col mese. Vuoto se non ce n'è nessuna.
+// si propone quello che non si può prenotare. Il giorno basta nel mese della
+// prima; dopo, dove il mese cambia, col mese. Vuoto se non ce n'è nessuna.
 function festeDaProporre(db, cfg, adesso = new Date(), giorni = 45) {
   const speciali = new Map(esperienzeScritte(cfg).filter((e) => e.soloFeste).map((e) => [normalizza(e.nome), e.nome]));
   const voci = new Map();
@@ -4300,8 +4300,11 @@ function festeDaProporre(db, cfg, adesso = new Date(), giorni = 45) {
     }
   }
   const tutte = [...voci].slice(0, 8);
-  const mesi = new Set(tutte.flatMap(([, date]) => date.map((d) => d.slice(0, 7))));
-  const quando = (iso) => (mesi.size <= 1 ? String(Number(iso.slice(8))) : dataItaliana(iso).replace(/^\S+\s/, ''));
+  // Il solo giorno per il mese della prima; col mese solo quelle dopo, dove
+  // cambia: «Cenone di Capodanno (31) e Capodanno (1 gennaio)». (Prima, una
+  // data di gennaio metteva il mese a tutte: «(24 dicembre), (25 dicembre)».)
+  const primo = tutte.length ? tutte[0][1][0].slice(0, 7) : '';
+  const quando = (iso) => (iso.slice(0, 7) === primo ? String(Number(iso.slice(8))) : dataItaliana(iso).replace(/^\S+\s/, ''));
   const pezzi = tutte.map(([nome, date]) => `${nome} (${date.length <= 2 ? date.map(quando).join(' e ') : `dal ${quando(date[0])} al ${quando(date[date.length - 1])}`})`);
   return pezzi.length <= 1 ? pezzi.join('') : `${pezzi.slice(0, -1).join(', ')} e ${pezzi[pezzi.length - 1]}`;
 }
