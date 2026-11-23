@@ -3962,6 +3962,9 @@ async function mandaAllegatoMenu(chatId, a) {
   try {
     return await inCoda(async () => {
       const media = MessageMedia.fromFilePath(percorso);
+      // Il nome che vede il cliente, non quello inventato per il disco (vedi
+      // `nomeDelFileMenu` nel motore): «MENU_25_REAR_XMAS.pdf», non «esp-44ef….pdf».
+      if (a.nome) media.filename = a.nome;
       segnaCheStoInviando(chatId, a.didascalia || '');
       const inviato = await client.sendMessage(chatId, media, { caption: a.didascalia || '' });
       if (inviato && inviato.id && inviato.id._serialized) mieiMessaggi.add(inviato.id._serialized);

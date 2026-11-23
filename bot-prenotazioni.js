@@ -4346,9 +4346,29 @@ function menuDellEsperienza(cfg, e) {
     return { quale: e.menu, ...attivi[e.menu], frase: e.menu === 'menu' ? 'bot_t_menu' : 'bot_t_menu_degustazione', esperienza: e.nome };
   }
   if (e.menu === 'suo' && (e.menuFile || e.menuLink)) {
-    return { quale: `esperienza:${e.nome}`, link: e.menuLink || '', file: e.menuFile || '', frase: 'bot_t_menu_esperienza', esperienza: e.nome };
+    return { quale: `esperienza:${e.nome}`, link: e.menuLink || '', file: e.menuFile || '', nome: e.menuNome || '',
+      frase: 'bot_t_menu_esperienza', esperienza: e.nome };
   }
   return null;
+}
+
+// ⚠️ IL NOME DEL FILE CHE ARRIVA AL CLIENTE (23 novembre 2026, dal titolare,
+// con la foto della chat: «esce con vari codici e non il nome del file»). Il
+// menu di un'esperienza si salva sul computer con un nome inventato
+// («esp-44ef9a4357c3.pdf»: due esperienze non devono pestarsi il file), e su
+// WhatsApp arrivava COSÌ — al cliente che aveva chiesto il menu di Natale.
+// Ora parte col nome che aveva sul computer di chi l'ha caricato
+// («MENU_25_REAR_XMAS.pdf»); senza, col nome dell'esperienza («Pranzo di
+// Natale.pdf») o «Menu.pdf». L'estensione è sempre quella del file vero: un
+// PDF che si chiama «.jpg» il telefono non lo apre.
+function nomeDelFileMenu(m) {
+  const vero = String((m && m.file) || '');
+  const ext = (vero.match(/\.([a-z0-9]{2,5})$/i) || [, 'pdf'])[1].toLowerCase();
+  const pulito = (x) => String(x || '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  let nome = pulito(m && m.nome).replace(/\.[a-z0-9]{2,5}$/i, '').trim();
+  if (!nome) nome = pulito(m && m.esperienza);
+  if (!nome) nome = m && m.quale === 'degustazione' ? 'Menu degustazione' : 'Menu';
+  return `${nome.slice(0, 70)}.${ext}`;
 }
 
 // Vale quel giorno a quell'ora? Il servizio dell'ora, e i giorni
@@ -4371,13 +4391,15 @@ function turniAmmessi(cfg, iso, e, turni) {
 
 function menuAttivi(cfg) {
   const m = {};
-  const uno = (link, file) => {
+  // `nome`: come si chiamava il file sul computer di chi l'ha caricato (vedi
+  // `nomeDelFileMenu`).
+  const uno = (link, file, nome) => {
     const l = String(link || '').trim();
     const f = String(file || '').trim();
-    return l || f ? { link: l, file: f } : null;
+    return l || f ? { link: l, file: f, nome: String(nome || '').trim() } : null;
   };
-  const menu = uno(cfg.bot_menu_link, cfg.bot_menu_file);
-  const degustazione = uno(cfg.bot_menu_degustazione_link, cfg.bot_menu_degustazione_file);
+  const menu = uno(cfg.bot_menu_link, cfg.bot_menu_file, cfg.bot_menu_file_nome);
+  const degustazione = uno(cfg.bot_menu_degustazione_link, cfg.bot_menu_degustazione_file, cfg.bot_menu_degustazione_file_nome);
   if (menu) m.menu = menu;
   if (degustazione) m.degustazione = degustazione;
   return m;
@@ -7338,6 +7360,8 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     if (m.file) {
       (esito.allegati = esito.allegati || []).push({
         quale: m.quale, file: m.file,
+        // Il nome con cui arriva sul telefono del cliente (vedi `nomeDelFileMenu`).
+        nome: nomeDelFileMenu(m),
         didascalia: riempi(senzaLaRigaDelLink(cfg[m.frase]), { ...valori, ...extra }),
         // Il collegamento, se c'è: è il ripiego del server quando il file non parte.
         link: m.link || '',
@@ -8991,6 +9015,7 @@ module.exports = {
   interpretaOra,
   eventiAccesi, parlaDiEventi, statisticheEventi, linkDiMenu,
   chiamataRicevuta, chiamataRisposta, statisticheChiamate,
+  nomeDelFileMenu,
   festivitaValide, erroriFestivita, festivitaDi, festivitaDelGiorno, soloIlTavolo,
   interpretaSiNo, soloUnNo, notaDaScrivere, eSoloUnaCortesia, eRispostaAutomatica, nonChiedeNiente, eUnaRichiesta, senzaRigheVuote, elencoParole,
   interpretaTelefono,
