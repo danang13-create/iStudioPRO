@@ -5597,6 +5597,8 @@ const TESTI_BOT = [
   ['bot_t_scelta_bentornato', 'La scelta, a chi torna', 'Come sopra, per chi ha già prenotato da te: <b>{nome}</b> è il suo nome.'],
   ['bot_t_scelta', 'La scelta, senza saluto', 'La domanda e basta: a chi scrive RICOMINCIA (sotto «Va bene, ricominciamo da capo!»), a chi alla scelta risponde con un altro saluto, e quando il bot non ha capito la risposta.'],
   ['bot_t_eventi', 'La risposta sugli eventi', 'A chi sceglie 2, o scrive una delle parole degli eventi nel primo messaggio. <b>{link}</b> è il collegamento scritto nella card «Gli eventi»: se lo togli dalla frase, il bot lo mette in fondo. Dopo questa risposta la conversazione è chiusa: se il cliente vuole anche un tavolo scrive <b>PRENOTA</b> (o una frase qualunque che parli di prenotare), e parte la prenotazione.'],
+  [null, 'Chi chiama invece di scrivere'],
+  ['bot_t_chiamata', 'A chi prova a chiamare su WhatsApp', 'Quando qualcuno chiama il numero del locale su WhatsApp il telefono continua a squillare, e intanto il bot gli scrive questo. Una volta sola per ora a testa, e mai a chi sta parlando con una persona del locale. <b>Lasciata vuota, il bot a chi chiama non scrive niente</b> (le chiamate si contano lo stesso nel report). Vale solo per le chiamate fatte con WhatsApp: quelle normali al telefono il programma non le vede.'],
   [null, 'I locali: «dove vuoi prenotare?»'],
   ['bot_t_benvenuto_locali', 'Il primo messaggio, con più locali', 'Sostituisce «Il primo messaggio» quando nella scheda Esperienze, card «I locali», c\'è un altro locale ancora aperto: sotto arriva la domanda «dove?». <b>{locale}</b> è il nome di tutto (RO WORLD), <b>{assistente}</b> il nome dell\'assistente.'],
   ['bot_t_bentornato_locali', 'Chi torna, con più locali', 'Come sopra, per chi ha già prenotato da te.'],
@@ -7057,6 +7059,15 @@ function disegnaReport(d, prima = null) {
     kpi.push(['Hanno chiesto degli eventi', d.eventi.persone,
       `${d.eventi.richieste === 1 ? '1 richiesta' : `${d.eventi.richieste} richieste`} · mandato il collegamento`,
       confronto && confronto.eventi ? deltaTesto(d.eventi.persone, confronto.eventi.persone, d.giorni) : '']);
+  }
+
+  // Chi ha provato a chiamare su WhatsApp invece di scrivere: quante persone,
+  // e quante chiamate. A ognuna il bot ha scritto che può fare tutto per
+  // messaggio (se la frase non è stata svuotata).
+  if (d.chiamate && d.chiamate.chiamate) {
+    kpi.push(['Hanno provato a chiamare', d.chiamate.persone,
+      `${d.chiamate.chiamate === 1 ? '1 chiamata' : `${d.chiamate.chiamate} chiamate`} su WhatsApp`,
+      confronto && confronto.chiamate ? deltaTesto(d.chiamate.persone, confronto.chiamate.persone, d.giorni) : '']);
   }
 
   let html = '<div class="rep-kpi">' + kpi.map(([nome, n, p, delta]) => `

@@ -4391,6 +4391,55 @@ async function passaAUnaPersona(chatId, telefono, nomeChat, testo, opzioni = {})
   }
 }
 
+// ⚠️ CHI CHIAMA INVECE DI SCRIVERE (23 novembre 2026, chiesto dal titolare).
+// Una chiamata WhatsApp al numero del locale il programma non la guardava
+// nemmeno: chi chiamava e non trovava nessuno restava senza una parola. Ora il
+// telefono continua a squillare — la chiamata NON si rifiuta, chi è in sala
+// può rispondere — e intanto il bot gli scrive che può fare tutto per
+// messaggio (la frase è `bot_t_chiamata`; quando e quante volte lo decide il
+// motore, vedi «Chi chiama invece di scrivere»). Ogni chiamata si conta, per
+// il report, e ogni decisione si scrive nel registro.
+// Non si scrive: nei gruppi, al personale, a chi sta nella lista «il bot non
+// risponde», a chi ha scritto STOP, col bot spento.
+// ⚠️ WhatsApp può annunciare la stessa chiamata più di una volta: si riconosce
+// dall'identificativo, per qualche minuto.
+const chiamateViste = new Map();
+async function chiamataInArrivo(chiamata) {
+  try {
+    if (!botDisponibile() || !chiamata || chiamata.fromMe || chiamata.isGroup) return;
+    const da = String(chiamata.from || '');
+    if (tipoChat(da) !== 'privata') return;
+    const adesso = Date.now();
+    for (const [chiave, quando] of chiamateViste) if (adesso - quando > 5 * 60 * 1000) chiamateViste.delete(chiave);
+    const id = String(chiamata.id || '');
+    if (id) {
+      if (chiamateViste.has(id)) return;
+      chiamateViste.set(id, adesso);
+    }
+    const cifre = da.replace(/@.*$/, '').replace(/\D/g, '');
+    const telefono = numeroPlausibile(cifre, da) ? cifre : '';
+    const chi = telefono ? '+' + telefono : da;
+    if (!botAcceso()) return annota('ignorato', `${chi} ha provato a chiamare: il bot è spento`);
+    const persona = personaCheScrive(telefono, da);
+    if (persona) return annota('personale', `${persona.nome} ha chiamato: è del personale, non gli scrivo`);
+    const escluso = esclusoDalBot(telefono, da);
+    if (escluso) return annota('ignorato', `${escluso.nome || chi} ha chiamato: è nella lista «il bot non risponde»`);
+    const esito = bot.chiamataRicevuta(db, da, new Date());
+    if (!esito.testo) return annota('chiamata', `${chi} ha provato a chiamare: non gli scrivo — ${esito.motivo}`);
+    if (bot.haDettoBasta(db, da, telefono)) return annota('chiamata', `${chi} ha provato a chiamare: ha scritto STOP, non gli scrivo`);
+    if (state.status !== 'connesso') return annota('chiamata', `${chi} ha provato a chiamare: WhatsApp non è collegato, non posso scrivergli`);
+    try {
+      await rispondiConRitmo(da, esito.testo);
+      bot.chiamataRisposta(db, esito.id, da, new Date());
+      annota('chiamata', `${chi} ha provato a chiamare: gli ho scritto che può fare tutto per messaggio`);
+    } catch (e) {
+      annota('errore', `${chi} ha provato a chiamare: il messaggio non è partito (${e.message})`);
+    }
+  } catch (err) {
+    console.error('Bot: errore su una chiamata in arrivo:', (err && err.message) || err);
+  }
+}
+
 // I messaggi che arrivano DAL personale. Due casi: la risposta a un cliente
 // (col codice) e l'appello di fine serata.
 // I comandi del responsabile, scritti UNA volta sola. Questa lista è insieme
@@ -5146,6 +5195,9 @@ if (botDisponibile()) {
       await annunciaLaPersona(a, telefono, ore);
     } catch { /* la presa in carico non deve mai far cadere niente */ }
   });
+
+  // Chi chiama il numero su WhatsApp invece di scrivere: vedi `chiamataInArrivo`.
+  client.on('call', chiamataInArrivo);
 }
 
 // Avvisa il personale di una prenotazione nuova o annullata — arrivi dal

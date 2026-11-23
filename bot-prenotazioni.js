@@ -352,6 +352,16 @@ function preparaDatabase(db) {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_tavoli_nome ON bot_tavoli(nome COLLATE NOCASE);
   `);
+  // Chi ha provato a CHIAMARE su WhatsApp, e quando (vedi «Chi chiama invece di
+  // scrivere»): serve al report, e a non ripetere il messaggio a chi richiama.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bot_chiamate (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      telefono TEXT NOT NULL,
+      quando TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      risposto INTEGER NOT NULL DEFAULT 0
+    );
+  `);
   // Chi ha chiesto degli eventi, e quando (vedi «Gli eventi»): serve al report.
   db.exec(`
     CREATE TABLE IF NOT EXISTS bot_eventi_richieste (
@@ -1131,6 +1141,9 @@ const PREDEFINITI = {
   bot_t_scelta_bentornato: 'Che bello rivederti, {nome}! ✨\n\nCome posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',
   bot_t_scelta: 'Come posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',
   bot_t_eventi: 'Che bello! 🎉 Organizziamo eventi privati, cene aziendali, feste e ricorrenze.\n\nTrovi le proposte e il modulo di richiesta qui:\n👉 {link}\n\nSe vuoi anche prenotare un tavolo, scrivi PRENOTA.',
+  // A chi prova a CHIAMARE il numero su WhatsApp (23 novembre 2026). Vuota, il
+  // bot a chi chiama non scrive niente.
+  bot_t_chiamata: 'Ciao! 👋 Ho visto che hai provato a chiamarci 📞\n\nSe non riusciamo a risponderti a voce, scrivimi qui: ti aiuto subito.\nPer prenotare un tavolo scrivi PRENOTA.',
   // In cima alla presentazione: la domanda la fa il primo messaggio (20 ottobre 2026).
   bot_t_ricominciato: 'Va bene, ricominciamo da capo! 🙂',
   // «Torna indietro»: in cima alla domanda di prima, riscritta com'era.
@@ -3585,6 +3598,60 @@ function statisticheEventi(db, dal, al) {
   return { richieste: righe.reduce((n, r) => n + r.volte, 0), persone: righe.length };
 }
 
+// ---------------------------------------------------------------------------
+//  Chi chiama invece di scrivere
+// ---------------------------------------------------------------------------
+//  Chiesto dal titolare (23 novembre 2026): «per tutte le persone che provano
+//  anche a chiamare, in pratica che succede?». Non succedeva niente: una
+//  chiamata WhatsApp al numero del locale il programma non la guardava nemmeno,
+//  e chi chiamava e non trovava nessuno restava senza una parola — mentre lì
+//  accanto c'era un bot capace di dargli un tavolo in un minuto.
+//
+//  Deciso con lui: il telefono CONTINUA A SQUILLARE (chi è in sala può
+//  rispondere: la chiamata non si rifiuta), e intanto il bot gli scrive che
+//  può fare tutto per messaggio. Le chiamate si contano nel report.
+//
+//  - Si segna OGNI chiamata; il messaggio parte una volta sola per ora a
+//    testa: chi richiama tre volte di fila non riceve tre volte la stessa frase.
+//  - In una chat che il locale sta seguendo a mano il bot tace anche qui.
+//  - Con la frase vuota non si scrive niente (le chiamate si contano lo stesso).
+//  - Chi è il personale, chi sta nella lista «il bot non risponde» e chi ha
+//    scritto STOP lo sa il server, e lì si ferma prima di arrivare qui o di
+//    mandare (vedi `chiamataInArrivo`).
+const CHIAMATA_MINUTI = 60;
+function chiamataRicevuta(db, telefono, adesso = new Date()) {
+  const id = db.prepare('INSERT INTO bot_chiamate (telefono, quando) VALUES (?, ?)')
+    .run(telefono, quandoLeggibile(adesso)).lastInsertRowid;
+  const cfg = config(db);
+  const testo = riempi(cfg.bot_t_chiamata || '', { locale: cfg.bot_locale || 'noi' }).trim();
+  if (!testo) return { id, testo: null, motivo: 'la frase per chi chiama è vuota' };
+  if (eMuto(db, telefono, adesso)) return { id, testo: null, motivo: 'la conversazione è di una persona' };
+  const ultima = db.prepare('SELECT quando FROM bot_chiamate WHERE telefono = ? AND risposto = 1 ORDER BY id DESC LIMIT 1').get(telefono);
+  const minuti = ultima ? minutiDa(ultima.quando, adesso) : null;
+  if (minuti !== null && minuti >= 0 && minuti < CHIAMATA_MINUTI) {
+    return { id, testo: null, motivo: 'gliel\'ho già scritto da meno di un\'ora' };
+  }
+  return { id, testo, motivo: '' };
+}
+// Il messaggio è partito DAVVERO: solo adesso si segna, sennò un invio fallito
+// zittirebbe anche quello dopo. E chi l'ha ricevuto è già in conversazione
+// (lo stesso segno di chi ha chiesto degli eventi): se scrive PRENOTA il bot
+// va alla prima domanda senza ripresentarsi, e a un «grazie» fa un cenno. Solo
+// se non stava prenotando: una prenotazione a metà resta dov'è.
+function chiamataRisposta(db, id, telefono, adesso = new Date()) {
+  db.prepare('UPDATE bot_chiamate SET risposto = 1 WHERE id = ?').run(id);
+  const stato = statoDi(db, telefono, adesso);
+  if (stato.passo === 'inizio') {
+    scriviStato(db, telefono, 'inizio', { ...stato.dati, dopoEventi: quandoLeggibile(adesso) }, adesso);
+  }
+}
+// Quante chiamate nel periodo, e da quante persone.
+function statisticheChiamate(db, dal, al) {
+  const righe = db.prepare('SELECT telefono, COUNT(*) AS volte FROM bot_chiamate '
+    + 'WHERE substr(quando, 1, 10) >= ? AND substr(quando, 1, 10) <= ? GROUP BY telefono').all(dal, al);
+  return { chiamate: righe.reduce((n, r) => n + r.volte, 0), persone: righe.length };
+}
+
 // Ogni volta che il menu parte, si segna chi l'ha chiesto e a che punto era.
 function annotaMenu(db, telefono, adesso, passo, quale = 'menu') {
   db.prepare('INSERT INTO bot_menu_richieste (telefono, passo, quando, quale) VALUES (?, ?, ?, ?)')
@@ -5092,6 +5159,7 @@ function dimenticaPersona(db, id, adesso = new Date()) {
         .run(...chiavi, ...chiavi).changes;
       db.prepare(`DELETE FROM bot_menu_richieste WHERE telefono IN (${seg})`).run(...chiavi);
       db.prepare(`DELETE FROM bot_eventi_richieste WHERE telefono IN (${seg})`).run(...chiavi);
+      db.prepare(`DELETE FROM bot_chiamate WHERE telefono IN (${seg})`).run(...chiavi);
     }
     if (numeri.length) {
       db.prepare(`DELETE FROM numeri_visti WHERE telefono IN (${numeri.map(() => '?').join(',')})`).run(...numeri);
@@ -5693,6 +5761,8 @@ function reportPrenotazioni(db, cfg, dal, al) {
     clienti: { totali: clienti.size, diRitorno, nuovi: clienti.size - diRitorno },
     menu: statisticheMenu(db, dal, al),
     eventi: statisticheEventi(db, dal, al),
+    // Chi ha provato a chiamare su WhatsApp invece di scrivere.
+    chiamate: statisticheChiamate(db, dal, al),
     perServizio,
     perEsperienza,
     anticipo,
@@ -8680,6 +8750,7 @@ module.exports = {
   interpretaData,
   interpretaOra,
   eventiAccesi, parlaDiEventi, statisticheEventi, linkDiMenu,
+  chiamataRicevuta, chiamataRisposta, statisticheChiamate,
   interpretaSiNo, soloUnNo, notaDaScrivere, eSoloUnaCortesia, eRispostaAutomatica, nonChiedeNiente, eUnaRichiesta, senzaRigheVuote, elencoParole,
   interpretaTelefono,
   colTelefono,
