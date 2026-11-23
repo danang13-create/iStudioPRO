@@ -519,9 +519,24 @@
   .canale-barra { background: var(--sfondo); border-radius: 999px; height: 10px; overflow: hidden; }
   .canale-barra > div { height: 100%; border-radius: 999px; transition: width .5s; }
   .voce-menu:hover { background: var(--sfondo); }
-  th.ordinabile { cursor: pointer; user-select: none; }
-  th.ordinabile:hover { color: var(--verde-testo); }
-  th.ordinabile .frecciaOrd { font-size: .75rem; color: var(--verde-testo); }
+  /* LE TABELLE IN ORDINE (23 novembre 2026, dal titolare: «la possibilità di
+     mettere in ordine A-Z a tutte le tabelle»). Il titolo di una colonna che si
+     può ordinare è un TASTO — si raggiunge anche con la tastiera — e la freccia
+     dice com'è ordinata adesso: ▲ dalla A alla Z (o dal più piccolo), ▼ al
+     contrario, ↕ sbiadita se non è lei a decidere l'ordine. È `aria-sort` sul
+     titolo a dirlo, anche a chi la pagina la sente leggere. */
+  th[aria-sort] > button.ordina { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+    font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; border-radius: 4px; }
+  th[aria-sort] > button.ordina:hover { color: var(--verde-testo); }
+  th[aria-sort] > button.ordina:focus-visible { outline: 2px solid var(--verde-testo); outline-offset: 2px; }
+  th[aria-sort] > button.ordina::after { content: '↕'; font-size: .75rem; opacity: .35; }
+  th[aria-sort="ascending"] > button.ordina, th[aria-sort="descending"] > button.ordina { color: var(--verde-testo); }
+  th[aria-sort="ascending"] > button.ordina::after { content: '▲'; opacity: 1; }
+  th[aria-sort="descending"] > button.ordina::after { content: '▼'; opacity: 1; }
+  /* La barra delle pagine, sotto la Rubrica e sotto i Clienti. */
+  .pagine { display: flex; align-items: center; justify-content: space-between; gap: 10px 14px; flex-wrap: wrap; margin-top: 14px; }
+  .pagine .pagine-tasti { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .pagine select { width: auto; padding: 4px 28px 4px 10px; font-size: .85rem; }
   .freccia-chat {
     border: none; background: none; cursor: pointer; color: var(--grigio);
     font-size: .8rem; line-height: 1; padding: 3px 5px; border-radius: 5px;
@@ -771,22 +786,19 @@
   /* Le iniziali a sinistra (24 ottobre 2026): in un elenco lungo l'occhio
      trova una persona dalla forma prima che dal nome. A destra quando, e sotto
      quante volte ha prenotato; chi ha un tavolo in arrivo lo dice in verde. */
-  .cli-riga { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "ini chi quando" "ini dove quando";
-              gap: 2px 12px; align-items: center;
-              width: 100%; padding: 10px 8px; border: 0; border-top: 1px solid var(--bordo); border-radius: 0;
-              background: none; font: inherit; color: var(--testo); text-align: left; cursor: pointer; }
-  .cli-riga:first-child { border-top: 0; }
-  .cli-riga:hover { background: var(--carta-2); }
-  .cli-riga .cli-iniziali { grid-area: ini; width: 38px; height: 38px; font-size: .82rem; }
-  .cli-riga .chi { grid-area: chi; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
-  .cli-riga .dove { grid-area: dove; min-width: 0; overflow-wrap: anywhere; }
-  .cli-riga .dove, .cli-riga .quando { font-size: .84rem; color: var(--grigio); }
-  .cli-riga .quando { grid-area: quando; text-align: right; white-space: nowrap; }
-  .cli-riga .quando b { font-weight: 500; color: var(--testo); }
-  .cli-riga .quando small { display: block; font-size: .78rem; }
-  .cli-riga .quando.arriva b { color: var(--verde-testo); font-weight: 600; }
-  /* Il segno accanto al nome: in rubrica, o ha chiesto di non ricevere. Non
-     solo un colore — una parola. */
+  /* L'elenco dei clienti è una TABELLA (23 novembre 2026, dal titolare):
+     Nome, Cognome, Email, Telefono, Prenotazioni. Tutta la riga apre la
+     scheda; il nome è anche un tasto, per chi usa la tastiera. */
+  .cli-tabella tbody tr { cursor: pointer; }
+  .cli-tabella tbody tr:hover { background: var(--carta-2); }
+  .cli-tabella .cli-nome { all: unset; cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+  .cli-tabella .cli-nome:focus-visible { outline: 2px solid var(--verde-testo); outline-offset: 2px; border-radius: 3px; }
+  .cli-tabella td.cli-email { overflow-wrap: anywhere; }
+  .cli-tabella td.cli-tel { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .cli-tabella td.n, .cli-tabella th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .cli-tabella td .cli-segno { display: block; margin: 2px 0 0; }
+  /* Il cognome accanto al nome solo sul telefono, dove la sua colonna non c'è. */
+  .cli-tabella .cli-solo-telefono { display: none; }
   .cli-segno { margin-left: 6px; font-size: .76rem; font-weight: 600; color: var(--grigio); }
   /* La scheda rifatta (24 ottobre 2026): in testa chi è, sotto una fila di
      tasti tutti uguali, poi i numeri. */
@@ -854,9 +866,22 @@
     /* Sul telefono una colonna sola: nome, recapiti, ultima volta uno sotto
        l'altro. Con due colonne il nome andava a capo e i recapiti finivano
        accanto alla data, a 390 pixel non ci stanno. */
-    .cli-riga { grid-template-columns: auto 1fr; grid-template-areas: "ini chi" "ini dove" "ini quando"; padding: 12px 4px; }
-    .cli-riga .quando { text-align: left; white-space: normal; }
-    .cli-riga .quando small { display: inline; }
+    /* ⚠️ Sul telefono cinque colonne in fila non ci stanno (era il motivo per
+       cui qui c'era un elenco e non una tabella): ogni riga diventa un blocco,
+       nome e cognome sopra, i recapiti sotto, le prenotazioni a destra. I
+       titoli restano in alto, e si toccano per mettere in ordine. */
+    .cli-tabella thead tr { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+    .cli-tabella thead th { border: 0; padding: 4px 0; }
+    .cli-tabella thead { display: block; border-bottom: 1px solid var(--bordo); }
+    .cli-tabella tbody tr { display: grid; grid-template-columns: 1fr auto; column-gap: 10px;
+      border-bottom: 1px solid var(--bordo); padding: 10px 2px; }
+    .cli-tabella tbody td { border: 0; padding: 0; }
+    .cli-tabella tbody td.cli-cognome { display: none; }
+    .cli-tabella .cli-solo-telefono { display: inline; }
+    .cli-tabella tbody td.cli-chi { grid-column: 1; }
+    .cli-tabella tbody td.n { grid-column: 2; grid-row: 1 / span 3; align-self: center; }
+    .cli-tabella tbody td.cli-email, .cli-tabella tbody td.cli-tel { grid-column: 1; font-size: .84rem; color: var(--grigio); }
+    .cli-tabella tbody td.cli-email:empty, .cli-tabella tbody td.cli-tel:empty { display: none; }
     .cli-riga .quando small::before { content: ' · '; }
     .cli-tasti #cli-elimina { margin-left: 0; }
     .cli-x { width: 44px; height: 44px; }
@@ -1688,19 +1713,19 @@
       <div class="scorri">
         <table>
           <thead><tr>
-            <th class="ordinabile" data-ordina="nome">Nome <span class="frecciaOrd"></span></th>
-            <th class="ordinabile" data-ordina="cognome">Cognome <span class="frecciaOrd"></span></th>
-            <th>Email</th>
-            <th>Telefono</th>
+            <th data-ordina="nome" aria-sort="ascending"><button type="button" class="ordina">Nome</button></th>
+            <th data-ordina="cognome" aria-sort="none"><button type="button" class="ordina">Cognome</button></th>
+            <th data-ordina="email" aria-sort="none"><button type="button" class="ordina">Email</button></th>
+            <th data-ordina="telefono" aria-sort="none"><button type="button" class="ordina">Telefono</button></th>
             <th></th>
           </tr></thead>
           <tbody id="tabella-contatti"></tbody>
         </table>
       </div>
       <p id="contatti-vuoto" class="vuoto" style="display:none">La rubrica è vuota: usa «➕ Aggiungi contatto» o importa un CSV.</p>
-      <div id="paginazione" style="display:none;align-items:center;justify-content:space-between;gap:12px;margin-top:14px">
+      <div id="paginazione" class="pagine" style="display:none">
         <span class="conteggio" id="pagina-info" style="margin:0"></span>
-        <span style="display:flex;gap:8px">
+        <span class="pagine-tasti">
           <button class="btn btn-secondario btn-piccolo" id="pagina-prec">← Precedente</button>
           <button class="btn btn-secondario btn-piccolo" id="pagina-succ">Successiva →</button>
         </span>
@@ -1769,8 +1794,8 @@
         <button class="btn btn-secondario btn-piccolo" onclick="vaiScheda('storico')">Vedi tutta la cronologia</button>
       </div>
       <div class="scorri">
-        <table>
-          <thead><tr><th>Data</th><th>Nome</th><th>Canale</th><th>Inviati</th><th>Stato</th></tr></thead>
+        <table class="tab-ordinabile">
+          <thead><tr><th aria-sort="none"><button type="button" class="ordina">Data</button></th><th aria-sort="none"><button type="button" class="ordina">Nome</button></th><th aria-sort="none"><button type="button" class="ordina">Canale</button></th><th aria-sort="none"><button type="button" class="ordina">Inviati</button></th><th aria-sort="none"><button type="button" class="ordina">Stato</button></th></tr></thead>
           <tbody id="dash-recenti"></tbody>
         </table>
       </div>
@@ -1992,12 +2017,15 @@
              lo aspetta? -->
         <div id="pren-attese" class="conteggio" style="margin:0 0 10px;display:none"></div>
         <div class="scorri">
-          <table class="tab-servizio" style="width:100%;border-collapse:collapse;font-size:.92rem">
+          <!-- In ordine DENTRO ogni turno: le righe dell'ora restano dove sono. -->
+          <table class="tab-servizio tab-ordinabile" style="width:100%;border-collapse:collapse;font-size:.92rem">
             <thead>
               <tr style="text-align:left;color:var(--grigio);font-size:.78rem;text-transform:uppercase;letter-spacing:.05em">
-                <th style="padding:8px">Nome</th>
-                <th style="padding:8px">Pers.</th><th style="padding:8px">Tavolo</th><th style="padding:8px">Note</th>
-                <th style="padding:8px">Stato</th><th style="padding:8px"></th>
+                <th style="padding:8px" aria-sort="none"><button type="button" class="ordina">Nome</button></th>
+                <th style="padding:8px" aria-sort="none"><button type="button" class="ordina">Pers.</button></th>
+                <th style="padding:8px" aria-sort="none"><button type="button" class="ordina">Tavolo</button></th>
+                <th style="padding:8px" aria-sort="none"><button type="button" class="ordina">Note</button></th>
+                <th style="padding:8px" aria-sort="none"><button type="button" class="ordina">Stato</button></th><th style="padding:8px"></th>
               </tr>
             </thead>
             <tbody id="pren-righe"></tbody>
@@ -2423,14 +2451,43 @@
           <span id="cli-conto" class="conteggio" style="margin:0"></span>
         </div>
         <p class="conteggio" style="margin:0 0 10px">
-          Chi ha prenotato almeno una volta, dall'ultima visita in giù. Tocca un nome per la sua
+          Chi ha prenotato almeno una volta, dall'ultima visita in giù: tocca il titolo di una colonna per metterli
+          in ordine (una volta dalla A alla Z, la seconda al contrario). Tocca una riga per la sua
           scheda: le prenotazioni, le cose da ricordare, le richieste che ha fatto, e i tasti per
           correggere il nome, metterlo in rubrica — uno per uno, perché chi prenota un tavolo non ha
           chiesto le novità del locale — o eliminarlo, così il bot non se ne ricorda più. La scheda
           si apre anche dal nome su una prenotazione qualsiasi.
         </p>
         <input id="cli-cerca" type="search" autocomplete="off" placeholder="nome, cognome, numero o email…" style="max-width:420px">
-        <div id="cli-elenco" style="margin-top:10px"></div>
+        <!-- LA TABELLA (23 novembre 2026, dal titolare): Nome, Cognome, Email,
+             Telefono, Prenotazioni. Una pagina alla volta, e ogni titolo mette
+             in ordine. Sul telefono ogni riga diventa un blocco (vedi il CSS). -->
+        <div id="cli-elenco" style="margin-top:10px">
+          <div class="scorri">
+            <table class="cli-tabella">
+              <thead><tr>
+                <th data-cli-ordina="nomeProprio" aria-sort="none"><button type="button" class="ordina">Nome</button></th>
+                <th data-cli-ordina="cognome" aria-sort="none"><button type="button" class="ordina">Cognome</button></th>
+                <th data-cli-ordina="email" aria-sort="none"><button type="button" class="ordina">Email</button></th>
+                <th data-cli-ordina="telefono" aria-sort="none"><button type="button" class="ordina">Telefono</button></th>
+                <th data-cli-ordina="prenotazioni" class="n" aria-sort="none"><button type="button" class="ordina">Prenotazioni</button></th>
+              </tr></thead>
+              <tbody id="cli-tabella-corpo"></tbody>
+            </table>
+          </div>
+          <p id="cli-vuoto" class="conteggio" style="margin:10px 0 0" hidden></p>
+          <div id="cli-pagine" class="pagine" hidden>
+            <span class="conteggio" id="cli-pagina-info" style="margin:0"></span>
+            <span class="pagine-tasti">
+              <label class="conteggio" style="margin:0;display:inline-flex;align-items:center;gap:6px">Per pagina
+                <select id="cli-per-pagina" autocomplete="off">
+                  <option value="25">25</option><option value="50" selected>50</option><option value="100">100</option>
+                </select></label>
+              <button class="btn btn-secondario btn-piccolo" id="cli-prec" type="button">← Precedente</button>
+              <button class="btn btn-secondario btn-piccolo" id="cli-succ" type="button">Successiva →</button>
+            </span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -3170,8 +3227,8 @@
         <button class="btn btn-secondario btn-piccolo filtro-canale" data-canale="email">✉️ Newsletter</button>
       </div>
       <div class="scorri">
-        <table>
-          <thead><tr><th>Data</th><th>Nome</th><th>Inviati</th><th>Errori</th><th>Stato</th><th></th></tr></thead>
+        <table class="tab-ordinabile">
+          <thead><tr><th aria-sort="none"><button type="button" class="ordina">Data</button></th><th aria-sort="none"><button type="button" class="ordina">Nome</button></th><th aria-sort="none"><button type="button" class="ordina">Inviati</button></th><th aria-sort="none"><button type="button" class="ordina">Errori</button></th><th aria-sort="none"><button type="button" class="ordina">Stato</button></th><th></th></tr></thead>
           <tbody id="tabella-campagne"></tbody>
         </table>
       </div>
@@ -3538,9 +3595,9 @@ async function caricaDashboard() {
     $('#dash-recenti').innerHTML = d.recenti.map((c) => `
       <tr>
         <td style="white-space:nowrap">${c.created_at.replace('T', ' ').slice(0, 16)}</td>
-        <td>${c.alias ? '<b>' + esc(c.alias) + '</b>' : '<span style="color:var(--grigio)">—</span>'}</td>
+        <td${c.alias ? '' : ' data-ordine=""'}>${c.alias ? '<b>' + esc(c.alias) + '</b>' : '<span style="color:var(--grigio)">—</span>'}</td>
         <td>${c.channel === 'email' ? 'Newsletter' : 'WhatsApp'}</td>
-        <td>${c.sent}/${c.total}</td>
+        <td data-ordine="${c.sent}">${c.sent}/${c.total}</td>
         <td><span class="etichetta ${c.status}">${etichettaStato(c.status)}</span></td>
       </tr>`).join('');
   }
@@ -4029,7 +4086,7 @@ async function caricaContatti() {
 
 const PER_PAGINA = 100;
 let paginaRubrica = 1;
-let ordinaPer = 'nome';        // nome | cognome
+let ordinaPer = 'nome';        // nome | cognome | email | telefono
 let ordinaVerso = 'asc';       // asc (A→Z) | desc (Z→A)
 
 function etichettaStato(s) {
@@ -4046,17 +4103,13 @@ function disegnaContatti() {
     (c.nome + ' ' + c.cognome + ' ' + c.email + ' ' + c.telefono).toLowerCase().includes(filtro)
   );
 
-  // ordinamento alfabetico italiano, indifferente a maiuscole e accenti
-  righe.sort((a, b) => {
-    const conf = String(a[ordinaPer] || '').localeCompare(String(b[ordinaPer] || ''), 'it', { sensitivity: 'base' });
-    return ordinaVerso === 'asc' ? conf : -conf;
-  });
+  // ordinamento alfabetico italiano, indifferente a maiuscole e accenti; i
+  // vuoti in fondo in tutti e due i versi (vedi `confrontaPerOrdine`)
+  righe.sort((a, b) => confrontaPerOrdine(a[ordinaPer], b[ordinaPer], ordinaVerso === 'asc'));
 
-  // aggiorna le frecce nelle intestazioni
-  document.querySelectorAll('th.ordinabile').forEach((th) => {
-    const attivo = th.dataset.ordina === ordinaPer;
-    th.querySelector('.frecciaOrd').textContent = attivo ? (ordinaVerso === 'asc' ? '▲' : '▼') : '';
-    th.style.color = attivo ? 'var(--verde-testo)' : '';
+  // la freccia sul titolo della colonna che decide l'ordine
+  document.querySelectorAll('#scheda-rubrica th[data-ordina]').forEach((th) => {
+    th.setAttribute('aria-sort', th.dataset.ordina === ordinaPer ? (ordinaVerso === 'asc' ? 'ascending' : 'descending') : 'none');
   });
 
   const pagineTotali = Math.max(1, Math.ceil(righe.length / PER_PAGINA));
@@ -4212,9 +4265,10 @@ $('#btn-canc-controlla').addEventListener('click', (e) => controllaCancellazioni
 $('#btn-controlla-cancellazioni').addEventListener('click', (e) => controllaCancellazioniOra(e.currentTarget));
 
 // Pulsante «non contattare» (delega: i nomi con apostrofo romperebbero un onclick inline)
-// Click sulle intestazioni Nome/Cognome: A→Z, poi Z→A
-document.querySelectorAll('th.ordinabile').forEach((th) => {
-  th.addEventListener('click', () => {
+// Click sulle intestazioni Nome/Cognome/Email/Telefono: A→Z, poi Z→A
+document.querySelectorAll('#scheda-rubrica th[data-ordina] > button.ordina').forEach((b) => {
+  const th = b.parentElement;
+  b.addEventListener('click', () => {
     const campo = th.dataset.ordina;
     if (ordinaPer === campo) {
       ordinaVerso = ordinaVerso === 'asc' ? 'desc' : 'asc';
@@ -4233,6 +4287,91 @@ $('#pagina-prec').addEventListener('click', () => {
 $('#pagina-succ').addEventListener('click', () => {
   paginaRubrica++; disegnaContatti(); window.scrollTo({ top: 0, behavior: 'smooth' });
 });
+
+// ---- Le tabelle in ordine (23 novembre 2026, dal titolare) ----
+// Il confronto di tutte: in italiano, senza badare a maiuscole e accenti, coi
+// numeri dentro il testo letti come numeri («12/40» dopo «3/10», «Tavolo 10»
+// dopo «Tavolo 9»). ⚠️ I vuoti vanno IN FONDO in tutti e due i versi: con lo
+// Z→A una colonna di email mezze vuote cominciava con venti righe bianche, e
+// sembrava che l'elenco si fosse svuotato.
+const ORDINE_IT = new Intl.Collator('it', { numeric: true, sensitivity: 'base' });
+function confrontaPerOrdine(a, b, asc = true) {
+  const x = a == null ? '' : String(a).trim();
+  const y = b == null ? '' : String(b).trim();
+  if (!x || !y) return (!x) - (!y);
+  const nx = Number(x), ny = Number(y);
+  const conf = Number.isFinite(nx) && Number.isFinite(ny) ? nx - ny : ORDINE_IT.compare(x, y);
+  return asc ? conf : -conf;
+}
+// Le tabelle che la pagina disegna TUTTE insieme (gli ultimi invii, la
+// cronologia, le prenotazioni del giorno, i numeri del report) si ordinano qui,
+// spostando le righe già disegnate: basta la classe `tab-ordinabile` e un
+// `<button class="ordina">` nel titolo. Rubrica e Clienti NO: vanno a pagine,
+// e l'ordine va dato a tutto l'elenco, non alle cento righe che si vedono —
+// lo fanno da sé, coi dati.
+// Cosa si confronta in una cella: `data-ordine` se c'è (una data scritta
+// «settimana del 3 novembre» si ordina con la sua chiave), la voce scelta di
+// una tendina (lo stato), il contenuto di un campo (il tavolo), sennò il testo.
+function chiaveDellaCella(td) {
+  if (!td) return '';
+  if (td.dataset.ordine !== undefined) return td.dataset.ordine;
+  const scelta = td.querySelector('select');
+  if (scelta && scelta.selectedIndex >= 0) return scelta.options[scelta.selectedIndex].text;
+  const campo = td.querySelector('input:not([type="hidden"])');
+  if (campo) return campo.value;
+  return td.textContent.replace(/\s+/g, ' ').trim();
+}
+// ⚠️ Le righe dell'ora (`riga-turno`) restano dove sono: le prenotazioni si
+// ordinano DENTRO il loro turno. Ordinate tutte insieme, le 20:30 si
+// sarebbero mescolate alle 19:30 e le righe dell'ora sarebbero finite in fondo.
+function ordinaRighe(tabella) {
+  const col = Number(tabella.dataset.ordinaCol);
+  if (!Number.isInteger(col) || tabella.dataset.ordinaCol === undefined) return;
+  const asc = tabella.dataset.ordinaVerso !== 'desc';
+  tabella.querySelectorAll('thead th').forEach((th, i) => {
+    if (th.hasAttribute('aria-sort')) th.setAttribute('aria-sort', i === col ? (asc ? 'ascending' : 'descending') : 'none');
+  });
+  for (const corpo of tabella.tBodies) {
+    const tutte = [...corpo.rows];
+    const gruppi = [[]];
+    for (const r of tutte) {
+      if (r.classList.contains('riga-turno') || r.cells.length < 2) gruppi.push([r], []);
+      else gruppi[gruppi.length - 1].push(r);
+    }
+    const ordinate = gruppi.flatMap((g) => (g.length > 1 || (g[0] && !g[0].classList.contains('riga-turno') && g[0].cells.length >= 2)
+      ? [...g].sort((a, b) => confrontaPerOrdine(chiaveDellaCella(a.cells[col]), chiaveDellaCella(b.cells[col]), asc)) : g));
+    if (ordinate.every((r, i) => r === tutte[i])) continue;
+    corpo.append(...ordinate);
+  }
+}
+document.addEventListener('click', (e) => {
+  const tasto = e.target.closest('table.tab-ordinabile thead th[aria-sort] > button.ordina');
+  if (!tasto) return;
+  const th = tasto.parentElement;
+  const tabella = th.closest('table');
+  const col = [...th.parentElement.children].indexOf(th);
+  const stessa = tabella.dataset.ordinaCol === String(col);
+  tabella.dataset.ordinaCol = String(col);
+  tabella.dataset.ordinaVerso = stessa && tabella.dataset.ordinaVerso !== 'desc' ? 'desc' : 'asc';
+  ordinaRighe(tabella);
+});
+// ⚠️ Le tabelle che si ridisegnano da sole (la cronologia ogni pochi secondi
+// mentre un invio è in corso, il servizio a ogni modifica) perdevano l'ordine
+// appena scelto. Si riapplica a ogni ridisegno; mentre si spostano le righe
+// l'osservatore si stacca, sennò si richiamerebbe da solo all'infinito.
+function tieniInOrdine(corpo) {
+  const tabella = corpo && corpo.closest('table');
+  if (!tabella) return;
+  const osserva = new MutationObserver(() => {
+    if (tabella.dataset.ordinaCol === undefined) return;
+    osserva.disconnect();
+    ordinaRighe(tabella);
+    osserva.takeRecords();
+    osserva.observe(corpo, { childList: true });
+  });
+  osserva.observe(corpo, { childList: true });
+}
+['#dash-recenti', '#tabella-campagne', '#pren-righe'].forEach((id) => tieniInOrdine($(id)));
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -5120,8 +5259,8 @@ function disegnaCampagne() {
     return `
     <tr>
       <td style="white-space:nowrap">${c.created_at.replace('T', ' ').slice(0, 16)}</td>
-      <td>${c.alias ? '<b>' + esc(c.alias) + '</b>' : '<span style="color:var(--grigio)">—</span>'}</td>
-      <td>${c.sent}/${c.total}</td>
+      <td${c.alias ? '' : ' data-ordine=""'}>${c.alias ? '<b>' + esc(c.alias) + '</b>' : '<span style="color:var(--grigio)">—</span>'}</td>
+      <td data-ordine="${c.sent}">${c.sent}/${c.total}</td>
       <td>${c.failed ? '<b style="color:var(--rosso)">' + c.failed + '</b>' : '0'}</td>
       <td>
         <span class="etichetta ${c.status}">${etichettaStato(c.status)}</span>
@@ -7257,7 +7396,10 @@ function esperienzeScelte(voci, totale) {
 
 // I clienti più presenti: una tabella corta, coi nomi — sono loro i numeri.
 function tabellaFedeli(voci) {
-  return `<table class="rep-tabella"><thead><tr><th>Cliente</th><th class="n">Prenotazioni</th><th class="n">Coperti</th></tr></thead>
+  return `<table class="rep-tabella tab-ordinabile"><thead><tr><th aria-sort="none"><button type="button" class="ordina">Cliente</button></th>`
+    + `<th class="n" aria-sort="none"><button type="button" class="ordina">Prenotazioni</button></th>`
+    + `<th class="n" aria-sort="none"><button type="button" class="ordina">Coperti</button></th></tr></thead>`
+    + `
     <tbody>${voci.map((v) => `<tr><td>${testoSicuro(v.nome)}</td><td class="n">${v.prenotazioni}</td><td class="n">${v.coperti}</td></tr>`).join('')}</tbody></table>`;
 }
 
@@ -7284,8 +7426,10 @@ function serieNelTempo(serie) {
     + `</div>
     <button type="button" class="btn btn-secondario rep-numeri" style="margin-top:10px;padding:4px 11px;font-size:.82rem">Vedi i numeri</button>
     <div class="rep-numeri-box" style="display:none;margin-top:10px">
-      <table class="rep-tabella"><thead><tr><th>Quando</th><th class="n">Coperti</th><th class="n">Prenotazioni</th></tr></thead>
-      <tbody>${punti.map((p) => `<tr><td>${testoSicuro(etichetta(p))}</td>
+      <table class="rep-tabella tab-ordinabile"><thead><tr><th aria-sort="none"><button type="button" class="ordina">Quando</button></th>
+        <th class="n" aria-sort="none"><button type="button" class="ordina">Coperti</button></th>
+        <th class="n" aria-sort="none"><button type="button" class="ordina">Prenotazioni</button></th></tr></thead>
+      <tbody>${punti.map((p) => `<tr><td data-ordine="${testoSicuro(p.chiave)}">${testoSicuro(etichetta(p))}</td>
         <td class="n">${p.coperti}</td><td class="n">${p.prenotazioni}</td></tr>`).join('')}</tbody></table>
     </div>`;
 }
@@ -7839,53 +7983,107 @@ async function caricaElencoClienti() {
   disegnaElencoClienti();
 }
 
-$('#cli-cerca').addEventListener('input', disegnaElencoClienti);
+$('#cli-cerca').addEventListener('input', () => { paginaClienti = 1; disegnaElencoClienti(); });
 
+// ⚠️ LA TABELLA (23 novembre 2026, dal titolare): «la sezione clienti con la
+// tabella con Nome, Cognome, Email, Telefono, Prenotazioni; un massimo per
+// pagina, e poi cambiare pagina; e la possibilità di mettere in ordine A-Z».
+// Prima era un elenco a righe larghe, pensato per il dito: sul telefono la
+// tabella diventa di nuovo un blocco per persona (vedi il CSS), sul computer
+// è una tabella vera.
+// L'ordine di partenza resta quello di prima — dall'ultima visita in giù —
+// finché non si tocca un titolo: chi è venuto ieri è quello da cercare.
+// Toccato un titolo: A→Z (o dal numero più piccolo), toccato di nuovo Z→A.
+let paginaClienti = 1;
+let ordineClienti = null;           // null = dall'ultima visita | { campo, asc }
+function perPaginaClienti() {
+  const n = parseInt($('#cli-per-pagina').value, 10);
+  return [25, 50, 100].includes(n) ? n : 50;
+}
 function disegnaElencoClienti() {
-  const box = $('#cli-elenco');
   const filtro = $('#cli-cerca').value.trim().toLowerCase();
   const cifre = filtro.replace(/\D/g, '');
   const righe = clientiTutti.filter((c) => !filtro
     || `${c.nome} ${c.email || ''}`.toLowerCase().includes(filtro)
     || (cifre.length >= 3 && String(c.telefono || '').replace(/\D/g, '').includes(cifre)));
-  // Dall'ultima visita in giù: chi è venuto ieri prima di chi è venuto un anno
-  // fa. Chi non è ancora venuto (solo prenotazioni in arrivo, o solo annullate)
-  // sta in fondo — non è ancora un cliente da richiamare.
-  righe.sort((a, b) => (b.ultima || '').localeCompare(a.ultima || '')
-    || (b.prossima || '').localeCompare(a.prossima || '') || a.nome.localeCompare(b.nome, 'it'));
+  if (ordineClienti) {
+    const { campo, asc } = ordineClienti;
+    righe.sort((a, b) => confrontaPerOrdine(a[campo], b[campo], asc) || a.nome.localeCompare(b.nome, 'it'));
+  } else {
+    // Dall'ultima visita in giù: chi è venuto ieri prima di chi è venuto un anno
+    // fa. Chi non è ancora venuto (solo prenotazioni in arrivo, o solo annullate)
+    // sta in fondo — non è ancora un cliente da richiamare.
+    righe.sort((a, b) => (b.ultima || '').localeCompare(a.ultima || '')
+      || (b.prossima || '').localeCompare(a.prossima || '') || a.nome.localeCompare(b.nome, 'it'));
+  }
+  document.querySelectorAll('#sotto-clienti th[data-cli-ordina]').forEach((th) => {
+    th.setAttribute('aria-sort', ordineClienti && ordineClienti.campo === th.dataset.cliOrdina
+      ? (ordineClienti.asc ? 'ascending' : 'descending') : 'none');
+  });
   const inRubrica = clientiTutti.filter((c) => c.inRubrica).length;
   const inArrivo = clientiTutti.filter((c) => c.prossima).length;
   $('#cli-conto').textContent = clientiTutti.length
     ? `${clientiTutti.length} clienti · ${inRubrica} in rubrica${inArrivo ? ` · ${inArrivo} in arrivo` : ''}`
       + `${filtro ? ` · ${righe.length} trovati` : ''}` : '';
+  // ⚠️ NON «cli-righe»: è lo storico dentro la scheda del cliente. Con lo
+  // stesso nome la scheda scriveva le prenotazioni qui dentro (lo ha preso la
+  // prova «nessun identificativo usato due volte»).
+  const corpo = $('#cli-tabella-corpo');
+  const vuoto = $('#cli-vuoto');
+  const pagine = $('#cli-pagine');
   // «Nessuno» va detto: un riquadro vuoto sembra un guasto.
-  if (!clientiTutti.length) {
-    box.innerHTML = '<span class="conteggio" style="margin:0">Nessuna prenotazione ancora: l\'elenco si riempie da solo.</span>';
+  if (!clientiTutti.length || !righe.length) {
+    corpo.innerHTML = '';
+    pagine.hidden = true;
+    vuoto.hidden = false;
+    vuoto.textContent = !clientiTutti.length
+      ? 'Nessuna prenotazione ancora: l\'elenco si riempie da solo.'
+      : 'Nessuno con questo nome, numero o email.';
     return;
   }
-  if (!righe.length) {
-    box.innerHTML = '<span class="conteggio" style="margin:0">Nessuno con questo nome, numero o email.</span>';
-    return;
-  }
-  // A destra: quando è venuto l'ultima volta (o quando arriva), e sotto
-  // quante volte ha prenotato. Un tavolo in arrivo si dice anche a chi è già
-  // venuto: è la notizia che serve stasera.
-  box.innerHTML = righe.map((c) => {
-    const arriva = c.prossima ? `in arrivo ${dataStoricaUI(c.prossima)}` : '';
-    const quando = c.ultima ? tempoFa(c.ultima) : (arriva || (c.prenotazioni ? 'mai venuto' : ''));
-    const sotto = [c.ultima && arriva ? arriva : '',
-      `${c.prenotazioni} ${c.prenotazioni === 1 ? 'prenotazione' : 'prenotazioni'}`].filter(Boolean).join(' · ');
-    const recapiti = [c.telefono ? numeroBello(c.telefono) : '', c.email].filter(Boolean).join(' · ');
+  vuoto.hidden = true;
+  const quanti = perPaginaClienti();
+  const totali = Math.max(1, Math.ceil(righe.length / quanti));
+  if (paginaClienti > totali) paginaClienti = totali;
+  if (paginaClienti < 1) paginaClienti = 1;
+  const inizio = (paginaClienti - 1) * quanti;
+  const visibili = righe.slice(inizio, inizio + quanti);
+  corpo.innerHTML = visibili.map((c) => {
+    // Nome e cognome come li ha lasciati; chi ha scritto solo il nome (o
+    // nessuno dei due) si legge dal nome intero della voce.
+    const nome = c.nomeProprio || (c.cognome ? '' : (c.nome !== '—' ? c.nome : ''));
+    const prossima = c.prossima ? `in arrivo ${dataStoricaUI(c.prossima)}` : '';
     return `
-    <button type="button" class="cli-riga" data-scheda="${c.id}">
-      <span class="cli-iniziali" aria-hidden="true">${testoSicuro(iniziali(c.nome))}</span>
-      <span class="chi">${testoSicuro(c.nome)}${segnoRubrica(c.inRubrica)}</span>
-      <span class="dove">${testoSicuro(recapiti) || 'senza numero né email'}</span>
-      <span class="quando${c.prossima ? ' arriva' : ''}"><b>${testoSicuro(quando)}</b><small>${testoSicuro(sotto)}</small></span>
-    </button>`;
+    <tr data-scheda="${c.id}">
+      <td class="cli-chi"><button type="button" class="cli-nome" data-scheda="${c.id}">${testoSicuro(nome || c.cognome || 'senza nome')}`
+      + `<span class="cli-solo-telefono">${c.cognome && nome ? ' ' + testoSicuro(c.cognome) : ''}</span></button>`
+      + `${segnoRubrica(c.inRubrica)}${prossima ? `<span class="cli-segno">${testoSicuro(prossima)}</span>` : ''}</td>
+      <td class="cli-cognome">${testoSicuro(nome ? c.cognome : '')}</td>
+      <td class="cli-email">${testoSicuro(c.email || '')}</td>
+      <td class="cli-tel">${c.telefono ? testoSicuro(numeroBello(c.telefono)) : ''}</td>
+      <td class="n">${c.prenotazioni}</td>
+    </tr>`;
   }).join('');
-  box.querySelectorAll('.cli-riga').forEach((b) => b.addEventListener('click', () => apriScheda(b.dataset.scheda)));
+  corpo.querySelectorAll('tr[data-scheda]').forEach((tr) => tr.addEventListener('click', () => apriScheda(tr.dataset.scheda)));
+  // La barra compare appena serve: più d'una pagina, o abbastanza clienti da
+  // poter scegliere quanti vederne (25 è il meno).
+  pagine.hidden = righe.length <= 25;
+  $('#cli-pagina-info').textContent = `Da ${inizio + 1} a ${inizio + visibili.length} di ${righe.length} · pagina ${paginaClienti} di ${totali}`;
+  $('#cli-prec').disabled = paginaClienti <= 1;
+  $('#cli-succ').disabled = paginaClienti >= totali;
 }
+document.querySelectorAll('#sotto-clienti th[data-cli-ordina] > button.ordina').forEach((b) => {
+  b.addEventListener('click', () => {
+    const campo = b.parentElement.dataset.cliOrdina;
+    ordineClienti = ordineClienti && ordineClienti.campo === campo ? { campo, asc: !ordineClienti.asc } : { campo, asc: true };
+    paginaClienti = 1;
+    disegnaElencoClienti();
+  });
+});
+$('#cli-per-pagina').addEventListener('change', () => { paginaClienti = 1; disegnaElencoClienti(); });
+const salitaAiClienti = () => $('#sotto-clienti').scrollIntoView({ behavior: 'smooth', block: 'start' });
+$('#cli-prec').addEventListener('click', () => { paginaClienti -= 1; disegnaElencoClienti(); salitaAiClienti(); });
+$('#cli-succ').addEventListener('click', () => { paginaClienti += 1; disegnaElencoClienti(); salitaAiClienti(); });
 
 // Il segno accanto al nome, nell'elenco e in cima alla scheda: una parola, non
 // un colore. Chi ha chiesto di non ricevere messaggi lo si vede prima di
