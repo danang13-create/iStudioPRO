@@ -1001,6 +1001,17 @@
   .esp-giorni input { width: auto; margin: 0; }
   .esp select, .esp textarea { max-width: 100%; }
   .esp-anteprima { font-size: .88rem; color: var(--grigio); margin: 8px 0 0; }
+  /* Le festività (scheda Orari): una card per festività, come le esperienze. */
+  .festa-date { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; margin-top: 10px; }
+  .festa-date label { margin: 0; }
+  .festa-date input[type="date"] { width: auto; min-width: 150px; }
+  .festa-date .festa-ogni { display: inline-flex; align-items: center; gap: 6px; font-weight: 400; cursor: pointer; padding-bottom: 8px; }
+  .festa-date .festa-ogni input { width: auto; margin: 0; }
+  .festa-sv { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--bordo); }
+  .festa-sv > b { display: block; font-size: .92rem; margin-bottom: 6px; }
+  .festa-sv .turno { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .festa-sv .turno-n { color: var(--grigio); font-size: .82rem; min-width: 58px; }
+  .festa-sv .festa-chiuso { color: var(--grigio); font-size: .88rem; margin: 0 0 6px; }
   /* Il menu SUO dell'esperienza: il file caricato qui, oppure un collegamento. */
   .esp-suo { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px;
     padding: 10px; border: 1px dashed var(--bordo); border-radius: 8px; }
@@ -1196,7 +1207,7 @@
   /* Testo e non «type=time»: quel campo segue la lingua del computer, e su
      uno in inglese diventa «07:30 PM», tagliato a metà. Tutta la pagina scrive
      le ore come «19:30», e qui si fa lo stesso. */
-  #pren-fasce input.ora-fascia { width: 76px; flex: 0 0 auto; text-align: center; font-variant-numeric: tabular-nums; }
+  #pren-fasce input.ora-fascia, #festivita-elenco input.ora-fascia { width: 76px; flex: 0 0 auto; text-align: center; font-variant-numeric: tabular-nums; }
   #pren-fasce input.storta { border-color: var(--male-testo); }
   #pren-fasce .freccia { color: var(--grigio); }
   .fg-azioni { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -2084,6 +2095,26 @@
         <div class="barra-salva">
           <button class="btn" id="slot-salva">Salva gli orari da prenotare</button>
           <span id="slot-salvato" class="conteggio" style="margin:0;align-self:center"></span>
+        </div>
+      </div>
+
+      <!-- LE FESTIVITÀ (23 novembre 2026): giorni con orari ed esperienze
+           diversi dal solito. Per le loro date prendono il posto del giorno
+           della settimana. Vedi «Le festività» in bot-prenotazioni.js. -->
+      <div class="card" id="pren-card-festivita">
+        <h2 style="font-size:1rem;margin:0 0 6px">Festività</h2>
+        <p class="conteggio" style="margin:0 0 12px">
+          I giorni in cui il locale <b>non segue gli orari di sempre</b>: Natale solo a pranzo, il cenone con un turno
+          solo, un lunedì di festa aperto anche se di lunedì si chiude. Per quelle date valgono <b>i turni scritti qui</b>
+          al posto di quelli del giorno della settimana, e le <b>esperienze spuntate qui</b>: se non ne spunti nessuna,
+          quel giorno si prenota solo il tavolo. Senza nessun turno, quel giorno il locale è chiuso.
+          «Ogni anno» la tiene per sempre (Natale); senza, vale solo per le date scritte (Pasqua).
+        </p>
+        <div id="festivita-elenco"></div>
+        <div class="barra-salva">
+          <button class="btn btn-secondario" id="festivita-aggiungi" type="button">+ Aggiungi una festività</button>
+          <button class="btn" id="festivita-salva">Salva le festività</button>
+          <span id="festivita-salvato" class="conteggio" style="margin:0;align-self:center"></span>
         </div>
       </div>
 
@@ -7916,6 +7947,7 @@ async function caricaConfigBot() {
   mostraFasce(d);
   mostraSlot(d);
   mostraEsperienze(d);
+  mostraFestivita(d);
   mostraLocali(d);
   caricaTavoli();
   // ⚠️ SESSANTADUE CASELLE IN FILA SONO TREDICIMILA PIXEL. Misurato in un
@@ -8268,6 +8300,7 @@ async function salvaConfigBot(doveDirlo) {
   if (slotToccati && slotUI) corpo.bot_slot = JSON.stringify(slotDaSalvare());
   // Le esperienze, stessa regola: partono solo se toccate.
   if (esperienzeToccate) corpo.bot_esperienze = JSON.stringify(esperienzeDaSalvare());
+  if (festivitaToccate) corpo.bot_festivita = JSON.stringify(festivitaDaSalvare());
   // I locali, stessa regola.
   if (localiToccati) corpo.bot_locali = JSON.stringify(localiDaSalvare());
   const r = await fetch('/api/bot/impostazioni', {
@@ -8302,6 +8335,7 @@ async function salvaConfigBot(doveDirlo) {
   if (r.ok && d.fasce) { fasceToccate = false; mostraFasce(d); }
   if (r.ok && d.slot) { slotToccati = false; mostraSlot(d); }
   if (r.ok && d.esperienze) { esperienzeToccate = false; mostraEsperienze(d); }
+  if (r.ok && d.festivita) { festivitaToccate = false; mostraFestivita(d); }
   if (r.ok && d.locali) { localiToccati = false; mostraLocali(d); }
   // L'indirizzo da scrivere sul tablet cambia insieme all'interruttore.
   if (d.impostazioni) mostraIndirizzoSala(d.impostazioni);
@@ -8948,6 +8982,13 @@ function chiusiDettiUI(e) {
 const propostaDalBot = (e) => !!e.nome.trim() && !!quandoDettoUI(giorniApertiUI(e));
 function anteprimaEsperienza(e, i) {
   if (!e.nome.trim()) return 'Scrivi il nome: senza, questa esperienza non si salva.';
+  // Solo nelle festività: vale dove la si spunta, in «Orari e tavoli».
+  if (e.soloFeste) {
+    const feste = festivitaUI.filter((f) => f.esperienze.includes(e.nome.trim())).map((f) => f.nome.trim()).filter(Boolean);
+    return feste.length
+      ? `Il bot la propone a chi prenota per ${elencoConE(feste)}, e non negli altri giorni.`
+      : '⚠️ Non è spuntata in nessuna festività: il bot non la propone. Salvala, poi spuntala in «Orari e tavoli» → «Festività».';
+  }
   if (!quandoDettoUI(e)) return '⚠️ Nessun giorno spuntato: il bot la proporrebbe e poi direbbe «chiuso» a chi la sceglie.';
   const quando = quandoDettoUI(giorniApertiUI(e));
   if (!quando) return `⚠️ In «Orari e tavoli» il locale è chiuso ${chiusiDettiUI(e)}: il bot non la propone. Se riapri, torna a valere da sola.`;
@@ -8975,6 +9016,7 @@ function mostraEsperienze(d) {
     pranzo: [...(e.pranzo || [])].map(Number), cena: [...(e.cena || [])].map(Number),
     menu: e.menu || '', cappello: e.cappello || '',
     menuFile: e.menuFile || '', menuNome: e.menuNome || '', menuLink: e.menuLink || '',
+    soloFeste: e.soloFeste === true,
   }));
   const imp = d.impostazioni || {};
   menuSchedaAttivi = {
@@ -9007,8 +9049,9 @@ function disegnaEsperienze() {
     el.innerHTML = '<p class="conteggio" style="margin:0">Nessuna esperienza: il bot chiede subito per quante persone, come sempre.</p>';
     return;
   }
+  // «Solo nelle festività» spegne i giorni della settimana: lì non vale.
   const spunte = (e, servizio) => GIORNI_ESP.map(([g, l]) =>
-    `<label><input type="checkbox" data-servizio="${servizio}" data-giorno="${g}"${e[servizio].includes(g) ? ' checked' : ''}>${l}</label>`).join('');
+    `<label><input type="checkbox" data-servizio="${servizio}" data-giorno="${g}"${e[servizio].includes(g) ? ' checked' : ''}${e.soloFeste ? ' disabled' : ''}>${l}</label>`).join('');
   el.innerHTML = esperienzeUI.map((e, i) => `
     <div class="esp" data-i="${i}">
       <div class="esp-testa">
@@ -9024,6 +9067,7 @@ function disegnaEsperienze() {
       <div class="esp-giorni">
         <div><span>A pranzo</span>${spunte(e, 'pranzo')}</div>
         <div><span>A cena</span>${spunte(e, 'cena')}</div>
+        <div><span>Feste</span><label><input type="checkbox" data-solo-feste${e.soloFeste ? ' checked' : ''}>Vale solo nelle festività (il menu di Natale, il cenone)</label></div>
       </div>
       <label>Il suo menu, per chi scrive MENU
         <select data-campo="menu" autocomplete="off" style="width:auto">
@@ -9048,6 +9092,172 @@ function disegnaEsperienze() {
     </div>`).join('');
 }
 function esperienzeDaSalvare() { return esperienzeUI; }
+
+// ---- Le festività (scheda Orari) ----
+// Chiesto dal titolare (23 novembre 2026): «una sezione per le festività, che
+// avranno giorni e orari diversi». Una card per festività: il nome, le date,
+// i turni del pranzo e della cena (come quelli di un giorno della settimana),
+// volendo gli orari da prenotare, e le esperienze che valgono quel giorno.
+let festivitaUI = [];
+let festivitaToccate = false;
+const FESTA_SERVIZI = [['pranzo', 'Pranzo'], ['cena', 'Cena']];
+const oraDiFineUI = (a) => (a === '23:59' ? '00:00' : a);
+function mostraFestivita(d) {
+  festivitaUI = (d.festivita || []).map((f) => ({
+    nome: f.nome || '', dal: f.dal || '', al: f.al && f.al !== f.dal ? f.al : '', ogniAnno: f.ogniAnno === true,
+    pranzo: (f.fasce || []).filter((x) => x.servizio === 'pranzo').map((x) => ({ da: x.da, a: oraDiFineUI(x.a) })),
+    cena: (f.fasce || []).filter((x) => x.servizio === 'cena').map((x) => ({ da: x.da, a: oraDiFineUI(x.a) })),
+    slot: { pranzo: ((f.slot || {}).pranzo || []).join(', '), cena: ((f.slot || {}).cena || []).join(', ') },
+    esperienze: [...(f.esperienze || [])],
+  }));
+  disegnaFestivita();
+}
+// I nomi delle esperienze salvate: quelle che si possono spuntare.
+function nomiEsperienzeUI() {
+  return [...new Set(esperienzeUI.map((e) => e.nome.trim()).filter(Boolean))];
+}
+function giornoDettoFestaUI(iso, senzaAnno) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  return `${+m[3]} ${NOMI_MESI_UI[+m[2] - 1]}${senzaAnno ? '' : ' ' + m[1]}`;
+}
+// Cosa farà il bot in quei giorni, a parole. Comincia per ⚠️ se manca qualcosa.
+function anteprimaFestivita(f) {
+  if (!f.nome.trim()) return '⚠️ Scrivi il nome: senza, questa festività non si salva.';
+  if (!f.dal) return '⚠️ Scegli il giorno: senza, questa festività non si salva.';
+  const quando = f.al && f.al !== f.dal
+    ? `dal ${giornoDettoFestaUI(f.dal, f.ogniAnno)} al ${giornoDettoFestaUI(f.al, f.ogniAnno)}`
+    : `il ${giornoDettoFestaUI(f.dal, f.ogniAnno)}`;
+  const servizi = FESTA_SERVIZI.map(([s, nome]) => {
+    const turni = f[s].filter((t) => t.da && t.a);
+    return turni.length ? `${nome.toLowerCase()} ${turni.map((t) => `${t.da}–${t.a}`).join(' e ')}` : '';
+  }).filter(Boolean);
+  const ogni = f.ogniAnno ? ', ogni anno' : '';
+  if (!servizi.length) return `${f.nome.trim()}, ${quando}${ogni}: il locale è CHIUSO (nessun turno). Il bot lo dice a chi chiede quel giorno.`;
+  const valide = f.esperienze.filter((n) => nomiEsperienzeUI().includes(n));
+  const cosa = valide.length ? `si prenota ${elencoConE(valide.map((n) => `«${n}»`))}` : 'si prenota solo il tavolo, senza scegliere un\'esperienza';
+  return `${f.nome.trim()}, ${quando}${ogni}: ${servizi.join(', ')}. Quel giorno ${cosa}.`;
+}
+function disegnaFestivita() {
+  const el = $('#festivita-elenco');
+  if (!el) return;
+  if (!festivitaUI.length) {
+    el.innerHTML = '<p class="conteggio" style="margin:0">Nessuna festività: il locale segue sempre gli orari di apertura qui sopra.</p>';
+    return;
+  }
+  const nomi = nomiEsperienzeUI();
+  el.innerHTML = festivitaUI.map((f, i) => {
+    const servizi = FESTA_SERVIZI.map(([s, nome]) => {
+      const qui = `${f.nome.trim() || 'festività ' + (i + 1)}, ${nome.toLowerCase()}`;
+      const turni = f[s].map((t, k) => `<div class="turno">
+          <span class="turno-n">${k + 1}° turno</span>
+          ${campoOra(t.da, `data-turno="${k}" data-campo-ora="da"`, `${qui}, inizio del ${k + 1}° turno`)}
+          <span class="freccia" aria-hidden="true">→</span>
+          ${campoOra(t.a, `data-turno="${k}" data-campo-ora="a"`, `${qui}, fine del ${k + 1}° turno`)}
+          <button type="button" class="tasto-togli" data-togli-turno-festa="${k}" aria-label="Togli il ${k + 1}° turno di ${esc(qui)}">✕</button>
+        </div>`).join('');
+      return `<div class="festa-sv" data-servizio="${s}">
+        <b>${nome}</b>
+        ${turni || '<p class="festa-chiuso">Chiuso: nessun turno.</p>'}
+        <div><button type="button" class="btn btn-secondario btn-piccolo" data-aggiungi-turno-festa>+ Turno</button></div>
+        ${f[s].length ? `<label>Orari da prenotare, se diversi dall'inizio dei turni (facoltativi)
+          <input data-slot="${s}" autocomplete="off" placeholder="12:30, 13:00, 13:30" value="${testoSicuro(f.slot[s])}"></label>` : ''}
+      </div>`;
+    }).join('');
+    const spunte = nomi.length
+      ? nomi.map((n) => `<label><input type="checkbox" data-esperienza="${testoSicuro(n)}"${f.esperienze.includes(n) ? ' checked' : ''}>${testoSicuro(n)}</label>`).join('')
+      : '<span class="conteggio" style="margin:0">Non ci sono esperienze salvate: quel giorno si prenota il tavolo, come sempre.</span>';
+    const ant = anteprimaFestivita(f);
+    return `<div class="esp festa" data-i="${i}">
+      <div class="esp-testa">
+        <input data-campo="nome" maxlength="40" autocomplete="off" placeholder="Nome, per esempio «Natale»" value="${testoSicuro(f.nome)}" aria-label="Nome della festività ${i + 1}">
+        <button type="button" class="btn btn-secondario btn-piccolo" data-togli-festa>Togli</button>
+      </div>
+      <div class="festa-date">
+        <label>Il giorno (o il primo giorno)
+          <input type="date" data-campo="dal" value="${testoSicuro(f.dal)}"></label>
+        <label>Fino al (se dura più giorni)
+          <input type="date" data-campo="al" value="${testoSicuro(f.al)}"></label>
+        <label class="festa-ogni"><input type="checkbox" data-ogni-anno${f.ogniAnno ? ' checked' : ''}>Ogni anno</label>
+      </div>
+      ${servizi}
+      <div class="esp-giorni">
+        <div><span style="width:auto;margin-right:6px">Esperienze</span>${spunte}</div>
+      </div>
+      <p class="esp-anteprima${ant.startsWith('⚠️') ? ' attenzione' : ''}" data-anteprima-festa>${testoSicuro(ant)}</p>
+    </div>`;
+  }).join('');
+}
+// Com'è scritta va al server, che la ripulisce e dice cosa non va. Le
+// esperienze che non esistono più non si mandano.
+function festivitaDaSalvare() {
+  const nomi = nomiEsperienzeUI();
+  const orari = (testo) => String(testo || '').split(/[,;\s]+/).map((x) => oraScritta(x)).filter(Boolean);
+  return festivitaUI.map((f) => ({
+    nome: f.nome.trim(), dal: f.dal, al: f.al || f.dal, ogniAnno: !!f.ogniAnno,
+    fasce: FESTA_SERVIZI.flatMap(([s]) => f[s].map((t) => ({ da: t.da, a: t.a, servizio: s }))),
+    slot: { pranzo: f.pranzo.length ? orari(f.slot.pranzo) : [], cena: f.cena.length ? orari(f.slot.cena) : [] },
+    esperienze: f.esperienze.filter((n) => nomi.includes(n)),
+  }));
+}
+function festaDi(el) {
+  const card = el.closest('.festa');
+  return card ? festivitaUI[+card.dataset.i] : null;
+}
+function aggiornaAnteprimaFesta(el) {
+  const card = el.closest('.festa');
+  const f = festaDi(el);
+  const ant = card && card.querySelector('[data-anteprima-festa]');
+  if (!ant || !f) return;
+  const t = anteprimaFestivita(f);
+  ant.textContent = t;
+  ant.classList.toggle('attenzione', t.startsWith('⚠️'));
+}
+$('#festivita-elenco').addEventListener('input', (e) => {
+  const f = festaDi(e.target);
+  if (!f) return;
+  const t = e.target;
+  if (t.dataset.campo) f[t.dataset.campo] = t.value;
+  if (t.hasAttribute('data-ogni-anno')) f.ogniAnno = t.checked;
+  if (t.dataset.campoOra) f[t.closest('[data-servizio]').dataset.servizio][+t.dataset.turno][t.dataset.campoOra] = oraScritta(t.value);
+  if (t.dataset.slot) f.slot[t.dataset.slot] = t.value;
+  if (t.dataset.esperienza !== undefined) {
+    const n = t.dataset.esperienza;
+    f.esperienze = t.checked ? [...new Set([...f.esperienze, n])] : f.esperienze.filter((x) => x !== n);
+  }
+  festivitaToccate = true;
+  aggiornaAnteprimaFesta(t);
+});
+// «1930» diventa «19:30» appena si lascia il campo, come negli orari di apertura.
+$('#festivita-elenco').addEventListener('change', (e) => {
+  if (e.target.matches('input.ora-fascia')) e.target.value = oraScritta(e.target.value);
+});
+$('#festivita-elenco').addEventListener('click', (e) => {
+  const f = festaDi(e.target);
+  if (!f) return;
+  const sv = e.target.closest('[data-servizio]');
+  const s = sv && sv.dataset.servizio;
+  if (e.target.closest('[data-togli-festa]')) {
+    festivitaUI.splice(festivitaUI.indexOf(f), 1);
+  } else if (e.target.closest('[data-aggiungi-turno-festa]') && s) {
+    // Si parte da un turno sensato, non da due campi vuoti.
+    f[s].push(f[s].length ? { da: '', a: '' } : { ...(s === 'pranzo' ? { da: '12:30', a: '15:00' } : { da: '20:00', a: '23:00' }) });
+  } else if (e.target.closest('[data-togli-turno-festa]') && s) {
+    f[s].splice(+e.target.closest('[data-togli-turno-festa]').dataset.togliTurnoFesta, 1);
+  } else {
+    return;
+  }
+  festivitaToccate = true;
+  disegnaFestivita();
+});
+$('#festivita-aggiungi').addEventListener('click', () => {
+  festivitaUI.push({ nome: '', dal: '', al: '', ogniAnno: false, pranzo: [], cena: [], slot: { pranzo: '', cena: '' }, esperienze: [] });
+  festivitaToccate = true;
+  disegnaFestivita();
+  const ultimo = $('#festivita-elenco .festa:last-child [data-campo="nome"]');
+  if (ultimo) ultimo.focus();
+});
+$('#festivita-salva').addEventListener('click', () => salvaConfigBot('festivita-salvato'));
 $('#esperienze-elenco').addEventListener('input', (e) => {
   const card = e.target.closest('.esp');
   if (!card) return;
@@ -9055,6 +9265,13 @@ $('#esperienze-elenco').addEventListener('input', (e) => {
   const esp = esperienzeUI[i];
   if (!esp) return;
   if (e.target.dataset.campo) esp[e.target.dataset.campo] = e.target.value;
+  if (e.target.hasAttribute('data-solo-feste')) {
+    esp.soloFeste = e.target.checked;
+    if (esp.soloFeste) { esp.pranzo = []; esp.cena = []; }
+    esperienzeToccate = true;
+    disegnaEsperienze();
+    return;
+  }
   if (e.target.dataset.servizio) {
     const g = +e.target.dataset.giorno;
     const lista = esp[e.target.dataset.servizio];
@@ -9114,7 +9331,7 @@ $('#esperienze-elenco').addEventListener('click', (e) => {
 });
 $('#esperienze-aggiungi').addEventListener('click', () => {
   if (esperienzeUI.length >= 6) { toast('Al massimo sei esperienze'); return; }
-  esperienzeUI.push({ nome: '', parole: '', riga: '', pranzo: [], cena: [], menu: '', cappello: '', menuFile: '', menuNome: '', menuLink: '' });
+  esperienzeUI.push({ nome: '', parole: '', riga: '', pranzo: [], cena: [], menu: '', cappello: '', menuFile: '', menuNome: '', menuLink: '', soloFeste: false });
   esperienzeToccate = true;
   disegnaEsperienze();
   const ultimo = $('#esperienze-elenco .esp:last-child input[data-campo="nome"]');

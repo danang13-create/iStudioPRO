@@ -7328,7 +7328,8 @@ app.get('/api/bot/impostazioni', (req, res) => {
              fasce: bot.fasceDi(cfg), fasceSalvate: !!bot.fasceValide(cfg.bot_fasce), slot: bot.slotDi(cfg),
              // Come le ha scritte il titolare: la scheda le mostra e le risalva
              // così, anche i giorni che oggi sono chiusi (vedi `esperienzeDi`).
-             esperienze: bot.esperienzeScritte(cfg), locali: bot.localiDi(cfg) });
+             esperienze: bot.esperienzeScritte(cfg), locali: bot.localiDi(cfg),
+             festivita: bot.festivitaDi(cfg) });
 });
 
 // Gli indirizzi a cui questo computer risponde davvero. Serve perché la riga
@@ -7522,7 +7523,11 @@ app.post('/api/bot/impostazioni', (req, res) => {
     if (!esperienze) {
       return res.status(400).json({ error: 'Le esperienze non si leggono: ricarica la pagina e riprova.' });
     }
-    const senzaGiorni = esperienze.find((e) => !e.pranzo.length && !e.cena.length);
+    // ⚠️ Tranne quella «solo nelle festività» (23 novembre 2026): il «Menu di
+    // Natale» non ha un giorno della settimana, vale dove lo si spunta in una
+    // festività. Finché non è spuntata da nessuna parte il bot non la propone
+    // (vedi `esperienzeDi`): non c'è il «chiuso» a sorpresa di cui sopra.
+    const senzaGiorni = esperienze.find((e) => !e.pranzo.length && !e.cena.length && !e.soloFeste);
     if (senzaGiorni) {
       return res.status(400).json({
         error: `L'esperienza «${senzaGiorni.nome}» non ha nessun giorno: spunta almeno un giorno a pranzo o a cena, `
@@ -7545,6 +7550,17 @@ app.post('/api/bot/impostazioni', (req, res) => {
     const slot = bot.slotValidi(valori.bot_slot);
     if (!slot) return res.status(400).json({ error: 'Gli orari da prenotare non si leggono: ricarica la pagina e riprova.' });
     valori.bot_slot = Object.keys(slot).length ? JSON.stringify(slot) : '';
+  }
+
+  // Le festività (vedi «Le festività» in bot-prenotazioni.js): come i locali,
+  // si salvano ripulite, e una scritta a metà non si accetta in silenzio — si
+  // dice cosa manca. Una festività senza turni è un giorno chiuso, e va bene.
+  if (valori.bot_festivita !== undefined) {
+    const errori = bot.erroriFestivita(valori.bot_festivita);
+    if (errori.length) return res.status(400).json({ error: errori.join(' ') });
+    const feste = bot.festivitaValide(valori.bot_festivita);
+    if (!feste) return res.status(400).json({ error: 'Le festività non si leggono: ricarica la pagina e riprova.' });
+    valori.bot_festivita = feste.length ? JSON.stringify(feste) : '';
   }
 
   // I locali della prima domanda (vedi «I locali» in bot-prenotazioni.js):
@@ -7577,7 +7593,8 @@ app.post('/api/bot/impostazioni', (req, res) => {
   if (fasceRipulite) ripuliti.bot_fasce = valori.bot_fasce;
   res.json({ ok: true, impostazioni: salvata, ripuliti,
              fasce: bot.fasceDi(salvata), fasceSalvate: !!bot.fasceValide(salvata.bot_fasce), slot: bot.slotDi(salvata),
-             esperienze: bot.esperienzeScritte(salvata), locali: bot.localiDi(salvata) });
+             esperienze: bot.esperienzeScritte(salvata), locali: bot.localiDi(salvata),
+             festivita: bot.festivitaDi(salvata) });
 });
 
 // ---------------------------------------------------------------------------

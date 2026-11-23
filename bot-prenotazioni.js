@@ -733,6 +733,8 @@ const PREDEFINITI = {
   // ESATTAMENTE come prima: un locale che si aggiorna non deve trovarsi orari
   // diversi da quelli che aveva. Vedi `fasceDi`.
   bot_fasce: '',
+  // Le festività (vedi «Le festività»): JSON, come le esperienze.
+  bot_festivita: '',
   // Gli orari da prenotare, scelti giorno per giorno e servizio per servizio
   // (vedi `slotDelGiorno`): {"1":{"cena":["20:00","20:30"]}}. Vuoto di
   // fabbrica: senza, ogni servizio resta a turni.
@@ -2337,6 +2339,149 @@ function slotValidi(valore) {
   }
   return puliti;
 }
+// ---------------------------------------------------------------------------
+//  Le festività: giorni con orari (ed esperienze) diversi dal solito
+// ---------------------------------------------------------------------------
+//  Chiesto dal titolare (23 novembre 2026): «nella sezione Orari una sezione
+//  per le festività, che avranno giorni e orari diversi: una variazione
+//  all'orario di default che il locale segue». Natale solo a pranzo, il cenone
+//  con un turno solo, il lunedì di Pasquetta aperto anche se di lunedì si
+//  chiude.
+//
+//  Una festività ha un nome, le sue date (un giorno o un periodo), i suoi
+//  turni — fatti come quelli di un giorno della settimana — e le esperienze
+//  che valgono QUEL giorno. Per le sue date PRENDE IL POSTO del giorno della
+//  settimana: `fasceDelGiorno`, `slotDelGiorno`, `valeIlGiorno` e `ammessoPer`
+//  guardano prima qui. Tutto il resto (i coperti, i tavoli, il planning, la
+//  sala) passa da quelle quattro, e la segue senza saperlo.
+//
+//  Deciso con lui:
+//  - le esperienze si scelgono festività per festività. Senza nessuna spunta
+//    quel giorno si prenota SOLO IL TAVOLO: il bot non chiede l'esperienza, e
+//    sulla prenotazione non ne scrive una;
+//  - «ogni anno» si sceglie per ognuna: Natale resta, Pasqua si riscrive.
+//  - Senza turni la festività è un giorno CHIUSO (come un giorno della
+//    settimana senza turni).
+const FESTIVITA_MASSIME = 40;
+const GIORNI_DI_UNA_FESTIVITA = 31;
+function dataVera(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  return d.getFullYear() === +m[1] && d.getMonth() === +m[2] - 1 && d.getDate() === +m[3] ? d : null;
+}
+// La lista ripulita: un array (anche vuoto), o null se non si legge.
+function festivitaValide(valore) {
+  let grezze = valore;
+  if (typeof grezze === 'string') {
+    if (!grezze.trim()) return [];
+    try { grezze = JSON.parse(grezze); } catch { return null; }
+  }
+  if (!Array.isArray(grezze)) return null;
+  const buone = [];
+  for (const f of grezze) {
+    if (!f || typeof f !== 'object') continue;
+    const nome = String(f.nome || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    const dal = dataVera(f.dal);
+    if (!nome || !dal) continue;
+    // La fine: mancante o prima dell'inizio è lo stesso giorno; mai oltre un
+    // mese — un periodo più lungo è un cambio d'orario, e va negli orari.
+    let al = dataVera(f.al);
+    if (!al || al < dal) al = dal;
+    const ultimo = piuGiorni(dal, GIORNI_DI_UNA_FESTIVITA - 1);
+    if (al > ultimo) al = ultimo;
+    const fasce = (fasceValide({ 0: Array.isArray(f.fasce) ? f.fasce.map((x) => ({ ...x, turno: true })) : [] }) || { 0: [] })[0];
+    const slot = {};
+    for (const sv of SERVIZI) {
+      const orari = [...new Set(turniValidi(Array.isArray(f.slot && f.slot[sv]) ? f.slot[sv].join(',') : String((f.slot && f.slot[sv]) || '')))].sort();
+      if (orari.length) slot[sv] = orari.slice(0, 24);
+    }
+    const esperienze = [];
+    for (const n of Array.isArray(f.esperienze) ? f.esperienze : []) {
+      const pulito = String(n || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+      if (pulito && !esperienze.some((x) => normalizza(x) === normalizza(pulito))) esperienze.push(pulito);
+    }
+    buone.push({ nome, dal: comeData(dal), al: comeData(al), ogniAnno: f.ogniAnno === true, fasce, slot,
+      esperienze: esperienze.slice(0, ESPERIENZE_MASSIME) });
+  }
+  return buone.slice(0, FESTIVITA_MASSIME);
+}
+// Cosa non va in una lista di festività COM'È STATA SCRITTA, a parole. Vuoto
+// se va bene. Si guarda quello che la pulizia butterebbe via in silenzio: una
+// festività senza nome o senza data, un turno scritto male, due festività
+// sullo stesso giorno (varrebbe la prima, e la seconda non si capirebbe perché
+// non funziona).
+function erroriFestivita(valore) {
+  let grezze = valore;
+  if (typeof grezze === 'string') {
+    if (!grezze.trim()) return [];
+    try { grezze = JSON.parse(grezze); } catch { return ['Le festività non si leggono: ricarica la pagina e riprova.']; }
+  }
+  if (!Array.isArray(grezze)) return ['Le festività non si leggono: ricarica la pagina e riprova.'];
+  const errori = [];
+  const buone = [];
+  grezze.forEach((f, i) => {
+    const nome = String((f && f.nome) || '').replace(/\s+/g, ' ').trim();
+    const chi = nome ? `«${nome}»` : `La festività n. ${i + 1}`;
+    if (!nome) { errori.push(`La festività n. ${i + 1} non ha un nome.`); return; }
+    if (!dataVera(f.dal)) { errori.push(`${chi}: manca il giorno (o il primo giorno).`); return; }
+    if (f.al && dataVera(f.al) && dataVera(f.al) < dataVera(f.dal)) { errori.push(`${chi}: l'ultimo giorno viene prima del primo.`); return; }
+    if (f.al && dataVera(f.al) && dataVera(f.al) > piuGiorni(dataVera(f.dal), GIORNI_DI_UNA_FESTIVITA - 1)) {
+      errori.push(`${chi}: dura più di un mese. Per un periodo così lungo cambia gli orari di apertura.`); return;
+    }
+    const pulita = (festivitaValide([f]) || [])[0];
+    if (!pulita) { errori.push(`${chi} non si legge.`); return; }
+    if (pulita.fasce.length !== (Array.isArray(f.fasce) ? f.fasce.length : 0)) {
+      errori.push(`${chi}: un turno non si legge. Controlla l'inizio e la fine (la fine viene dopo l'inizio).`); return;
+    }
+    // Nei due versi: una «ogni anno» scritta per il 2030 cade anche sul Natale
+    // di quest'anno, che è scritto con la sua data.
+    const cadeIn = (una, altra) => {
+      for (let n = 0; n < GIORNI_DI_UNA_FESTIVITA; n++) {
+        const giorno = comeData(piuGiorni(dataVera(una.dal), n));
+        if (giorno > una.al) break;
+        if (festivitaDelGiorno({ bot_festivita: JSON.stringify([altra]) }, giorno)) return true;
+      }
+      return false;
+    };
+    const altra = buone.find((x) => cadeIn(pulita, x) || cadeIn(x, pulita));
+    if (altra) { errori.push(`${chi} e «${altra.nome}» cadono negli stessi giorni: una delle due va spostata.`); return; }
+    buone.push(pulita);
+  });
+  if (grezze.length > FESTIVITA_MASSIME) errori.push(`Le festività sono troppe: al massimo ${FESTIVITA_MASSIME}.`);
+  return errori;
+}
+let festivitaLette = { testo: null, valore: [] };
+function festivitaDi(cfg) {
+  const testo = String((cfg && cfg.bot_festivita) || '');
+  if (festivitaLette.testo !== testo) festivitaLette = { testo, valore: festivitaValide(testo) || [] };
+  return festivitaLette.valore;
+}
+// La festività di quel giorno, o null. «Ogni anno» guarda solo giorno e mese —
+// anche a cavallo dell'anno: dal 31 dicembre all'1 gennaio. Se due si
+// accavallano vale la prima dell'elenco.
+function festivitaDelGiorno(cfg, iso) {
+  const lista = festivitaDi(cfg);
+  if (!lista.length) return null;
+  const giorno = String(iso || '');
+  const md = giorno.slice(5);
+  for (const f of lista) {
+    if (!f.ogniAnno) {
+      if (giorno >= f.dal && giorno <= f.al) return f;
+      continue;
+    }
+    const da = f.dal.slice(5), a = f.al.slice(5);
+    if (da <= a ? (md >= da && md <= a) : (md >= da || md <= a)) return f;
+  }
+  return null;
+}
+// Quel giorno si prenota solo il tavolo: una festività senza esperienze spuntate.
+function soloIlTavolo(cfg, iso) {
+  const f = iso ? festivitaDelGiorno(cfg, iso) : null;
+  return !!f && !f.esperienze.length;
+}
+const laNomina = (f, e) => f.esperienze.some((n) => normalizza(n) === normalizza(e.nome));
+
 // Letti una volta sola per testo: `fasceDelGiorno` passa di qui a ogni
 // prenotazione guardata.
 let slotLetti = { testo: null, valore: {} };
@@ -2358,9 +2503,12 @@ function fineDellaFasciaSlot(cfg, f) {
 function slotDelGiorno(cfg, iso) {
   const [a, m, g] = String(iso).split('-').map(Number);
   const giorno = new Date(a, m - 1, g).getDay();
-  const scelti = slotDi(cfg)[giorno];
+  // Una festività ha i suoi turni e i suoi orari: quelli del giorno della
+  // settimana, per le sue date, non valgono.
+  const festa = festivitaDelGiorno(cfg, iso);
+  const scelti = festa ? festa.slot : slotDi(cfg)[giorno];
   if (!scelti) return {};
-  const fasce = fasceDi(cfg)[giorno] || [];
+  const fasce = festa ? festa.fasce : (fasceDi(cfg)[giorno] || []);
   const esito = {};
   for (const s of SERVIZI) {
     const sue = fasce.filter((f) => f.servizio === s);
@@ -2390,7 +2538,8 @@ function orariDellaFascia(f, passo) {
 // fasce) quello dell'ora.
 function fasceDelGiorno(cfg, iso) {
   const [a, m, g] = String(iso).split('-').map(Number);
-  const fasce = fasceDi(cfg)[new Date(a, m - 1, g).getDay()] || [];
+  const festa = festivitaDelGiorno(cfg, iso);
+  const fasce = festa ? festa.fasce : (fasceDi(cfg)[new Date(a, m - 1, g).getDay()] || []);
   // Le fasce di un servizio a orari scelti portano il segno `slot`: lì dicono
   // solo quando si apre e si chiude (vedi `fineDelTavolo`, `numeroDelTurno`).
   const slot = slotDelGiorno(cfg, iso);
@@ -3713,6 +3862,10 @@ function esperienzeValide(valore) {
       menuFile: FILE_MENU_ESPERIENZA.test(String(e.menuFile || '')) ? String(e.menuFile) : '',
       menuNome: String(e.menuNome || '').replace(/\s+/g, ' ').trim().slice(0, 80),
       menuLink: linkDiMenu(e.menuLink),
+      // «Solo nelle festività» (vedi «Le festività»): un'esperienza senza
+      // giorni della settimana, che vale dove la si spunta in una festività.
+      // Il segno c'è solo quando è acceso: le altre restano scritte come prima.
+      ...(e.soloFeste === true ? { soloFeste: true } : {}),
     });
   }
   return buone.slice(0, ESPERIENZE_MASSIME);
@@ -3738,12 +3891,21 @@ function serviziAperti(cfg) {
 // non ha più nessun giorno aperto non si propone affatto.
 // ⚠️ Il filtro sta QUI e non nel salvataggio: le spunte del titolare restano
 // com'erano, e se domani riapre la domenica sera tornano a valere da sole.
+// ⚠️ Con le festività (23 novembre 2026) resta anche quella che non vale in
+// nessun giorno della settimana ma è spuntata in una festività: il «Menu di
+// Natale», il «Cenone». `feste` sono i nomi delle festività che la nominano.
+// Non la si propone nell'elenco di tutti i giorni (vedi `elencoDaProporre`),
+// e da sola non «vale da sé» (vedi `esperienzaScelta`).
 function esperienzeDi(cfg) {
   const aperti = serviziAperti(cfg);
+  const feste = festivitaDi(cfg);
   return esperienzeScritte(cfg)
     .map((e) => ({ ...e, pranzo: e.pranzo.filter((g) => aperti.pranzo.has(g)), cena: e.cena.filter((g) => aperti.cena.has(g)) }))
-    .filter((e) => e.pranzo.length || e.cena.length);
+    .map((e) => { const sue = feste.filter((f) => laNomina(f, e)).map((f) => f.nome); return sue.length ? { ...e, feste: sue } : e; })
+    .filter((e) => e.pranzo.length || e.cena.length || (e.feste || []).length);
 }
+// Vale in qualche giorno della settimana (non solo nelle festività).
+const diTuttiIGiorni = (e) => !!e && ((e.pranzo || []).length > 0 || (e.cena || []).length > 0);
 function esperienzaDi(cfg, nome) {
   if (!nome) return null;
   return esperienzeDi(cfg).find((e) => normalizza(e.nome) === normalizza(nome)) || null;
@@ -3927,7 +4089,11 @@ function giorniDetti(giorni) {
 // cena e la domenica a pranzo», «tutti i giorni, a pranzo e a cena».
 function quandoDetto(e) {
   const p = e.pranzo || [], c = e.cena || [];
-  if (!p.length && !c.length) return '';
+  // Solo nelle festività: «per Natale e Capodanno».
+  if (!p.length && !c.length) {
+    const feste = [...new Set(e.feste || [])];
+    return feste.length ? `per ${feste.length === 1 ? feste[0] : `${feste.slice(0, -1).join(', ')} e ${feste[feste.length - 1]}`}` : '';
+  }
   if (p.length && c.length && p.join() === c.join()) return `${giorniDetti(p)}, a pranzo e a cena`;
   const pezzi = [];
   if (p.length) pezzi.push([p.length, `${giorniDetti(p)} a pranzo`]);
@@ -3984,7 +4150,11 @@ function numeriDetti(numeri) {
 const daUnoA = (k) => Array.from({ length: k }, (_, i) => i + 1);
 // Vale quel giorno (a quel servizio, se detto)? Per restringere l'elenco a
 // chi il giorno l'ha già scritto: «sabato sera» non ha il business lunch.
-function valeIlGiorno(e, iso, servizio) {
+// ⚠️ In una festività valgono le esperienze spuntate LÌ, non quelle del
+// giorno della settimana (serve `cfg`: senza, si guarda la settimana).
+function valeIlGiorno(e, iso, servizio, cfg) {
+  const festa = cfg ? festivitaDelGiorno(cfg, iso) : null;
+  if (festa) return laNomina(festa, e) && (!servizio || festa.fasce.some((f) => f.servizio === servizio));
   const g = new Date(`${iso}T12:00:00`).getDay();
   return (servizio ? [servizio] : SERVIZI).some((s) => (s === 'pranzo' ? e.pranzo : e.cena).includes(g));
 }
@@ -4155,6 +4325,13 @@ function menuDellEsperienza(cfg, e) {
 // dell'esperienza per quel servizio.
 function ammessoPer(cfg, e, iso, ora) {
   if (!e) return true;
+  // In una festività: quelle spuntate lì. Senza nessuna spunta quel giorno si
+  // prenota solo il tavolo, e l'esperienza scelta prima non lo impedisce —
+  // sulla prenotazione non finisce (vedi `soloIlTavolo`).
+  // ⚠️ «Non lo impedisce» vale per quelle di tutti i giorni: un «Cenone» che
+  // esiste solo a Capodanno non si prenota a Santo Stefano.
+  const festa = festivitaDelGiorno(cfg, iso);
+  if (festa) return festa.esperienze.length ? laNomina(festa, e) : diTuttiIGiorni(e);
   const g = new Date(`${iso}T12:00:00`).getDay();
   return (servizioDellOra(cfg, iso, ora) === 'pranzo' ? e.pranzo : e.cena).includes(g);
 }
@@ -6637,8 +6814,10 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   };
   // ⚠️ Un altro locale (il bistrot) non ha le esperienze del locale di sempre:
   // con una sola, quella valeva «da sé» anche per lui.
+  // ⚠️ «Vale da sé» solo quella di tutti i giorni: un «Cenone» che esiste solo
+  // a Capodanno, da solo in elenco, toglierebbe il posto a ogni altro giorno.
   const esperienzaScelta = (d = dati) => (d.fuoriSala ? null
-    : esperienzaDi(cfg, d.esperienza) || (esperienze.length === 1 ? esperienze[0] : null));
+    : esperienzaDi(cfg, d.esperienza) || (esperienze.length === 1 && diTuttiIGiorni(esperienze[0]) ? esperienze[0] : null));
   const perEsperienza = (d = dati) => { const e = esperienzaScelta(d); return e ? { esperienza: e } : {}; };
   // «Menu da scegliere al tavolo» (vedi il passo del menu) viaggia come un
   // nome, ma non è un'esperienza: non restringe giorni e turni.
@@ -7480,8 +7659,14 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // quelle che valgono quel giorno («sabato sera» non ha il business lunch).
   // I numeri dell'elenco ristretto si ricordano in `scelte`.
   function elencoDaProporre(d) {
-    const tutte = { valide: esperienze, ristrette: false,
-      testo: diConElenco('bot_t_esperienze', elencoEsperienze(esperienze), { numeri: numeriDetti(daUnoA(esperienze.length)) }) };
+    // ⚠️ Senza un giorno si propongono quelle di tutti i giorni: il «Menu di
+    // Natale» compare a chi chiede Natale, non a chi scrive «ciao» ad agosto.
+    const solite = esperienze.filter(diTuttiIGiorni);
+    const tutte = solite.length === esperienze.length
+      ? { valide: esperienze, ristrette: false,
+        testo: diConElenco('bot_t_esperienze', elencoEsperienze(esperienze), { numeri: numeriDetti(daUnoA(esperienze.length)) }) }
+      : { valide: solite, ristrette: true,
+        testo: diConElenco('bot_t_esperienze', elencoEsperienze(solite), { numeri: numeriDetti(daUnoA(solite.length)) }) };
     // Il servizio senza il giorno («a cena»): quelle che a cena ci sono, in
     // qualche giorno (24 ottobre 2026: «A cena» non si capiva).
     if (!d.giornoDetto && d.servizio) {
@@ -7492,8 +7677,9 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
           { data: d.servizio === 'pranzo' ? 'A pranzo' : 'A cena', servizio: '', numeri: numeriDetti(daUnoA(valide.length)) }) };
     }
     if (!d.giornoDetto) return tutte;
-    const valide = esperienze.filter((e) => valeIlGiorno(e, d.giornoDetto, d.servizio));
-    if (!valide.length) return tutte;
+    const valide = esperienze.filter((e) => valeIlGiorno(e, d.giornoDetto, d.servizio, cfg));
+    // In una festività l'elenco è il SUO, anche vuoto: lì si prenota solo il tavolo.
+    if (!valide.length) return festivitaDelGiorno(cfg, d.giornoDetto) ? { valide: [], ristrette: true, testo: '' } : tutte;
     const data = dataItaliana(d.giornoDetto);
     return { valide, ristrette: true,
       testo: diConElenco('bot_t_esperienze_giorno', elencoEsperienze(valide),
@@ -7519,6 +7705,9 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       if (testa && risposte.length > prima) risposte[prima] = `${testa}\n\n${risposte[prima]}`;
       return r;
     };
+    // Niente da scegliere (una festività senza esperienze, o solo esperienze
+    // «da festa» e nessun giorno detto): si va avanti senza chiedere.
+    if (elenco.ristrette && !elenco.valide.length) return conTesta(() => dopoLEsperienza(d, ''));
     if (elenco.ristrette && elenco.valide.length === 1) return conTesta(() => presaLEsperienza(elenco.valide[0], d));
     // L'ha già detta («vorrei il business lunch da 45 per 4»): si prende,
     // senza fargliela riscegliere da un elenco. Se il nome vale per più
@@ -7526,6 +7715,12 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const detta = esperienzeNominate(testo, elenco.valide);
     if (detta.length === 1) return conTesta(() => presaLEsperienza(elenco.valide[detta[0]], d));
     if (detta.length > 1) return conTesta(() => chiediQualeFra(elenco.valide, detta, elenco.ristrette ? { ...d, scelte: elenco.valide.map((e) => e.nome) } : d));
+    // L'ha nominata, ma non è fra quelle di tutti i giorni: «vorrei il cenone
+    // di capodanno» scritto senza la data. Si prende lo stesso.
+    if (!d.giornoDetto && elenco.ristrette) {
+      const fuori = esperienzeNominate(testo, esperienze);
+      if (fuori.length === 1) return conTesta(() => presaLEsperienza(esperienze[fuori[0]], d));
+    }
     salvaStato(db, telefono, 'esperienza', { ...d, ...(elenco.ristrette ? { scelte: elenco.valide.map((e) => e.nome) } : {}) });
     risposte.push([testa, elenco.testo].filter(Boolean).join('\n\n'));
     return esito;
@@ -7594,7 +7789,10 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const { scelte, ...resto } = d;
     const dopo = { ...resto, esperienza: e.nome };
     const conMenu = menuDellEsperienza(cfg, e);
-    const testa = [di('bot_t_esperienza_presa', { esperienza: e.nome }), orariDellEsperienza(cfg, e), e.cappello,
+    // Gli orari di sempre dell'esperienza non si dicono a chi sta prenotando
+    // una festività: lì gli orari sono altri, e arrivano subito dopo.
+    const inFesta = !!(d.giornoDetto && festivitaDelGiorno(cfg, d.giornoDetto));
+    const testa = [di('bot_t_esperienza_presa', { esperienza: e.nome }), inFesta ? '' : orariDellEsperienza(cfg, e), e.cappello,
       conMenu ? di('bot_t_esperienza_menu') : '']
       .map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
     return dopoLEsperienza(dopo, testa);
@@ -8099,6 +8297,18 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   function scegliGiorno(d, iso) {
     const turni = turniDisponibili(db, cfg, iso, d.persone, adesso, perEsperienza(d));
     if (!turni.length) {
+      // ⚠️ Una FESTIVITÀ ha le sue esperienze. Chi ha scelto «business lunch»
+      // e poi chiede Natale non deve sentirsi dire «scegli un altro giorno»:
+      // quel giorno il locale c'è, è il menu che è un altro. Si lascia quella
+      // scelta e si propongono quelle della festività (una sola si prende da
+      // sé) — sempre che quel giorno ci sia posto.
+      const festa = festivitaDelGiorno(cfg, iso);
+      const scelta = esperienzaScelta(d);
+      if (festa && festa.esperienze.length && scelta && !laNomina(festa, scelta)
+          && turniDisponibili(db, cfg, iso, d.persone, adesso, {}).length) {
+        const { esperienza, scelte, giorni, tentativi, ...resto } = d;
+        return chiediEsperienza({ ...resto, giornoDetto: iso }, '', `Per ${festa.nome} «${scelta.nome}» non c'è.`);
+      }
       const alternativi = giorniDisponibili(db, cfg, d.persone, adesso, 5, perEsperienza(d));
       // Chiuso e pieno sono due cose diverse: in lista d'attesa si entra solo
       // per un giorno in cui il locale c'è e i posti no. Un giorno in cui
@@ -8526,7 +8736,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       note: d.note || '',
       // Con più locali, anche il locale: «RO bistrot», «REAR Restaurant · Business lunch».
       esperienza: [d.fuoriSala ? d.localeScelto : (conLocali && localePrincipale ? localePrincipale.nome : ''),
-        nomeEsperienza(d).esperienza || ''].filter(Boolean).join(' · '),
+        (soloIlTavolo(cfg, d.data) ? '' : nomeEsperienza(d).esperienza) || ''].filter(Boolean).join(' · '),
     };
     // ⚠️ La riga per correggere il nome esce SOLO se il nome l'abbiamo messo
     // noi. A chi l'ha appena scritto non serve, ed è solo rumore in fondo a un
@@ -8628,7 +8838,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       + 'per_altri, tavolo, esperienza, locale_scelto, fuori_sala, stato, importo_dovuto, importo_totale, pagamento_scade_at) '
       + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(telefono, d.nome || '', d.cognome || '', d.data, d.ora, d.persone,
-          d.note || '', recapito, d.email || '', d.perAltri ? 1 : 0, '', nomeEsperienza(d).esperienza || '',
+          d.note || '', recapito, d.email || '', d.perAltri ? 1 : 0, '', (soloIlTavolo(cfg, d.data) ? '' : nomeEsperienza(d).esperienza) || '',
           // Il locale: quello scelto, o — se il titolare li ha nominati — quello di sempre.
           d.fuoriSala ? d.localeScelto : (localePrincipale ? localePrincipale.nome : ''), d.fuoriSala ? 1 : 0,
           blocca ? 'attesa_pagamento' : 'confermata',
@@ -8751,6 +8961,7 @@ module.exports = {
   interpretaOra,
   eventiAccesi, parlaDiEventi, statisticheEventi, linkDiMenu,
   chiamataRicevuta, chiamataRisposta, statisticheChiamate,
+  festivitaValide, erroriFestivita, festivitaDi, festivitaDelGiorno, soloIlTavolo,
   interpretaSiNo, soloUnNo, notaDaScrivere, eSoloUnaCortesia, eRispostaAutomatica, nonChiedeNiente, eUnaRichiesta, senzaRigheVuote, elencoParole,
   interpretaTelefono,
   colTelefono,
