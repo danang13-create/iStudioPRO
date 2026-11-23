@@ -996,6 +996,17 @@ const PREDEFINITI = {
   // Gli orari d'apertura, una riga per servizio dalle fasce di «Orari e
   // tavoli»: nel benvenuto ({orari} vale in ogni frase) e a chi scrive ORARI.
   bot_t_orari: 'Siamo aperti:\n{orari}',
+  // Gli orari di UN giorno (23 novembre 2026, dal titolare): a chi chiede
+  // «a che ora aprite sabato?» o «siete aperti il 25 dicembre?» si dice quel
+  // giorno, festività comprese — non tutta la settimana. {data} è il giorno
+  // («Venerdì 25 dicembre (Natale)»), {orari} le sue righe.
+  bot_t_orari_giorno: '{data} siamo aperti:\n{orari}',
+  bot_t_orari_giorno_chiuso: '{data} siamo chiusi.',
+  // Le feste delle prossime settimane (23 novembre 2026, dal titolare, con le
+  // parole sue): sotto l'elenco del primo messaggio, prima della domanda, e
+  // sotto gli orari della settimana — che per quei giorni direbbero il falso.
+  // {feste} è «Cenone della Vigilia (24), Pranzo di Natale (25) e …».
+  bot_t_feste: '🎄 Per le feste: {feste}. Per prenotarli scrivimi il giorno.',
   // Un giorno in cui il locale c'è ma quell'esperienza no: non è «chiuso».
   bot_t_esperienza_chiusa: '{esperienza}: per {data} non è disponibile ({quando}).\n\nTi va di scegliere un altro giorno?',
   // ⚠️ Quando il cliente ha fatto una DOMANDA chiara — «è possibile
@@ -4153,8 +4164,9 @@ const NUMERI_IN_CERCHIO = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'
 // L'elenco per il cliente: numero, nome in grassetto, la riga. Con `numeri`
 // i numeri sono quelli dati (una parte dell'elenco, coi numeri che il cliente
 // ha già letto); sennò da 1.
-// ⚠️ SENZA i giorni (dal titolare, 22 ottobre 2026): prima la scelta, poi gli
-// orari di quella scelta (vedi «orariDellEsperienza»). «· dal lunedì al
+// ⚠️ SENZA i giorni (dal titolare, 22 ottobre 2026): prima la scelta, e gli
+// orari a chi li chiede (dal 23 novembre 2026 non si dicono più dopo la
+// scelta: vedi «orariDelGiorno»). «· dal lunedì al
 // venerdì a pranzo» resta solo dove serve a distinguere: due voci con lo
 // stesso nome e giorni diversi, o `conQuando` (chi chiede «quale fra
 // queste?» e le sa diverse solo per i giorni).
@@ -4248,12 +4260,58 @@ function orariDetti(cfg, solo = null) {
   // si attacca all'ultimo orario del pranzo.
   return pezzi.join(pezzi.some((p) => p.includes('\n')) ? '\n\n' : '\n');
 }
+// Gli orari di UN giorno, festività comprese (vedi «bot_t_orari_giorno»): una
+// riga per servizio aperto, dal primo arrivo all'ultima fine. Vuoto se quel
+// giorno è chiuso — per le fasce, per una festività senza turni, o per un
+// giorno di chiusura (ferie). Un giorno segnato PIENO non è chiuso: il locale
+// c'è, e gli orari sono quelli.
+function orariDelGiorno(db, cfg, iso) {
+  if (db && eChiuso(db, iso)) return '';
+  const fasce = fasceDelGiorno(cfg, iso);
+  const righe = [];
+  for (const servizio of SERVIZI) {
+    const sue = fasce.filter((f) => f.servizio === servizio);
+    if (!sue.length) continue;
+    const da = Math.min(...sue.map((f) => inMinuti(f.da)));
+    const a = Math.max(...sue.map((f) => Math.max(inMinuti(f.a), inMinuti(f.da))));
+    const orario = a > da ? `${daMinuti(da)}–${oraDetta(daMinuti(a))}` : `dalle ${daMinuti(da)}`;
+    righe.push(`${servizio === 'pranzo' ? '🍽️ Pranzo' : '🌙 Cena'}: ${orario}`);
+  }
+  return righe.join('\n');
+}
+// Le feste dei prossimi giorni, per «bot_t_feste»: «Cenone della Vigilia (24),
+// Pranzo di Natale (25) e Cenone di Capodanno (31)». Per ogni festa il nome
+// delle SUE esperienze da festa (quelle «solo nelle festività»); se non ne ha
+// — solo il tavolo, o le esperienze di sempre — il nome della festa. Le feste
+// in cui si è chiusi (senza turni, o un giorno di chiusura) non ci sono: non
+// si propone quello che non si può prenotare. Il giorno basta, se sono tutte
+// nello stesso mese; sennò col mese. Vuoto se non ce n'è nessuna.
+function festeDaProporre(db, cfg, adesso = new Date(), giorni = 45) {
+  const speciali = new Map(esperienzeScritte(cfg).filter((e) => e.soloFeste).map((e) => [normalizza(e.nome), e.nome]));
+  const voci = new Map();
+  for (let n = 0; n <= giorni; n++) {
+    const iso = comeData(piuGiorni(adesso, n));
+    const f = festivitaDelGiorno(cfg, iso);
+    if (!f || !fasceDelGiorno(cfg, iso).length || (db && eChiuso(db, iso))) continue;
+    const sue = (f.esperienze || []).map((x) => speciali.get(normalizza(x))).filter(Boolean);
+    for (const nome of sue.length ? sue : [f.nome]) {
+      if (!voci.has(nome)) voci.set(nome, []);
+      voci.get(nome).push(iso);
+    }
+  }
+  const tutte = [...voci].slice(0, 8);
+  const mesi = new Set(tutte.flatMap(([, date]) => date.map((d) => d.slice(0, 7))));
+  const quando = (iso) => (mesi.size <= 1 ? String(Number(iso.slice(8))) : dataItaliana(iso).replace(/^\S+\s/, ''));
+  const pezzi = tutte.map(([nome, date]) => `${nome} (${date.length <= 2 ? date.map(quando).join(' e ') : `dal ${quando(date[0])} al ${quando(date[date.length - 1])}`})`);
+  return pezzi.length <= 1 ? pezzi.join('') : `${pezzi.slice(0, -1).join(', ')} e ${pezzi[pezzi.length - 1]}`;
+}
+
 // Gli orari di UNA esperienza, nello stesso formato: solo i suoi giorni, a
-// ogni servizio, con gli orari di «Orari e tavoli» di quei giorni. Vanno sotto
-// «Perfetto, Business lunch 👍», dopo la scelta (dal titolare, 22 ottobre
-// 2026): «🍽️ Pranzo: 12:30–15:30, dal lunedì al venerdì.», o a righe se
-// quei giorni hanno orari diversi. Niente «Chiusi»:
-// qui si dice quando c'è, non quando il locale è chiuso.
+// ogni servizio, con gli orari di «Orari e tavoli» di quei giorni
+// («🍽️ Pranzo: 12:30–15:30, dal lunedì al venerdì.»). Andavano sotto
+// «Perfetto, Business lunch 👍» dal 22 ottobre 2026; dal 23 novembre 2026
+// (dal titolare) non più: «sono orari dell'attività, non della
+// prenotazione». Resta per chi la volesse riusare, e la prova la tiene giusta.
 function orariDellEsperienza(cfg, e) {
   return orariDetti(cfg, { pranzo: (e && e.pranzo) || [], cena: (e && e.cena) || [] });
 }
@@ -7518,9 +7576,28 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // esperienze, sotto arriva la domanda sull'esperienza.
   if (valori.orari && DOMANDA_DOPO_IL_MENU[stato.passo] !== undefined && chiedeGliOrari(testo)) {
     const cosa = DOMANDA_DOPO_IL_MENU[stato.passo];
-    if (!cosa && conLocali && stato.passo === 'inizio') return chiediLocale({}, '', di('bot_t_orari'));
-    if (!cosa && conEsperienze && stato.passo === 'inizio') return chiediEsperienza({}, '', di('bot_t_orari'));
-    risposte.push(`${di('bot_t_orari')}\n\n${cosa ? di('bot_t_menu_riprendi', { cosa }) : di('bot_t_menu_prenota')}`);
+    // ⚠️ UN GIORNO DETTO, QUEL GIORNO (23 novembre 2026, dal titolare). A «a che
+    // ora aprite sabato?» o «siete aperti il 25 dicembre?» arrivava la
+    // settimana intera — e per il 25 dicembre era falsa: la festività non ci
+    // stava dentro. Ora si risponde su quel giorno, con la sua festività.
+    const giorno = giornoDettoInsieme(testo);
+    let detto;
+    if (giorno) {
+      const festa = festivitaDelGiorno(cfg, giorno);
+      const quale = dataItaliana(giorno);
+      const data = `${quale.charAt(0).toUpperCase()}${quale.slice(1)}${festa ? ` (${festa.nome})` : ''}`;
+      const suoi = orariDelGiorno(db, cfg, giorno);
+      detto = suoi ? di('bot_t_orari_giorno', { data, orari: suoi }) : di('bot_t_orari_giorno_chiuso', { data });
+    } else {
+      // Senza un giorno: la settimana, e — se nelle prossime settimane c'è una
+      // festività — le feste da chiedere a parte. Non quando sotto arriva
+      // l'elenco delle esperienze: lì ci sono già (vedi «elencoDaProporre»).
+      const sotto = !cosa && !conLocali && conEsperienze && stato.passo === 'inizio';
+      detto = [di('bot_t_orari'), sotto ? '' : rigaDelleFeste()].map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
+    }
+    if (!cosa && conLocali && stato.passo === 'inizio') return chiediLocale({}, '', detto);
+    if (!cosa && conEsperienze && stato.passo === 'inizio') return chiediEsperienza({}, '', detto);
+    risposte.push(`${detto}\n\n${cosa ? di('bot_t_menu_riprendi', { cosa }) : di('bot_t_menu_prenota')}`);
     return esito;
   }
 
@@ -7712,15 +7789,24 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // L'elenco da proporre: tutte, oppure — se il giorno l'ha già detto — solo
   // quelle che valgono quel giorno («sabato sera» non ha il business lunch).
   // I numeri dell'elenco ristretto si ricordano in `scelte`.
+  // La riga delle feste in arrivo (vedi «festeDaProporre»): vuota se non ce
+  // ne sono, o se il titolare ha svuotato la frase.
+  function rigaDelleFeste() {
+    const feste = festeDaProporre(db, cfg, adesso);
+    return feste && String(cfg.bot_t_feste || '').trim() ? di('bot_t_feste', { feste }).trim() : '';
+  }
   function elencoDaProporre(d) {
     // ⚠️ Senza un giorno si propongono quelle di tutti i giorni: il «Menu di
     // Natale» compare a chi chiede Natale, non a chi scrive «ciao» ad agosto.
     const solite = esperienze.filter(diTuttiIGiorni);
+    // Sotto l'elenco di sempre, prima della domanda, le feste in arrivo
+    // (dal titolare, 23 novembre 2026): stanno nel posto di {esperienze}.
+    const conLeFeste = (righe) => [righe, rigaDelleFeste()].filter(Boolean).join('\n\n');
     const tutte = solite.length === esperienze.length
       ? { valide: esperienze, ristrette: false,
-        testo: diConElenco('bot_t_esperienze', elencoEsperienze(esperienze), { numeri: numeriDetti(daUnoA(esperienze.length)) }) }
+        testo: diConElenco('bot_t_esperienze', conLeFeste(elencoEsperienze(esperienze)), { numeri: numeriDetti(daUnoA(esperienze.length)) }) }
       : { valide: solite, ristrette: true,
-        testo: diConElenco('bot_t_esperienze', elencoEsperienze(solite), { numeri: numeriDetti(daUnoA(solite.length)) }) };
+        testo: diConElenco('bot_t_esperienze', conLeFeste(elencoEsperienze(solite)), { numeri: numeriDetti(daUnoA(solite.length)) }) };
     // Il servizio senza il giorno («a cena»): quelle che a cena ci sono, in
     // qualche giorno (24 ottobre 2026: «A cena» non si capiva).
     if (!d.giornoDetto && d.servizio) {
@@ -7845,8 +7931,12 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const conMenu = menuDellEsperienza(cfg, e);
     // Gli orari di sempre dell'esperienza non si dicono a chi sta prenotando
     // una festività: lì gli orari sono altri, e arrivano subito dopo.
-    const inFesta = !!(d.giornoDetto && festivitaDelGiorno(cfg, d.giornoDetto));
-    const testa = [di('bot_t_esperienza_presa', { esperienza: e.nome }), inFesta ? '' : orariDellEsperienza(cfg, e), e.cappello,
+    // ⚠️ E NEMMENO quelli di sempre (23 novembre 2026, dal titolare): «🍽️
+    // Pranzo: 12:30–14:00, dal martedì al venerdì» sotto «Perfetto, Business
+    // lunch 👍» sono gli orari del LOCALE, ma si leggevano come quelli da
+    // prenotare. I giorni giusti il bot li propone subito dopo, e gli orari
+    // si dicono a chi li chiede (vedi «Gli orari, in qualunque momento»).
+    const testa = [di('bot_t_esperienza_presa', { esperienza: e.nome }), e.cappello,
       conMenu ? di('bot_t_esperienza_menu') : '']
       .map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
     return dopoLEsperienza(dopo, testa);
@@ -7896,7 +7986,9 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     salvaStato(db, telefono, 'persone', { ...d, ...nomeEsperienza({}) });
     const invito = !gia && Object.keys(menuAttivi(cfg)).length && String(cfg.bot_t_menu_invito || '').trim()
       ? `\n\n${di('bot_t_menu_invito')}` : '';
-    risposte.push([testa, di(gia ? 'bot_t_quante' : (giaVisto ? 'bot_t_bentornato' : 'bot_t_benvenuto')) + invito].filter(Boolean).join('\n\n'));
+    // Senza esperienze le feste vanno sotto il benvenuto: «sempre nell'intro».
+    risposte.push([testa, di(gia ? 'bot_t_quante' : (giaVisto ? 'bot_t_bentornato' : 'bot_t_benvenuto')) + invito,
+      gia ? '' : rigaDelleFeste()].filter(Boolean).join('\n\n'));
     return esito;
   }
   function chiediLocale(d, benvenuto, testaInPiu = '') {
@@ -7907,11 +7999,11 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     return esito;
   }
   // Il locale di sempre: tutto come prima, dall'esperienza (o dalle persone)
-  // in giù, con «Perfetto, REAR Restaurant 👍» e i suoi orari in cima.
+  // in giù, con «Perfetto, REAR Restaurant 👍» in cima.
   function presoIlPrincipale(d) {
-    // Con le esperienze gli orari vengono DOPO la loro scelta, e sono i loro
-    // (vedi «orariDellEsperienza»); senza, si dicono qui.
-    const testa = [di('bot_t_locale_preso', { scelto: localePrincipale.nome }), valori.orari && !conEsperienze ? di('bot_t_orari') : '']
+    // Senza gli orari, come dopo l'esperienza (23 novembre 2026): sono del
+    // locale, non della prenotazione, e si dicono a chi li chiede.
+    const testa = [di('bot_t_locale_preso', { scelto: localePrincipale.nome })]
       .map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
     if (conEsperienze) return chiediEsperienza(d, '', testa);
     return dopoLEsperienza(d, testa);
@@ -9015,7 +9107,7 @@ module.exports = {
   interpretaOra,
   eventiAccesi, parlaDiEventi, statisticheEventi, linkDiMenu,
   chiamataRicevuta, chiamataRisposta, statisticheChiamate,
-  nomeDelFileMenu,
+  nomeDelFileMenu, orariDelGiorno, festeDaProporre,
   festivitaValide, erroriFestivita, festivitaDi, festivitaDelGiorno, soloIlTavolo,
   interpretaSiNo, soloUnNo, notaDaScrivere, eSoloUnaCortesia, eRispostaAutomatica, nonChiedeNiente, eUnaRichiesta, senzaRigheVuote, elencoParole,
   interpretaTelefono,
