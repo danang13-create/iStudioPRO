@@ -2390,7 +2390,7 @@ function festivitaValide(valore) {
     if (!al || al < dal) al = dal;
     const ultimo = piuGiorni(dal, GIORNI_DI_UNA_FESTIVITA - 1);
     if (al > ultimo) al = ultimo;
-    // ⚠️ «COME SEMPRE» (24 novembre 2026, dal titolare: «per gli orari in
+    // ⚠️ «COME SEMPRE» (23 novembre 2026, dal titolare: «per gli orari in
     // queste feste il REAR è operativo»): la Vigilia si lavora solo a cena, ma
     // con i turni e gli orari di ogni giovedì sera. Riscriverli a mano in ogni
     // festività vorrebbe dire sbagliarne uno, o dimenticarsi di cambiarli
@@ -3852,7 +3852,7 @@ function annotaMenu(db, telefono, adesso, passo, quale = 'menu') {
 //  ⚠️ Con MENO DI DUE esperienze il bot non chiede niente e lavora come
 //  sempre: la lista vuota è la regola, non l'eccezione. Con una sola vale
 //  senza domanda: i suoi giorni filtrano, il nome finisce sulla prenotazione.
-// Dodici, da sei che erano (24 novembre 2026): con le festività alle esperienze
+// Dodici, da sei che erano (23 novembre 2026): con le festività alle esperienze
 // di tutti i giorni si aggiungono il cenone, il pranzo di Natale, Santo Stefano…
 const ESPERIENZE_MASSIME = 12;
 // Il menu dell'esperienza: nessuno, uno dei due della scheda Menu, oppure uno
