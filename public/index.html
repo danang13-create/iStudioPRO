@@ -3852,6 +3852,9 @@ function mostraAvvisoAbbonamento(dati) {
 // quando lo stato cambia davvero. `ripristinoInCorsoUI` lo blocca del tutto mentre il
 // ripristino sta lavorando, così il messaggio di attesa resta visibile.
 let statoDisegnato = null;
+// Da quando la pagina vede «Avvio in corso», e dopo quanto offre il tasto.
+let avvioVistoDa = 0;
+const AVVIO_LUNGO_MS = 40000;
 let ripristinoInCorsoUI = false;
 // Vero mentre qualcuno sta copiando il codice di collegamento: vedi aggiornaStato.
 let codiceInCorsoUI = false;
@@ -3898,7 +3901,13 @@ async function aggiornaStato() {
     // poi la notizia che quella persona sta aspettando.
     if (codiceInCorsoUI && s.status !== 'connesso') return;
     if (codiceInCorsoUI && s.status === 'connesso') codiceInCorsoUI = false;
-    const firma = s.status + '|' + (s.me || '') + '|' + (s.qr || '').slice(0, 40);
+    // ⚠️ L'avvio che dura (23 novembre 2026): dopo quaranta secondi di «Avvio
+    // in corso» compare il tasto «Ripristina». Prima in questo stato non c'era
+    // nessun tasto, e al REAR un avvio rimasto fermo era un vicolo cieco.
+    if (s.status !== 'inizializzazione') avvioVistoDa = 0;
+    else if (!avvioVistoDa) avvioVistoDa = Date.now();
+    const avvioLungo = s.status === 'inizializzazione' && Date.now() - avvioVistoDa > AVVIO_LUNGO_MS;
+    const firma = s.status + '|' + (s.me || '') + '|' + (s.qr || '').slice(0, 40) + (avvioLungo ? '|lungo' : '');
     if (firma === statoDisegnato) return;
     statoDisegnato = firma;
     if (s.status === 'connesso') {
@@ -3927,7 +3936,11 @@ async function aggiornaStato() {
       collegaTastiNumero();
     } else if (s.status === 'inizializzazione') {
       impostaBadge('badge-wa', 'giallo', 'Avvio in corso');
-      box.innerHTML = '<p class="vuoto">Sto avviando WhatsApp, attendi qualche secondo…</p>';
+      box.innerHTML = '<p class="vuoto">Sto avviando WhatsApp, attendi qualche secondo…</p>'
+        + (avvioLungo
+          ? '<p class="conteggio" style="margin-top:10px">Ci sta mettendo più del solito. Se resta fermo iStudio riprova da solo ogni tre minuti; per non aspettare:</p>'
+            + '<p style="margin-top:10px"><button class="btn btn-piccolo" onclick="ripristinaWhatsApp()">🔄 Ripristina collegamento WhatsApp</button></p>'
+          : '');
     } else {
       impostaBadge('badge-wa', 'rosso', s.status === 'errore' ? 'Errore' : 'Non collegato');
       // Prima qui c'era scritto solo «Riavvia il server per riprovare»: un vicolo cieco,

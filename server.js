@@ -211,7 +211,31 @@ const client = new Client({
   },
 });
 
+// ---------- L'avvio che non finisce (23 novembre 2026) ----------
+// ⚠️ Visto al REAR dopo un aggiornamento: «Avvio in corso» per sempre. La
+// libreria (whatsapp-web.js 1.34.7) all'avvio aspetta che la linea di WhatsApp
+// cambi stato SENZA scadenza: se in quel momento WhatsApp non risponde,
+// `initialize()` non torna e non sbaglia — resta lì. Nessun errore nel
+// registro, nessun tasto «Ripristina» sulla pagina (compariva solo da
+// «disconnesso»), e un mini-PC che si aggiorna alle 5 resta muto fino a
+// quando qualcuno se ne accorge.
+// Tre rimedi insieme: `initialize()` ha una scadenza (vedi
+// `inizializzaConScadenza`); un guardiano chiude e riapre da solo l'avvio
+// rimasto fermo, tre volte, poi lo dichiara in errore (vedi `guardaLAvvio`);
+// e la pagina mostra «Ripristina collegamento» anche durante l'avvio.
+const AVVIO_SCADENZA_MS = 2 * 60 * 1000;   // quanto può durare `initialize()`
+const AVVIO_FERMO_MS = 3 * 60 * 1000;      // senza un segno da WhatsApp, l'avvio è fermo
+const AVVIO_TENTATIVI = 3;
+const avvio = { segno: Date.now(), riprovato: 0 };
+// Un segno di vita: il QR, il codice, la sessione riconosciuta, la schermata
+// di caricamento che avanza. Finché arrivano, l'avvio è lento ma non fermo.
+function segnoDiVita() { avvio.segno = Date.now(); }
+
+client.on('authenticated', segnoDiVita);
+client.on('loading_screen', segnoDiVita);
+
 client.on('qr', async (qr) => {
+  segnoDiVita();
   state.status = 'qr';
   state.qr = await QRCode.toDataURL(qr, { width: 300 });
   console.log('QR code generato: scansionalo dalla pagina web');
@@ -222,6 +246,7 @@ client.on('qr', async (qr) => {
 // minuti la pagina mostrerebbe un codice morto — che non dà nessun errore,
 // semplicemente non funziona. È lo stesso guasto del QR scaduto.
 client.on('code', (codice) => {
+  segnoDiVita();
   state.codice = String(codice || '');
   console.log('Codice di collegamento generato per', state.codiceNumero);
 });
@@ -271,6 +296,7 @@ async function mettiLaToppaInvioFile() {
 }
 
 client.on('ready', () => {
+  segnoDiVita();
   state.status = 'connesso';
   state.qr = null;
   state.codice = null;
@@ -352,9 +378,24 @@ const attesa = (ms) => new Promise((r) => setTimeout(r, ms));
 // manca un componente di sistema — ripiega su un browser installato sul computer.
 // Senza questo, su quei computer iStudio non riesce MAI a collegarsi a WhatsApp e
 // nemmeno il pulsante «Ripristina» serve a niente.
+// `initialize()` con una scadenza: quella della libreria, in un punto, non ce
+// l'ha (vedi «L'avvio che non finisce»). L'errore porta `avvioFermo`, così
+// chi lo riceve sa che non è un guasto del browser.
+function inizializzaConScadenza() {
+  let sveglia;
+  const scadenza = new Promise((_, rifiuta) => {
+    sveglia = setTimeout(() => {
+      const err = new Error('WhatsApp non ha risposto all\'avvio');
+      err.avvioFermo = true;
+      rifiuta(err);
+    }, AVVIO_SCADENZA_MS);
+  });
+  return Promise.race([client.initialize(), scadenza]).finally(() => clearTimeout(sveglia));
+}
+
 async function avviaBrowser() {
   try {
-    await client.initialize();
+    await inizializzaConScadenza();
   } catch (err) {
     if (!nonRiesceAdAprireIlBrowser(err.message) || process.env.PUPPETEER_EXECUTABLE_PATH) throw err;
 
@@ -368,7 +409,7 @@ async function avviaBrowser() {
     }
     console.log(`Il browser incluso non parte. Provo con: ${alternativo}`);
     client.options.puppeteer.executablePath = alternativo;
-    await client.initialize();
+    await inizializzaConScadenza();
     console.log('Riuscito: iStudio userà questo browser d\'ora in poi.');
   }
 }
@@ -383,6 +424,7 @@ async function ripristinaWhatsApp(motivo) {
     return { ok: false, error: 'Un ripristino è già in corso, attendi qualche secondo.' };
   }
   ripristinoInCorso = true;
+  segnoDiVita();
   state.status = 'inizializzazione';
   state.qr = null;
   state.codice = null;
@@ -392,8 +434,11 @@ async function ripristinaWhatsApp(motivo) {
   try {
     // 1. Chiusura ordinata. Se il browser è già morto questo fallisce: non importa,
     //    l'obiettivo è solo non lasciarlo acceso.
-    try { await client.destroy(); }
-    catch (err) { console.log('Chiusura ordinata non riuscita (procedo comunque):', err.message); }
+    //    ⚠️ Con una scadenza: un browser piantato non risponde nemmeno alla
+    //    chiusura, e senza scadenza il ripristino restava «in corso» per sempre
+    //    — rifiutando anche tutti i ripristini dopo. Ci pensa il passo 2.
+    try { await Promise.race([client.destroy(), attesa(15000)]); }
+    catch (err) { console.log('Chiusura ordinata non riuscita (procedo comunque):', err && err.message); }
     // 2. Rete di sicurezza: qualunque browser sia rimasto appeso al profilo se ne va.
     chiudiBrowserOrfani();
     // 3. Un attimo di respiro: il profilo va rilasciato prima di riaprirlo.
@@ -407,12 +452,43 @@ async function ripristinaWhatsApp(motivo) {
     return { ok: true };
   } catch (err) {
     state.status = 'errore';
-    console.error(`Ripristino collegamento WhatsApp (${motivo}) fallito:`, err.message);
-    return { ok: false, error: err.message };
+    const perche = (err && err.message) || String(err);
+    console.error(`Ripristino collegamento WhatsApp (${motivo}) fallito:`, perche);
+    return { ok: false, error: perche };
   } finally {
     ripristinoInCorso = false;
+    segnoDiVita();
   }
 }
+
+// Il guardiano dell'avvio (vedi «L'avvio che non finisce»). Ogni venti
+// secondi: se lo stato è «inizializzazione» e da tre minuti WhatsApp non dà
+// un segno, chiude tutto e riapre. Tre volte; poi lo stato diventa «errore»,
+// che sulla pagina ha il tasto, nel registro una riga, e — dopo dieci minuti
+// dall'accensione — l'email di `guardaIlCollegamento`.
+// ⚠️ Non tocca un QR in attesa né un collegamento caduto: quelli hanno già la
+// loro strada. E non si accavalla a un ripristino in corso.
+async function guardaLAvvio(adesso = Date.now()) {
+  if (state.status === 'connesso' || state.status === 'qr') avvio.riprovato = 0;
+  if (state.status !== 'inizializzazione' || ripristinoInCorso) { avvio.segno = adesso; return 'niente'; }
+  if (adesso - avvio.segno < AVVIO_FERMO_MS) return 'aspetta';
+  avvio.segno = adesso;
+  if (avvio.riprovato >= AVVIO_TENTATIVI) {
+    state.status = 'errore';
+    console.error(`WhatsApp non si avvia: ${AVVIO_TENTATIVI} tentativi falliti.`);
+    annota('errore', `WhatsApp non si avvia dopo ${AVVIO_TENTATIVI} tentativi: premi «Ripristina collegamento» in Impostazioni`);
+    return 'arreso';
+  }
+  avvio.riprovato++;
+  console.log(`WhatsApp fermo all'avvio: chiudo e riprovo (tentativo ${avvio.riprovato} di ${AVVIO_TENTATIVI}).`);
+  annota('errore', `WhatsApp fermo all'avvio da tre minuti: chiudo e riprovo (tentativo ${avvio.riprovato} di ${AVVIO_TENTATIVI})`);
+  const esito = await ripristinaWhatsApp(`avvio fermo, tentativo ${avvio.riprovato}`);
+  // Non riuscito, e ci sono ancora tentativi: resta «in avvio», così fra tre
+  // minuti si riprova da qui. All'ultimo resta «errore», col suo tasto.
+  if (!esito.ok && avvio.riprovato < AVVIO_TENTATIVI) { state.status = 'inizializzazione'; avvio.segno = Date.now(); }
+  return 'riprovato';
+}
+setInterval(() => { guardaLAvvio().catch((e) => console.error('Guardiano dell\'avvio:', e && e.message)); }, 20000).unref();
 
 // Avvio. Se il profilo risulta già occupato è quasi sempre un orfano di un crash
 // precedente: lo si chiude e si riprova una volta sola, così iStudio riparte da sola
@@ -504,15 +580,21 @@ function nonRiesceAdAprireIlBrowser(messaggio) {
 // il solo caso del profilo occupato da un browser orfano di un crash precedente,
 // che si chiude e si riprova una volta sola (il 5 agosto 2026 fallì 5 riavvii di fila).
 avviaBrowser().catch(async (err) => {
-  console.error('Errore inizializzazione WhatsApp:', err.message);
-  if (/already running/i.test(err.message) && chiudiBrowserOrfani() > 0) {
+  const perche = (err && err.message) || String(err);
+  console.error('Errore inizializzazione WhatsApp:', perche);
+  // Fermo, non rotto: lo stato resta «in avvio» e ci pensa il guardiano, che
+  // chiude e riapre (vedi `guardaLAvvio`). Metterlo subito «in errore»
+  // vorrebbe dire aspettare che qualcuno prema un tasto.
+  if (err && err.avvioFermo) return;
+  if (/already running/i.test(perche) && chiudiBrowserOrfani() > 0) {
     console.log('Riprovo l\'avvio di WhatsApp dopo aver chiuso il browser orfano…');
     await attesa(2000);
     try {
       await avviaBrowser();
       return;
     } catch (err2) {
-      console.error('Anche il secondo tentativo è fallito:', err2.message);
+      console.error('Anche il secondo tentativo è fallito:', (err2 && err2.message) || String(err2));
+      if (err2 && err2.avvioFermo) return;
     }
   }
   state.status = 'errore';
@@ -2279,6 +2361,7 @@ app.post('/api/logout', async (req, res) => {
 // NON cancella la sessione salvata: se il collegamento è ancora buono si riprende senza QR;
 // se non lo è, ricompare il QR. Per scollegarsi davvero c'è «Scollega WhatsApp».
 app.post('/api/whatsapp/ripristina', async (req, res) => {
+  avvio.riprovato = 0;   // chiesto da una persona: il guardiano ricomincia da capo
   const esito = await ripristinaWhatsApp('richiesto dalle Impostazioni');
   if (esito.ok) res.json({ ok: true });
   else res.status(409).json({ error: esito.error });
