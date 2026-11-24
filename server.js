@@ -2418,6 +2418,10 @@ app.post('/api/contacts', (req, res) => {
     .prepare('INSERT INTO contacts (nome, cognome, email, telefono, opt_out, opt_out_at, opt_out_motivo) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(nome.trim(), (cognome || '').trim(), (email || '').trim(), numeroInRubrica(telefono),
       negato ? 1 : 0, negato ? new Date().toISOString() : null, negato ? 'Consenso: No' : null);
+  // La spunta «Arrivato da una prenotazione» vale anche per un contatto nuovo.
+  if (req.body.daPrenotazione) {
+    db.prepare('UPDATE contacts SET provenienza = ? WHERE id = ?').run(PROVENIENZA_PRENOTAZIONE, info.lastInsertRowid);
+  }
   res.json(db.prepare('SELECT * FROM contacts WHERE id = ?').get(info.lastInsertRowid));
 });
 
@@ -2438,6 +2442,17 @@ app.put('/api/contacts/:id', (req, res) => {
     nome.trim(), (cognome || '').trim(), (email || '').trim(), numeroInRubrica(telefono),
     negato ? 1 : 0, opt_out_at, opt_out_motivo, req.params.id
   );
+  // «Arrivato da una prenotazione», dalla finestrella del contatto: serve a
+  // correggere a mano un contatto segnato (o non segnato) per sbaglio. Solo
+  // se la pagina lo manda; e togliere la spunta non cancella un'altra
+  // provenienza scritta da un CSV.
+  if (req.body.daPrenotazione !== undefined) {
+    if (req.body.daPrenotazione) {
+      db.prepare('UPDATE contacts SET provenienza = ? WHERE id = ?').run(PROVENIENZA_PRENOTAZIONE, req.params.id);
+    } else {
+      db.prepare("UPDATE contacts SET provenienza = '' WHERE id = ? AND provenienza = ?").run(req.params.id, PROVENIENZA_PRENOTAZIONE);
+    }
+  }
   res.json(db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id));
 });
 
@@ -3621,6 +3636,38 @@ try {
 }
 
 const botDisponibile = () => bot !== null;
+
+// ---------- I contatti di prima, arrivati da una prenotazione (24 novembre 2026) ----------
+// Il titolare: «tutti questi salvati in rubrica sono da mettere nel filtro
+// Dalle prenotazioni» — anche quelli messi col tasto PRIMA che la provenienza
+// si scrivesse. Si riconoscono così: hanno una prenotazione collegata, e sono
+// entrati in rubrica DOPO che quella prenotazione era nata (il tasto si preme
+// su una prenotazione che c'è già). ⚠️ Un contatto che c'era già — importato,
+// scritto a mano — e a cui una prenotazione è stata solo collegata è nato
+// PRIMA: non si tocca, resta fra «i miei contatti».
+// `created_at` della rubrica è in UTC, `creata_at` delle prenotazioni in ora
+// locale: si confrontano dopo averli messi sullo stesso orologio.
+// Una volta sola (`rubrica_provenienza_di_prima`): dopo, la provenienza la
+// scrive chi crea il contatto, e rifarlo segnerebbe chi è stato importato poi.
+function segnaIContattiDiPrima(archivio = db) {
+  const daSegnare = archivio.prepare(`
+    SELECT c.id FROM contacts c
+    WHERE c.provenienza = ''
+      AND datetime(c.created_at, 'localtime') >= (SELECT MIN(p.creata_at) FROM prenotazioni p WHERE p.contact_id = c.id)
+  `).all();
+  const segna = archivio.prepare('UPDATE contacts SET provenienza = ? WHERE id = ?');
+  archivio.transaction((righe) => { for (const r of righe) segna.run('Prenotazione', r.id); })(daSegnare);
+  return daSegnare.length;
+}
+if (botDisponibile() && getSetting('rubrica_provenienza_di_prima') !== 'fatto') {
+  try {
+    const quanti = segnaIContattiDiPrima();
+    setSetting('rubrica_provenienza_di_prima', 'fatto');
+    console.log(`Rubrica: ${quanti} contatti di prima segnati «Prenotazione» (erano stati aggiunti da una prenotazione).`);
+  } catch (e) {
+    console.error('Rubrica: non sono riuscito a segnare i contatti di prima:', e.message);
+  }
+}
 
 // Sulla copia di lavoro (MASTER) il bot c'è sempre. Sulle copie dei clienti
 // si accende solo se il seriale porta la funzione «bot»: e' cosi' che diventa
@@ -8302,8 +8349,11 @@ app.post('/api/bot/prenotazioni/:id/rubrica', (req, res) => {
     });
   }
 
-  const info = db.prepare('INSERT INTO contacts (nome, cognome, email, telefono) VALUES (?, ?, ?, ?)')
-    .run(nome, cognome, email, numeroInRubrica(telefono));
+  // Anche questo nasce «Prenotazione» (24 novembre 2026, dal titolare: «tutti
+  // questi salvati in rubrica sono da mettere nel filtro Dalle prenotazioni»):
+  // messo col tasto o entrato da solo, arriva da una prenotazione lo stesso.
+  const info = db.prepare('INSERT INTO contacts (nome, cognome, email, telefono, provenienza) VALUES (?, ?, ?, ?, ?)')
+    .run(nome, cognome, email, numeroInRubrica(telefono), PROVENIENZA_PRENOTAZIONE);
   db.prepare('UPDATE prenotazioni SET contact_id = ? WHERE id = ?').run(info.lastInsertRowid, p.id);
   annota('rubrica', `${nome} ${cognome}`.trim() + ' aggiunto in rubrica da una prenotazione');
   res.json({ gia: false, contatto: { id: info.lastInsertRowid, nome: `${nome} ${cognome}`.trim(), optOut: false } });

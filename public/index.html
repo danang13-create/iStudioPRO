@@ -3311,6 +3311,16 @@
           </small>
           <div id="c-consenso-motivo" style="display:none;margin-top:6px;font-size:.82rem;color:var(--saltato-testo)"></div>
         </div>
+        <!-- La provenienza si corregge a mano (24 novembre 2026): un contatto
+             segnato «Prenotazione» per sbaglio, o non segnato. -->
+        <div style="grid-column:1/-1">
+          <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer">
+            <input type="checkbox" id="c-prenotazione" style="width:auto" autocomplete="off"> Arrivato da una prenotazione
+          </label>
+          <small style="display:block;margin-top:6px;color:var(--grigio)">
+            Con la spunta ha l'etichetta «Prenotazione»: negli invii resta fuori da «I miei contatti» finché non scegli «Dalle prenotazioni».
+          </small>
+        </div>
       </div>
       <div id="errore-contatto" class="avviso" style="display:none;background:var(--male-fondo);border-color:var(--male-bordo);color:var(--male-testo)"></div>
       <div style="display:flex;gap:8px;margin-top:6px">
@@ -4488,6 +4498,7 @@ $('#form-contatto').addEventListener('submit', async (e) => {
     nome: $('#c-nome').value, cognome: $('#c-cognome').value,
     email: $('#c-email').value, telefono: $('#c-telefono').value,
     consenso: $('#c-consenso').value,
+    daPrenotazione: $('#c-prenotazione').checked,
   };
   mostraErroreContatto('');
   const res = await fetch(id ? '/api/contacts/' + id : '/api/contacts', {
@@ -4554,6 +4565,7 @@ window.modifica = (id) => {
   $('#c-email').value = c.email; $('#c-telefono').value = c.telefono;
   // consenso "No" = il contatto è escluso (opt_out); mostro anche il motivo se c'è
   impostaConsenso(c.opt_out ? 'no' : 'si', c.opt_out_motivo);
+  $('#c-prenotazione').checked = ePrenotazione(c);
   $('#form-titolo').textContent = 'Modifica contatto';
   $('#btn-salva').textContent = 'Salva modifiche';
   mostraErroreContatto('');
