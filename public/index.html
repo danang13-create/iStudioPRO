@@ -1029,6 +1029,50 @@
   .esp-giorni input { width: auto; margin: 0; }
   .esp select, .esp textarea { max-width: 100%; }
   .esp-anteprima { font-size: .88rem; color: var(--grigio); margin: 8px 0 0; }
+  /* La scheda di UN'esperienza (24 novembre 2026, dal titolare: «accorpa il
+     blocco, che si apre e si vede tutto… è un po' confusionale»). Chiusa è una
+     riga che dice quello che serve per riconoscerla — numero, nome, quando
+     vale, se paga, il menu, e cosa c'è da sistemare; aperta ha i campi divisi
+     per argomento. ⚠️ «<details>», come le frasi: una scheda chiusa TIENE i
+     suoi campi nel documento. */
+  .esp-scheda { padding: 0; overflow: hidden; }
+  .esp-scheda > summary { display: flex; align-items: center; gap: 10px; padding: 10px 14px; min-height: 52px;
+    cursor: pointer; list-style: none; }
+  .esp-scheda > summary::-webkit-details-marker { display: none; }
+  .esp-scheda > summary::before { content: '›'; flex: none; width: 12px; font-size: 1.2rem; color: var(--grigio-2);
+    transition: transform .15s; }
+  .esp-scheda[open] > summary::before { transform: rotate(90deg); }
+  .esp-scheda > summary:hover { background: var(--carta-2); }
+  .esp-scheda[open] > summary { background: var(--carta-2); border-bottom: 1px solid var(--bordo); }
+  .esp-num { flex: none; min-width: 28px; height: 28px; padding: 0 6px; border-radius: 999px; display: inline-flex;
+    align-items: center; justify-content: center; font-size: .85rem; font-weight: 700;
+    background: var(--esp-fondo); color: var(--esp-testo); }
+  .esp-chi { flex: 1 1 180px; min-width: 0; }
+  .esp-chi b { display: block; overflow-wrap: anywhere; }
+  .esp-chi .senza-nome { font-weight: 400; font-style: italic; color: var(--grigio); }
+  .esp-chi span { display: block; font-size: .85rem; color: var(--grigio); overflow-wrap: anywhere; }
+  .esp-segni { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; flex: 0 1 auto; }
+  .esp-segno { font-size: .78rem; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+    background: var(--carta-2); color: var(--grigio); border: 1px solid var(--bordo); }
+  .esp-segno.paga { background: var(--ok-fondo); color: var(--ok-testo); border-color: var(--ok-bordo); }
+  .esp-segno.attenzione { background: var(--avviso-fondo); color: var(--avviso-testo); border-color: var(--avviso-bordo); }
+  .esp-corpo { padding: 12px 14px 14px; }
+  .esp-corpo > .esp-anteprima { margin: 0; padding: 8px 10px; border-left: 3px solid var(--esp-bordo); background: var(--carta-2);
+    border-radius: 0 6px 6px 0; }
+  .esp-corpo > .esp-anteprima.attenzione { border-left-color: var(--avviso-bordo); background: var(--avviso-fondo); }
+  .esp-sezione { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--bordo); }
+  .esp-sezione > h3 { margin: 0; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--grigio); }
+  .esp-due { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  .esp-spunta { display: inline-flex !important; align-items: center; gap: 8px; font-weight: 400; cursor: pointer; }
+  .esp-spunta input { width: auto; margin: 0; }
+  .esp-piede { display: flex; justify-content: flex-end; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--bordo); }
+  .esp-strumenti { display: flex; justify-content: flex-end; margin: 0 0 8px; }
+  @media (max-width: 600px) {
+    .esp-scheda > summary { flex-wrap: wrap; }
+    .esp-segni { flex: 1 1 100%; justify-content: flex-start; padding-left: 60px; }
+    .esp-due { grid-template-columns: 1fr; }
+  }
   /* Le festività (scheda Orari): una card per festività, come le esperienze. */
   .festa-date { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; margin-top: 10px; }
   .festa-date label { margin: 0; }
@@ -2858,15 +2902,13 @@
       <div class="card" id="pren-card-esperienze">
         <h2 style="font-size:1rem;margin:0 0 6px">Le esperienze</h2>
         <p class="conteggio" style="margin:0 0 14px">
-          «Business lunch», «alla carta», «menu degustazione»: se il locale ne ha <b>almeno due</b>, il bot le elenca
-          sotto il primo messaggio — solo nome e riga di presentazione — e chiede <b>quale</b> prima di tutto il resto.
-          Dopo la scelta dice i <b>suoi</b> giorni e orari («🍽️ Pranzo: 12:30–15:30, dal lunedì al venerdì.», o una riga per orario se cambiano da un giorno all'altro), e propone solo quelli
-          in cui quella vale: con un business lunch che c'è solo a pranzo nei giorni feriali, niente «pranzo o cena?»
-          e niente sabato. Il nome finisce sulla prenotazione, in sala e nell'email. Con un'esperienza sola non chiede
-          niente: valgono i suoi giorni. Senza esperienze il bot lavora come sempre. Le frasi sono in «Frasi e domande»,
-          gruppo «Le esperienze». Ognuna ha <b>il suo menu</b>, quello che il bot manda a chi la sceglie e scrive MENU:
-          uno dei due della scheda «Menu», oppure uno suo, caricato qui. Senza, il bot dice che non ce l'ha.
+          Quello che il cliente può prenotare: «Business lunch», «Alla carta», «Menu degustazione». Con
+          <b>almeno due</b> il bot le elenca sotto il primo messaggio e chiede <b>quale</b>, poi propone solo i
+          giorni in cui quella vale. Con una sola non chiede niente; senza, lavora come sempre. Il nome finisce sulla
+          prenotazione, in sala e nell'email. <b>Tocca un'esperienza per aprirla</b>: chiusa, la riga dice già quando
+          vale, se si paga e se c'è qualcosa da sistemare.
         </p>
+        <div class="esp-strumenti"><button class="btn btn-secondario btn-piccolo" id="esperienze-apri-tutte" type="button" hidden>Apri tutte</button></div>
         <div id="esperienze-elenco"></div>
         <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
           <button class="btn btn-secondario" id="esperienze-aggiungi" type="button">+ Aggiungi un'esperienza</button>
@@ -9388,6 +9430,10 @@ function avvisoChiusiEsperienza(e) {
 // tendina, se quello scelto partirà davvero.
 let menuSchedaAttivi = { menu: false, degustazione: false };
 function mostraEsperienze(d) {
+  // Dopo «Salva» l'elenco torna dal server con oggetti nuovi: le schede che
+  // erano aperte restano aperte (stesso posto e stesso nome), sennò salvare
+  // richiuderebbe tutto sotto le dita.
+  const eranoAperte = esperienzeUI.map((e) => (esperienzeAperte.has(e) ? e.nome.trim() : null));
   esperienzeUI = (d.esperienze || []).map((e) => ({
     nome: e.nome || '', parole: e.parole || '', riga: e.riga || '',
     pranzo: [...(e.pranzo || [])].map(Number), cena: [...(e.cena || [])].map(Number),
@@ -9400,6 +9446,7 @@ function mostraEsperienze(d) {
     paga: e.paga === true, prezzo: e.paga ? String(e.prezzo || '').replace('.', ',') : '',
     facoltativo: e.facoltativo === true,
   }));
+  esperienzeUI.forEach((e, i) => { if (eranoAperte[i] !== null && eranoAperte[i] !== undefined && eranoAperte[i] === e.nome.trim()) esperienzeAperte.add(e); });
   const imp = d.impostazioni || {};
   menuSchedaAttivi = {
     menu: !!String(imp.bot_menu_link || imp.bot_menu_file || '').trim(),
@@ -9449,9 +9496,57 @@ function contoEsperienza(e) {
     + ' Modo, percentuale e tempo si cambiano in «Pagamenti».'
     + (manca.length ? ` ⚠️ In «Pagamenti» manca ${manca.join(' e ')}: senza, non si salva.` : '')];
 }
+// Quali schede sono APERTE. Si ricorda l'oggetto, non il numero: togliendone
+// una le altre cambiano posto, e la scheda aperta deve restare quella.
+const esperienzeAperte = new WeakSet();
+// La riga di un'esperienza CHIUSA: quello che serve per riconoscerla senza
+// aprirla, e quello che c'è da sistemare — una scheda chiusa non deve poter
+// nascondere un guasto. Torna l'HTML che sta dentro <summary>.
+function riassuntoEsperienza(e, i) {
+  const nome = e.nome.trim();
+  let quando;
+  if (e.soloFeste) {
+    const feste = festivitaUI.filter((f) => f.esperienze.includes(nome)).map((f) => f.nome.trim()).filter(Boolean);
+    quando = feste.length ? `Solo nelle festività: ${elencoConE(feste)}` : 'Solo nelle festività';
+  } else {
+    const q = quandoDettoUI(giorniApertiUI(e)) || quandoDettoUI(e);
+    quando = q ? q.charAt(0).toUpperCase() + q.slice(1) : 'Nessun giorno';
+  }
+  const segni = [];
+  if (e.paga) {
+    const prezzo = Math.round(parseFloat(String(e.prezzo).replace(',', '.')) * 100) || 0;
+    if (prezzo <= 0) segni.push(['attenzione', 'Manca il prezzo']);
+    else {
+      segni.push(['paga', `Paga ${euroUI(prezzo)}`]);
+      if (contoEsperienza(e)[0] === 'manca') segni.push(['attenzione', 'Pagamento da sistemare']);
+    }
+  }
+  if (e.menu) segni.push(statoMenuEsperienza(e)[0] === 'manca' ? ['attenzione', 'Menu da sistemare'] : ['', 'Menu']);
+  if (!nome) segni.push(['attenzione', 'Manca il nome']);
+  else if (anteprimaEsperienza(e, i).startsWith('⚠️')) segni.push(['attenzione', 'Il bot non la propone']);
+  return `<span class="esp-num">${i + 1}</span>`
+    + `<span class="esp-chi"><b${nome ? '' : ' class="senza-nome"'}>${testoSicuro(nome || 'Senza nome')}</b><span>${testoSicuro(quando)}${e.riga.trim() ? ' · ' + testoSicuro(e.riga.trim()) : ''}</span></span>`
+    + `<span class="esp-segni">${segni.map(([classe, testo]) => `<span class="esp-segno${classe ? ' ' + classe : ''}">${testoSicuro(testo)}</span>`).join('')}</span>`;
+}
+// Le righe chiuse, rifatte tutte: cambiare un nome o un giorno cambia anche
+// quelle delle altre (il numero nell'elenco del bot, le festività).
+function ridisegnaRiassuntiEsperienze() {
+  document.querySelectorAll('#esperienze-elenco .esp-scheda').forEach((card) => {
+    const i = +card.dataset.i;
+    const s = card.querySelector('summary');
+    if (s && esperienzeUI[i]) s.innerHTML = riassuntoEsperienza(esperienzeUI[i], i);
+  });
+}
+function aggiornaApriTutteEsperienze() {
+  const b = $('#esperienze-apri-tutte');
+  if (!b) return;
+  b.hidden = esperienzeUI.length < 2;
+  b.textContent = esperienzeUI.every((e) => esperienzeAperte.has(e)) ? 'Chiudi tutte' : 'Apri tutte';
+}
 function disegnaEsperienze() {
   const el = $('#esperienze-elenco');
   if (!el) return;
+  aggiornaApriTutteEsperienze();
   if (!esperienzeUI.length) {
     el.innerHTML = '<p class="conteggio" style="margin:0">Nessuna esperienza: il bot chiede subito per quante persone, come sempre.</p>';
     // Senza esperienze, in Pagamenti tornano l'interruttore e il prezzo generali.
@@ -9462,49 +9557,73 @@ function disegnaEsperienze() {
   const spunte = (e, servizio) => GIORNI_ESP.map(([g, l]) =>
     `<label><input type="checkbox" data-servizio="${servizio}" data-giorno="${g}"${e[servizio].includes(g) ? ' checked' : ''}${e.soloFeste ? ' disabled' : ''}>${l}</label>`).join('');
   el.innerHTML = esperienzeUI.map((e, i) => `
-    <div class="esp" data-i="${i}">
-      <div class="esp-testa">
-        <b>${NUMERI_ESP[i] || (i + 1) + '.'}</b>
-        <input data-campo="nome" maxlength="40" autocomplete="off" placeholder="Nome, per esempio «Business lunch»" value="${testoSicuro(e.nome)}" aria-label="Nome dell'esperienza ${i + 1}">
-        <button type="button" class="btn btn-secondario btn-piccolo" data-togli="${i}">Togli</button>
+    <details class="esp esp-scheda" data-i="${i}"${esperienzeAperte.has(e) ? ' open' : ''}>
+      <summary>${riassuntoEsperienza(e, i)}</summary>
+      <div class="esp-corpo">
+        <p class="esp-anteprima${anteprimaEsperienza(e, i).startsWith('⚠️') ? ' attenzione' : ''}" data-anteprima="${i}">${testoSicuro(anteprimaEsperienza(e, i))}</p>
+        <p class="esp-chiusi" data-chiusi="${i}"${avvisoChiusiEsperienza(e) ? '' : ' hidden'}>${testoSicuro(avvisoChiusiEsperienza(e))}</p>
+
+        <div class="esp-sezione">
+          <h3>Come si presenta</h3>
+          <div class="esp-due">
+            <label>Nome
+              <input data-campo="nome" maxlength="40" autocomplete="off" placeholder="Per esempio «Business lunch»" value="${testoSicuro(e.nome)}"></label>
+            <label>Riga di presentazione, sotto il nome
+              <input data-campo="riga" maxlength="160" autocomplete="off" placeholder="Menu a 35 € · acqua e caffè inclusi" value="${testoSicuro(e.riga)}"></label>
+          </div>
+          <label>Parole con cui il cliente la nomina
+            <input data-campo="parole" autocomplete="off" placeholder="business, lunch" value="${testoSicuro(e.parole)}">
+            <span class="conteggio" style="margin:0">Separate da virgola. Il nome intero vale sempre, e anche il numero (1, 2, 3).</span></label>
+        </div>
+
+        <div class="esp-sezione">
+          <h3>Quando vale</h3>
+          <div class="esp-giorni">
+            <div><span>A pranzo</span>${spunte(e, 'pranzo')}</div>
+            <div><span>A cena</span>${spunte(e, 'cena')}</div>
+            <div><span>Feste</span><label><input type="checkbox" data-solo-feste${e.soloFeste ? ' checked' : ''}>Vale solo nelle festività (il menu di Natale, il cenone)</label></div>
+          </div>
+        </div>
+
+        <div class="esp-sezione">
+          <h3>Pagamento</h3>
+          <label class="esp-spunta"><input type="checkbox" data-paga${e.paga ? ' checked' : ''}>Pagamento obbligatorio per prenotarla</label>
+          ${e.paga ? `<div class="esp-paga">
+            <label>Prezzo (€)
+              <input data-campo="prezzo" inputmode="decimal" autocomplete="off" maxlength="10" placeholder="120" value="${testoSicuro(e.prezzo)}"></label>
+            <p class="esp-menu-stato ${contoEsperienza(e)[0]}" data-paga-conto="${i}">${testoSicuro(contoEsperienza(e)[1])}</p>
+          </div>` : ''}
+        </div>
+
+        <div class="esp-sezione">
+          <h3>Il suo menu</h3>
+          <label>Cosa manda il bot a chi scrive MENU
+            <select data-campo="menu" autocomplete="off" style="width:auto">
+              <option value=""${e.menu === '' ? ' selected' : ''}>Nessuno</option>
+              <option value="menu"${e.menu === 'menu' ? ' selected' : ''}>Il menu (scheda Menu)</option>
+              <option value="degustazione"${e.menu === 'degustazione' ? ' selected' : ''}>Il menu degustazione (scheda Menu)</option>
+              <option value="suo"${e.menu === 'suo' ? ' selected' : ''}>Uno suo, caricato qui</option>
+            </select></label>
+          ${e.menu === 'suo' ? `<div class="esp-suo">
+            <input type="file" data-esp-file accept="application/pdf,image/png,image/jpeg,image/webp" hidden>
+            <button type="button" class="btn btn-secondario btn-piccolo" data-esp-carica>${e.menuFile ? 'Cambia il file' : 'Carica il PDF o la foto'}</button>
+            ${e.menuFile ? `<span class="conteggio" style="margin:0">📎 ${testoSicuro(e.menuNome || e.menuFile)}</span>
+            <button type="button" class="btn btn-secondario btn-piccolo" data-esp-togli-file>Togli il file</button>` : ''}
+            <label>Oppure un collegamento
+              <input data-campo="menuLink" autocomplete="off" inputmode="url" placeholder="https://…" value="${testoSicuro(e.menuLink)}"></label>
+          </div>` : ''}
+          <p class="esp-menu-stato ${statoMenuEsperienza(e)[0]}" data-menu-stato="${i}">${testoSicuro(statoMenuEsperienza(e)[1])}</p>
+        </div>
+
+        <div class="esp-sezione">
+          <h3>Dopo la scelta</h3>
+          <label>Frase di cappello
+            <textarea data-campo="cappello" rows="2" maxlength="400" placeholder="Una o due righe, per esempio cosa distingue i menu (portate, cosa è incluso)…">${testoSicuro(e.cappello)}</textarea></label>
+        </div>
+
+        <div class="esp-piede"><button type="button" class="btn btn-secondario btn-piccolo" data-togli="${i}">Togli questa esperienza</button></div>
       </div>
-      <label>Parole con cui il cliente la nomina
-        <input data-campo="parole" autocomplete="off" placeholder="business, lunch" value="${testoSicuro(e.parole)}">
-        <span class="conteggio" style="margin:0">Separate da virgola. Il nome intero vale sempre, e anche il numero (1, 2, 3).</span></label>
-      <label>Riga di presentazione, sotto il nome
-        <input data-campo="riga" maxlength="160" autocomplete="off" placeholder="Menu a 35 € · acqua e caffè inclusi" value="${testoSicuro(e.riga)}"></label>
-      <div class="esp-giorni">
-        <div><span>A pranzo</span>${spunte(e, 'pranzo')}</div>
-        <div><span>A cena</span>${spunte(e, 'cena')}</div>
-        <div><span>Feste</span><label><input type="checkbox" data-solo-feste${e.soloFeste ? ' checked' : ''}>Vale solo nelle festività (il menu di Natale, il cenone)</label></div>
-        <div><span>Paga</span><label><input type="checkbox" data-paga${e.paga ? ' checked' : ''}>Pagamento obbligatorio per prenotarla</label></div>
-      </div>
-      ${e.paga ? `<div class="esp-paga">
-        <label>Prezzo (€)
-          <input data-campo="prezzo" inputmode="decimal" autocomplete="off" maxlength="10" placeholder="120" value="${testoSicuro(e.prezzo)}"></label>
-        <p class="esp-menu-stato ${contoEsperienza(e)[0]}" data-paga-conto="${i}">${testoSicuro(contoEsperienza(e)[1])}</p>
-      </div>` : ''}
-      <label>Il suo menu, per chi scrive MENU
-        <select data-campo="menu" autocomplete="off" style="width:auto">
-          <option value=""${e.menu === '' ? ' selected' : ''}>Nessuno</option>
-          <option value="menu"${e.menu === 'menu' ? ' selected' : ''}>Il menu (scheda Menu)</option>
-          <option value="degustazione"${e.menu === 'degustazione' ? ' selected' : ''}>Il menu degustazione (scheda Menu)</option>
-          <option value="suo"${e.menu === 'suo' ? ' selected' : ''}>Uno suo, caricato qui</option>
-        </select></label>
-      ${e.menu === 'suo' ? `<div class="esp-suo">
-        <input type="file" data-esp-file accept="application/pdf,image/png,image/jpeg,image/webp" hidden>
-        <button type="button" class="btn btn-secondario btn-piccolo" data-esp-carica>${e.menuFile ? 'Cambia il file' : 'Carica il PDF o la foto'}</button>
-        ${e.menuFile ? `<span class="conteggio" style="margin:0">📎 ${testoSicuro(e.menuNome || e.menuFile)}</span>
-        <button type="button" class="btn btn-secondario btn-piccolo" data-esp-togli-file>Togli il file</button>` : ''}
-        <label>Oppure un collegamento
-          <input data-campo="menuLink" autocomplete="off" inputmode="url" placeholder="https://…" value="${testoSicuro(e.menuLink)}"></label>
-      </div>` : ''}
-      <p class="esp-menu-stato ${statoMenuEsperienza(e)[0]}" data-menu-stato="${i}">${testoSicuro(statoMenuEsperienza(e)[1])}</p>
-      <label>Frase di cappello, dopo la scelta
-        <textarea data-campo="cappello" rows="2" maxlength="400" placeholder="Una o due righe, per esempio cosa distingue i menu (portate, cosa è incluso)…">${testoSicuro(e.cappello)}</textarea></label>
-      <p class="esp-anteprima${anteprimaEsperienza(e, i).startsWith('⚠️') ? ' attenzione' : ''}" data-anteprima="${i}">${testoSicuro(anteprimaEsperienza(e, i))}</p>
-      <p class="esp-chiusi" data-chiusi="${i}"${avvisoChiusiEsperienza(e) ? '' : ' hidden'}>${testoSicuro(avvisoChiusiEsperienza(e))}</p>
-    </div>`).join('');
+    </details>`).join('');
   // Chi paga è cambiato, forse: Pagamenti lo riscrive (e nasconde il generale).
   aggiornaContoPagamento();
 }
@@ -9535,6 +9654,11 @@ function mostraFestivita(d) {
     for (const [s] of FESTA_SERVIZI) f.modo[s] = soliti.includes(s) ? 'solito' : (f[s].length ? 'suoi' : 'chiuso');
   }
   disegnaFestivita();
+  // ⚠️ Le esperienze si disegnano PRIMA delle festività (queste hanno bisogno
+  // dei loro nomi), ma un'esperienza «solo nelle festività» dice in quale vale:
+  // alla prima apertura della pagina leggeva un elenco ancora vuoto e scriveva
+  // «non è spuntata in nessuna festività» a un cenone spuntato. Si ridisegnano.
+  disegnaEsperienze();
 }
 // I nomi delle esperienze salvate: quelle che si possono spuntare.
 function nomiEsperienzeUI() {
@@ -9748,6 +9872,22 @@ $('#esperienze-elenco').addEventListener('input', (e) => {
   if (st) { const [classe, testo] = statoMenuEsperienza(esperienzeUI[i]); st.className = `esp-menu-stato ${classe}`; st.textContent = testo; }
   // Il conto sotto il prezzo, e l'elenco di chi paga in Pagamenti.
   if (card.querySelector('[data-paga-conto]')) aggiornaContoPagamento();
+  // Le righe chiuse dicono nome, giorni e prezzo: seguono quello che si scrive.
+  ridisegnaRiassuntiEsperienze();
+});
+// Aprire e chiudere una scheda. ⚠️ «toggle» non risale: si ascolta in cattura.
+$('#esperienze-elenco').addEventListener('toggle', (e) => {
+  const card = e.target;
+  if (!card || !card.classList || !card.classList.contains('esp-scheda')) return;
+  const esp = esperienzeUI[+card.dataset.i];
+  if (!esp) return;
+  if (card.open) esperienzeAperte.add(esp); else esperienzeAperte.delete(esp);
+  aggiornaApriTutteEsperienze();
+}, true);
+$('#esperienze-apri-tutte').addEventListener('click', () => {
+  const tutte = esperienzeUI.every((e) => esperienzeAperte.has(e));
+  esperienzeUI.forEach((e) => { if (tutte) esperienzeAperte.delete(e); else esperienzeAperte.add(e); });
+  disegnaEsperienze();
 });
 // Il file del menu suo: si carica SUBITO sul computer del locale, ma vale
 // quando si preme Salva (il server butta quelli che nessuna esperienza
@@ -9790,6 +9930,8 @@ $('#esperienze-aggiungi').addEventListener('click', () => {
   if (esperienzeUI.length >= 12) { toast('Al massimo dodici esperienze'); return; }
   esperienzeUI.push({ nome: '', parole: '', riga: '', pranzo: [], cena: [], menu: '', cappello: '', menuFile: '', menuNome: '', menuLink: '', soloFeste: false,
     paga: false, prezzo: '', facoltativo: false });
+  // Quella nuova nasce aperta: è lì che si scrive.
+  esperienzeAperte.add(esperienzeUI[esperienzeUI.length - 1]);
   esperienzeToccate = true;
   disegnaEsperienze();
   const ultimo = $('#esperienze-elenco .esp:last-child input[data-campo="nome"]');
