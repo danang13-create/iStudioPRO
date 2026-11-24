@@ -7983,6 +7983,12 @@ function aggiornaContoPagamento() {
   const spia = $('#pag-chiave-stato');
   if (!k) {
     spia.innerHTML = acceso ? '⚠️ Senza chiave il pagamento non si può accendere.' : '';
+  } else if (/^pk_(test|live)_/.test(k)) {
+    // La chiave pubblicabile è di Stripe, ma è quella sbagliata: va detto
+    // così, sennò chi l'ha appena copiata dal cruscotto non capisce perché no.
+    spia.innerHTML = '⚠️ Questa è la chiave <b>pubblicabile</b> («pk_…»): non può creare pagamenti. '
+      + 'Serve una chiave con restrizioni («rk_live_…») o quella segreta («sk_live_…»): '
+      + 'cruscotto Stripe → Sviluppatori → Chiavi API.';
   } else if (!/^(rk|sk)_(test|live)_[A-Za-z0-9]{8,}$/.test(k)) {
     spia.innerHTML = '⚠️ Non sembra una chiave di Stripe: cominciano con «rk_live_», «rk_test_» o «sk_».';
   } else if (/^(rk|sk)_test_/.test(k)) {

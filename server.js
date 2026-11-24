@@ -7547,6 +7547,14 @@ app.get('/api/bot/sala/indirizzi', (req, res) => {
   res.json({ porta: PORT_SALA, nome, rete });
 });
 
+// ⚠️ La chiave PUBBLICABILE («pk_…») è quella che si vede per prima nel
+// cruscotto di Stripe, ed è quella sbagliata: non può creare pagamenti. Al
+// REAR è stata incollata quella, e «non sembra una chiave di Stripe» non
+// diceva né che era di Stripe né quale serviva (24 novembre 2026).
+const CHIAVE_PUBBLICABILE = 'Questa è la chiave PUBBLICABILE di Stripe (comincia con «pk_»): non può creare pagamenti. '
+  + 'Serve una chiave con restrizioni («rk_live_…») o quella segreta («sk_live_…»): '
+  + 'si creano nel cruscotto Stripe, in Sviluppatori → Chiavi API.';
+
 app.post('/api/bot/impostazioni', (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const valori = req.body || {};
@@ -7652,6 +7660,7 @@ app.post('/api/bot/impostazioni', (req, res) => {
           + `verrebbe tenuto fermo fino alla scadenza.${perChi}`,
       });
     }
+    if (chiave.pubblicabile) return res.status(400).json({ error: CHIAVE_PUBBLICABILE });
     if (!chiave.forma) {
       return res.status(400).json({
         error: 'Questa non sembra una chiave di Stripe: cominciano con «rk_live_», «rk_test_» '
@@ -9046,6 +9055,9 @@ app.post('/api/bot/pagamento/prova', async (req, res) => {
   }
   const k = bot.chiaveStripe(cfg);
   if (!k.presente) return res.status(400).json({ error: 'Non c\'è nessuna chiave da provare.' });
+  // La pubblicabile non si manda nemmeno a Stripe: risponderebbe con un
+  // errore in inglese che non dice cosa fare.
+  if (k.pubblicabile) return res.status(400).json({ error: CHIAVE_PUBBLICABILE });
   const r = await stripeChiSono(cfg);
   if (!r.ok) return res.status(400).json({ error: r.errore });
   res.json({ ok: true, nome: r.nome, prova: k.prova });

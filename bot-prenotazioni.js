@@ -3669,6 +3669,11 @@ function chiaveStripe(cfg) {
     presente: k.length > 0,
     forma: /^(rk|sk)_(test|live)_[A-Za-z0-9]{8,}$/.test(k),
     prova: /^(rk|sk)_test_/.test(k),
+    // La chiave PUBBLICABILE («pk_…»): è una chiave di Stripe vera, ma è
+    // quella sbagliata — serve a un sito per mostrare un modulo, non a creare
+    // un pagamento. Si riconosce per dirlo chiaro a chi l'ha incollata (24
+    // novembre 2026: «non sembra una chiave di Stripe» non lo aiutava).
+    pubblicabile: /^pk_(test|live)_/.test(k),
     coda: k ? k.slice(-4) : '',
   };
 }
