@@ -2460,6 +2460,9 @@
           <h2 style="font-size:1rem;margin:0">Clienti</h2>
           <span style="flex:1"></span>
           <span id="cli-conto" class="conteggio" style="margin:0"></span>
+          <!-- Tutti i clienti in un file (24 novembre 2026, dal titolare): le
+               colonne sono quelle che la Rubrica importa. -->
+          <a class="btn btn-secondario btn-piccolo" id="cli-csv" href="/api/bot/clienti/csv" download style="text-decoration:none">Esporta in CSV</a>
         </div>
         <p class="conteggio" style="margin:0 0 10px">
           Chi ha prenotato almeno una volta, dall'ultima visita in giù: tocca il titolo di una colonna per metterli
@@ -2468,6 +2471,12 @@
           correggere il nome, metterlo in rubrica — uno per uno, perché chi prenota un tavolo non ha
           chiesto le novità del locale — o eliminarlo, così il bot non se ne ricorda più. La scheda
           si apre anche dal nome su una prenotazione qualsiasi.
+        </p>
+        <p class="conteggio" style="margin:0 0 10px">
+          <b>Esporta in CSV</b> scarica tutti i clienti in un file — nome, cognome, email, telefono, quante
+          prenotazioni, ultima visita — pronto da importare in Rubrica o in un programma di newsletter.
+          Chi ha scritto STOP arriva segnato «non contattare», e la Rubrica lo importa già escluso.
+          ⚠️ Chi ha solo prenotato un tavolo non ha chiesto le novità: mandale a chi ti ha dato il consenso.
         </p>
         <input id="cli-cerca" type="search" autocomplete="off" placeholder="nome, cognome, numero o email…" style="max-width:420px">
         <!-- LA TABELLA (23 novembre 2026, dal titolare): Nome, Cognome, Email,

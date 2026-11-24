@@ -7328,6 +7328,46 @@ app.get('/api/bot/clienti', (req, res) => {
   res.json({ clienti: voci });
 });
 
+// ⚠️ I CLIENTI IN UN FILE (24 novembre 2026, chiesto dal titolare): «un tasto
+// che esporta i clienti e i suoi dati in un CSV, così da passare velocemente
+// nelle newsletter». Le prime cinque colonne sono quelle che la Rubrica sa
+// importare (`nome;cognome;email;telefono;non_contattare`): il file si carica
+// lì com'è, o in un programma di newsletter.
+// ⚠️ Chi ha scritto STOP — al bot, o segnato «non contattare» in rubrica — NON
+// sparisce dal file: arriva con `non_contattare = si`. Tolto, chi importa non
+// saprebbe di doverlo escludere; segnato, la Rubrica lo importa già escluso.
+// Solo dalla piattaforma: è l'archivio clienti, e il tablet sta sul bancone.
+function clientiInCsv(voci, nonContattare = () => false) {
+  const giorno = (iso) => (/^\d{4}-\d{2}-\d{2}$/.test(String(iso || '')) ? String(iso).split('-').reverse().join('/') : '');
+  const colonne = ['nome', 'cognome', 'email', 'telefono', 'non_contattare', 'prenotazioni', 'ultima_visita', 'prossima_prenotazione'];
+  const corpo = voci.map((v) => [
+    cellaCsv(v.nomeProprio), cellaCsv(v.cognome), cellaCsv(v.email),
+    // Il numero come lo scrive la rubrica («+39…»). Senza l'apice di
+    // `cellaCsv`: davanti a un «+» lo metterebbe, e l'importazione non lo
+    // riconoscerebbe più come numero. L'indirizzo interno di WhatsApp no.
+    `"${String(v.telefono || '').includes('@') ? '' : numeroInRubrica(v.telefono).replace(/[^+\d ]/g, '')}"`,
+    cellaCsv(v.stop || nonContattare(v) ? 'si' : ''),
+    cellaCsv(v.prenotazioni), cellaCsv(giorno(v.ultima)), cellaCsv(giorno(v.prossima)),
+  ].join(';'));
+  // Punto e virgola e BOM: quello che Excel in italiano si aspetta.
+  return '\ufeff' + [colonne.join(';'), ...corpo].join('\r\n') + '\r\n';
+}
+app.get('/api/bot/clienti/csv', (req, res) => {
+  if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
+  const voci = bot.elencoPersone(db, new Date(), 20000);
+  // Chi in rubrica è segnato «non contattare», per numero o per email. Letta
+  // una volta sola: cercare la rubrica intera per ogni cliente, con migliaia
+  // di clienti, vorrebbe dire aspettare il file per un minuto.
+  const esclusi = db.prepare('SELECT telefono, email FROM contacts WHERE opt_out = 1').all();
+  const numeriNo = new Set(esclusi.map((c) => normalizePhone(c.telefono || '')).filter(Boolean));
+  const emailNo = new Set(esclusi.map((c) => String(c.email || '').trim().toLowerCase()).filter(Boolean));
+  const nonContattare = (v) => numeriNo.has(normalizePhone(v.telefono || '')) || emailNo.has(String(v.email || '').trim().toLowerCase());
+  annota('clienti', `esportati ${voci.length} clienti in CSV`);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="clienti-${bot.comeData(new Date())}.csv"`);
+  res.send(clientiInCsv(voci, nonContattare));
+});
+
 // ---- I giorni pieni (sold out) ----
 // Un giorno segnato pieno non è una chiusura: il locale c'è, i posti no. Al
 // cliente il bot risponde «non c'è più posto», non «siamo chiusi».

@@ -5549,14 +5549,29 @@ function schedaPersona(db, id, adesso = new Date()) {
 // Il tetto è alto ma c'è: un archivio di anni non deve bloccare la pagina.
 function elencoPersone(db, adesso = new Date(), massimo = 3000) {
   const righe = db.prepare('SELECT * FROM prenotazioni ORDER BY data DESC, id DESC LIMIT 20000').all();
-  return raggruppaPersone(righe, massimo, adesso);
+  // ⚠️ Chi ha scritto STOP arriva segnato (`stop`), per l'esportazione in CSV
+  // (24 novembre 2026): quel file serve alle newsletter, e chi ha detto basta
+  // non deve finirci come uno qualunque. Si guarda la chat da cui ha scritto e
+  // i suoi numeri — come `haDettoBasta`, ma con una lettura sola per tutti.
+  const fermi = db.prepare('SELECT chiave, numero FROM bot_stop').all();
+  if (!fermi.length) return raggruppaPersone(righe, massimo, adesso);
+  const chat = new Set(fermi.map((r) => String(r.chiave || '')).filter(Boolean));
+  const numeri = new Set(fermi.map((r) => numeroConfrontabile(r.numero)).filter(Boolean));
+  const haDettoStop = (g) => g.some((r) => {
+    // Una prenotazione fatta PER UN ALTRO è di chi cena: la chat è di chi ha
+    // scritto, e il suo STOP non è quello dell'ospite (vedi `chiaviStoriche`).
+    const perAltri = r.per_altri && String(r.telefono_contatto || '').trim();
+    const suoi = perAltri ? [r.telefono_contatto] : [r.chat_id, r.telefono, r.telefono_contatto];
+    return suoi.some((v) => v && (chat.has(String(v)) || numeri.has(numeroConfrontabile(String(v).includes('@') ? '' : v))));
+  });
+  return raggruppaPersone(righe, massimo, adesso, haDettoStop);
 }
 
 // Le righe di una stessa persona diventano una voce sola: la stessa catena
 // della scheda, letta sulle righe già in mano invece che sull'archivio. La
 // ricerca la fa la pagina su questo elenco: una ricerca a parte, con un suo
 // modo di raggruppare, faceva comparire lo stesso Rossi in due modi diversi.
-function raggruppaPersone(righe, massimo, adesso = new Date()) {
+function raggruppaPersone(righe, massimo, adesso = new Date(), haDettoStop = null) {
   const oggi = comeData(adesso);
   // ⚠️ Raggruppare per «il primo aggancio disponibile» spezzava la stessa
   // persona in due voci: quella con l'email da una parte e quella col solo
@@ -5605,6 +5620,8 @@ function raggruppaPersone(righe, massimo, adesso = new Date()) {
     // separate, che sono due notizie diverse.
     ultima: (g.find((r) => r.data < oggi && r.stato !== 'annullata') || {}).data || '',
     prossima: [...g].reverse().find((r) => r.data >= oggi && r.stato !== 'annullata')?.data || '',
+    // Solo quando è vero: chi non ha detto STOP resta com'era.
+    ...(haDettoStop && haDettoStop(g) ? { stop: true } : {}),
     };
   });
 }
