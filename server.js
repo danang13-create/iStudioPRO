@@ -7331,12 +7331,19 @@ app.get('/api/bot/clienti', (req, res) => {
 // ---- I giorni pieni (sold out) ----
 // Un giorno segnato pieno non è una chiusura: il locale c'è, i posti no. Al
 // cliente il bot risponde «non c'è più posto», non «siamo chiusi».
-app.get('/api/bot/pieni', (req, res) => {
+// ⚠️ I giorni pieni si segnano e si tolgono ANCHE dalla pagina della sala (24
+// novembre 2026, chiesto dal titolare). Prima erano solo della piattaforma —
+// «chiudere una serata è una decisione del titolare» — e chi stava in sala lo
+// faceva scrivendo SOLD OUT al bot. Il potere lo aveva già; qui ha un tasto.
+// Resta la parte che contava: nel registro c'è scritto DA DOVE è stato fatto.
+// Gli stessi gestori sulle due porte, non una copia.
+const rottaGiorniPieni = (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   res.json({ giorni: bot.giorniPieni(db, new Date()) });
-});
+};
+app.get('/api/bot/pieni', rottaGiorniPieni);
 
-app.post('/api/bot/pieni', (req, res) => {
+const rottaSegnaPieno = (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const data = String((req.body || {}).data || '');
   if (!dataVera(data)) {
@@ -7355,9 +7362,10 @@ app.post('/api/bot/pieni', (req, res) => {
     return res.status(409).json({ error: 'Quel giorno è già segnato come chiusura del locale.' });
   }
   bot.segnaPieno(db, data);
-  annota('sold out', `${bot.dataItaliana(data)} segnato pieno dalla pagina`);
+  annota('sold out', `${bot.dataItaliana(data)} segnato pieno ${req.dallaSala ? 'dalla sala' : 'dalla pagina'}`);
   res.json({ giorni: bot.giorniPieni(db, new Date()) });
-});
+};
+app.post('/api/bot/pieni', rottaSegnaPieno);
 
 // Togliere qualcuno dalla lista d'attesa, a mano. Chi ha ricevuto una
 // proposta e sta per rispondere viene riportato all'inizio della conversazione:
@@ -7395,15 +7403,16 @@ const rottaTogliAttesa = async (req, res) => {
 };
 app.delete('/api/bot/attese/:id', rottaTogliAttesa);
 
-app.delete('/api/bot/pieni/:data', (req, res) => {
+const rottaTogliPieno = (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const tolto = bot.togliPieno(db, String(req.params.data || ''));
   // Un ✅ che non ha tolto niente farebbe credere che il bot ricominci a
   // prendere prenotazioni per quel giorno. Non è così, e va detto.
   if (!tolto) return res.status(404).json({ error: 'Quel giorno non era segnato pieno.' });
-  annota('sold out', `${bot.dataItaliana(req.params.data)} torna prenotabile`);
+  annota('sold out', `${bot.dataItaliana(req.params.data)} torna prenotabile (${req.dallaSala ? 'dalla sala' : 'dalla pagina'})`);
   res.json({ giorni: bot.giorniPieni(db, new Date()) });
-});
+};
+app.delete('/api/bot/pieni/:data', rottaTogliPieno);
 
 app.get('/api/bot/impostazioni', (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
@@ -9482,6 +9491,10 @@ sala.get('/api/bot/prenotazioni', rottaServizio);
 sala.delete('/api/bot/attese/:id', rottaTogliAttesa);
 sala.post('/api/bot/prenotazioni', rottaNuovaPrenotazione);
 sala.patch('/api/bot/prenotazioni/:id', rottaModificaPrenotazione);
+// I giorni pieni (sold out): vedi `rottaSegnaPieno`.
+sala.get('/api/bot/pieni', rottaGiorniPieni);
+sala.post('/api/bot/pieni', rottaSegnaPieno);
+sala.delete('/api/bot/pieni/:data', rottaTogliPieno);
 
 sala.listen(PORT_SALA, () => {
   console.log(`Pagina della sala in ascolto su http://localhost:${PORT_SALA}`);

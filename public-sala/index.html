@@ -143,6 +143,12 @@
      su quella dopo: tre comandi in ordine sparso che nessuno collega più fra loro. */
   .frecce { display: flex; align-items: center; gap: 8px; }
   .conteggio { color: var(--grigio); font-size: .84rem; }
+  /* I giorni pieni: una riga per giorno, col suo tasto per riaprirlo. */
+  #pieno-giorno-riga { margin: 0 0 12px; }
+  .pieni { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pieno-voce { display: inline-flex; align-items: center; gap: 10px; padding: 6px 6px 6px 12px;
+    border: 1px solid var(--bordo); border-radius: 10px; font-size: .92rem; }
+  @media (max-width: 480px) { .pieno-voce { width: 100%; justify-content: space-between; } }
   .solo-per-chi-ascolta {
     position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
@@ -835,6 +841,12 @@
     <!-- Com'è messa la giornata, turno per turno: lo disegna
          Turni.disegnaRiepilogo (comune/turni.js), lo stesso della piattaforma. -->
     <div id="turni"></div>
+    <!-- Il sold out del giorno che si sta guardando (24 novembre 2026, chiesto
+         dal titolare): un tasto qui, e l'elenco di tutti in fondo alla pagina.
+         Non c'è nei giorni passati né in quelli di chiusura del locale. -->
+    <div id="pieno-giorno-riga" hidden>
+      <button class="btn btn-secondario btn-piccolo" id="pieno-giorno" type="button"></button>
+    </div>
     <!-- Chi aspetta un posto per questo giorno: sta sopra l'elenco perché è la
          domanda che si fa PRIMA di dare via un tavolo. -->
     <!-- Quello che i clienti hanno comunicato, tutto insieme: si legge una
@@ -842,6 +854,23 @@
     <div id="avvisi" hidden></div>
     <div id="attese" class="conteggio" style="margin:0 0 10px;display:none"></div>
     <div id="righe"></div>
+  </div>
+
+  <!-- GIORNI PIENI (SOLD OUT). Non è una chiusura: il locale c'è, i posti no.
+       Gli stessi giorni della piattaforma («Orari e tavoli»): segnati qui si
+       vedono là, e viceversa. Salvano subito. -->
+  <div class="card" id="card-pieni">
+    <h2 style="margin:0 0 6px">Giorni pieni (sold out)</h2>
+    <p class="conteggio" style="margin:0 0 10px">
+      Su questi giorni il bot risponde «non c'è più posto» e non prende altre prenotazioni.
+      Quelle già prese restano, e da qui se ne possono sempre aggiungere a mano.
+    </p>
+    <div class="riga-strumenti" style="margin-bottom:8px">
+      <input type="date" id="pieno-data" style="width:auto" aria-label="Giorno da segnare pieno">
+      <button class="btn btn-secondario btn-piccolo" id="pieno-aggiungi" type="button">Segna pieno</button>
+      <span id="pieno-esito" class="conteggio" role="status"></span>
+    </div>
+    <div id="pieni-elenco" class="pieni"></div>
   </div>
 </main>
 
@@ -1088,6 +1117,7 @@ async function caricaGiorno() {
   // Una scheda per turno, con la barra dei tavoli — e il cartello del sold out
   // o della chiusura prima di tutto (vedi Turni.disegnaRiepilogo).
   Turni.disegnaRiepilogo($('#turni'), d);
+  disegnaTastoPieno(d);
   disegnaAttese(d.attese || []);
   const vive = d.righe;
   // Quante ce n'erano, per accorgersi che ne è arrivata una nuova: una riga
@@ -1194,6 +1224,82 @@ async function caricaGiorno() {
 // attimo dopo legge quella, e senza aggiornarla mostrava il tavolo di prima.
 // La lista d'attesa del giorno, con la ✕ per togliere qualcuno. «avvisato»
 // vuol dire che il bot gli ha già proposto un posto e aspetta il sì.
+// ---- I giorni pieni (sold out) dalla sala ----
+// Chiesto dal titolare (24 novembre 2026): «da mettere lato sala». Deciso con
+// lui: la sala li segna E li toglie, con un tasto sul giorno che ha davanti e
+// l'elenco di tutti in fondo. Prima lo faceva scrivendo SOLD OUT al bot.
+function oggiIso() { return new Date().toLocaleDateString('sv-SE'); }
+function giornoDetto(iso) {
+  return new Date(iso + 'T12:00:00').toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+// Il tasto sotto la giornata. Non c'è per un giorno passato (non c'è niente da
+// chiudere) né per una chiusura del locale (quella si toglie dalla piattaforma).
+function disegnaTastoPieno(d) {
+  const riga = $('#pieno-giorno-riga');
+  const data = $('#giorno').value;
+  const mostra = !!data && data >= oggiIso() && !(d && d.chiuso);
+  riga.hidden = !mostra;
+  if (!mostra) return;
+  const b = $('#pieno-giorno');
+  const pieno = !!(d && d.soldOut);
+  b.dataset.pieno = pieno ? '1' : '';
+  b.textContent = pieno ? 'Togli il sold out: il bot riprende le prenotazioni' : '🚫 Segna questo giorno pieno (sold out)';
+}
+// Segna o toglie, e ridisegna tutto quello che lo mostra: la giornata, la
+// settimana e l'elenco. ⚠️ L'errore del server si fa LEGGERE: un tasto che non
+// dice niente fa credere di aver chiuso (o riaperto) un giorno.
+async function cambiaPieno(data, pieno) {
+  let r; let d = {};
+  try {
+    r = pieno
+      ? await fetch('/api/bot/pieni', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data }) })
+      : await fetch('/api/bot/pieni/' + encodeURIComponent(data), { method: 'DELETE' });
+    d = await r.json().catch(() => ({}));
+  } catch { return 'Il computer del ristorante non risponde: non è cambiato niente.'; }
+  if (r.status === 401) { sessioneFinita(); return 'Questo tablet è stato disconnesso: rientra e riprova.'; }
+  if (!r.ok) return d.error || 'Non sono riuscito: non è cambiato niente.';
+  disegnaPieni(d.giorni || []);
+  await caricaGiorno();
+  await Planning.carica(opzioniPlanning());
+  return '';
+}
+function disegnaPieni(giorni) {
+  const box = $('#pieni-elenco');
+  if (!giorni.length) { box.innerHTML = '<span class="conteggio">Nessun giorno segnato pieno.</span>'; return; }
+  box.innerHTML = giorni.map((g) => `<span class="pieno-voce">${sicuro(giornoDetto(g))}
+    <button type="button" class="btn btn-secondario btn-piccolo" data-libera="${sicuro(g)}">Togli</button></span>`).join('');
+}
+async function caricaPieni() {
+  let d;
+  try { d = await (await fetch('/api/bot/pieni')).json(); } catch { return; }
+  if (d && Array.isArray(d.giorni)) disegnaPieni(d.giorni);
+}
+const CHIEDI_PIENO = (data) => `Segnare pieno ${giornoDetto(data)}?\n\nIl bot risponderà «non c'è più posto» a chi chiede quel giorno. Le prenotazioni già prese restano.`;
+const CHIEDI_RIAPRI = (data) => `Togliere il sold out di ${giornoDetto(data)}?\n\nIl bot ricomincia a prendere prenotazioni per quel giorno.`;
+$('#pieno-giorno').addEventListener('click', async () => {
+  const data = $('#giorno').value;
+  const togliere = $('#pieno-giorno').dataset.pieno === '1';
+  if (!data || !confirm(togliere ? CHIEDI_RIAPRI(data) : CHIEDI_PIENO(data))) return;
+  const errore = await cambiaPieno(data, !togliere);
+  if (errore) { alert(errore); return; }
+  toast(togliere ? 'Sold out tolto' : 'Giorno segnato pieno');
+});
+$('#pieno-aggiungi').addEventListener('click', async () => {
+  const data = $('#pieno-data').value;
+  const esito = $('#pieno-esito');
+  if (!data) { esito.textContent = 'Scegli prima un giorno.'; return; }
+  if (!confirm(CHIEDI_PIENO(data))) return;
+  const errore = await cambiaPieno(data, true);
+  esito.textContent = errore || 'Segnato.';
+  if (!errore) $('#pieno-data').value = '';
+});
+$('#pieni-elenco').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-libera]');
+  if (!b || !confirm(CHIEDI_RIAPRI(b.dataset.libera))) return;
+  const errore = await cambiaPieno(b.dataset.libera, false);
+  $('#pieno-esito').textContent = errore || 'Tolto.';
+});
+
 function disegnaAttese(attese) {
   const dove = $('#attese');
   if (!attese.length) { dove.style.display = 'none'; dove.innerHTML = ''; return; }
@@ -1759,7 +1865,7 @@ $('#p-data').addEventListener('change', () => {
 $('#p-ora').addEventListener('change', () => {
   Turni.riempiPersone('#p-persone', $('#p-data').value, $('#p-persone').value, $('#p-ora').value, { oltre: true });
 });
-$('#aggiorna').addEventListener('click', () => { caricaGiorno(); Planning.carica(opzioniPlanning()); });
+$('#aggiorna').addEventListener('click', () => { caricaGiorno(); Planning.carica(opzioniPlanning()); caricaPieni(); });
 $('#nuova').addEventListener('click', () => apri(null));
 $('#p-chiudi').addEventListener('click', chiudiPannello);
 $('#p-salva').addEventListener('click', salva);
@@ -1790,6 +1896,8 @@ async function ricaricaTutto({ dillo } = {}) {
   const prima = quantePrima;
   await caricaGiorno();
   await Planning.carica(opzioniPlanning());
+  // I giorni pieni possono cambiare dalla piattaforma o da WhatsApp.
+  caricaPieni();
   // Si avvisa solo se sono ARRIVATE prenotazioni: un elenco che si riordina da
   // solo non merita un messaggio, una prenotazione nuova sì — è l'unica cosa
   // per cui vale la pena alzare gli occhi dal lavoro.
@@ -2239,6 +2347,7 @@ window.addEventListener('focus', guardaSeCambiato);
   } catch {}
   await caricaGiorno();
   await Planning.carica(opzioniPlanning());
+  caricaPieni();
   // Da qui in poi ogni cambiamento è roba nuova da mostrare.
   versioneVista = (await leggiVersione() || {}).versione ?? null;
 })();
