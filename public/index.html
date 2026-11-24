@@ -2221,18 +2221,28 @@
       <div class="card">
         <h2 style="font-size:1rem;margin:0 0 12px">Pagamento della prenotazione</h2>
         <!-- PAGAMENTO DELLA PRENOTAZIONE -->
-        <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer">
-          <input type="checkbox" id="cfg-bot_pagamento_attivo" autocomplete="off">
-          Chiedi il pagamento per confermare la prenotazione
-        </label>
-        <p class="conteggio" style="margin:6px 0 0">
-          Vale per tutte le prenotazioni. Per far pagare <b>una sola esperienza</b> (il cenone, la
-          degustazione) lascia spento qui e spunta «Pagamento obbligatorio» nella sua scheda, in
-          Esperienze: la chiave di Stripe e l'indirizzo di ritorno restano questi.
+        <!-- ⚠️ Con le esperienze (24 novembre 2026, dal titolare) chi paga lo
+             decide la spunta «Paga» di ognuna, col suo prezzo: l'interruttore,
+             il prezzo e l'obbligo di qui sotto valgono solo per un locale che
+             le esperienze non le ha, e allora si nascondono (vedi
+             `mostraPagamentiPerEsperienze`). Restano modo, percentuale e
+             tempo: uguali per tutte. -->
+        <p class="conteggio" id="pag-con-esperienze" style="margin:0 0 4px" hidden>
+          <b>Chi paga e quanto</b> si decide in <b>Esperienze</b>: in ognuna la spunta «Pagamento
+          obbligatorio per prenotarla» e il suo prezzo. Qui sotto le regole uguali per tutte: il modo,
+          quanta parte si paga adesso e quanto tempo ha il cliente.
         </p>
+        <!-- In un contenitore suo: un «hidden» messo sull'etichetta non basta,
+             perché il suo «display:flex» scritto in linea vince. -->
+        <div id="pag-interruttore">
+          <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer">
+            <input type="checkbox" id="cfg-bot_pagamento_attivo" autocomplete="off">
+            Chiedi il pagamento per confermare la prenotazione
+          </label>
+        </div>
         <div id="pag-campi" style="margin-top:10px">
           <div class="campi-pren" id="pag-regola" style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
-            <label style="flex:0 0 130px">Prezzo (€)
+            <label id="pag-prezzo-generale" style="flex:0 0 130px">Prezzo (€)
               <input id="cfg-bot_pagamento_prezzo" inputmode="decimal" autocomplete="off" placeholder="120"></label>
             <label style="flex:0 0 170px">Modo
               <select id="cfg-bot_pagamento_modo" autocomplete="off">
@@ -2243,7 +2253,7 @@
               <input id="cfg-bot_pagamento_percentuale" inputmode="numeric" autocomplete="off" placeholder="100"></label>
             <label style="flex:0 0 160px">Tempo per pagare (min)
               <input id="cfg-bot_pagamento_minuti" inputmode="numeric" autocomplete="off" placeholder="30"></label>
-            <label style="flex:0 0 230px">Il pagamento
+            <label id="pag-obbligo-generale" style="flex:0 0 230px">Il pagamento
               <select id="cfg-bot_pagamento_obbligatorio" autocomplete="off">
                 <option value="true">è obbligatorio</option>
                 <option value="false">è facoltativo (acconto)</option>
@@ -7941,7 +7951,43 @@ function oraUI(quando) {
 // E il MODO PROVA va gridato: un locale lasciato con la chiave di prova
 // incasserebbe pagamenti che non esistono, e se ne accorgerebbe dall'estratto
 // conto.
+// Il locale ha delle esperienze? Allora chi paga lo decide la spunta «Paga»
+// di ognuna, e in Pagamenti restano solo le regole comuni. (Dentro un «try»:
+// l'elenco delle esperienze è dichiarato più in basso nella pagina.)
+function localeConEsperienze() {
+  try { return esperienzeUI.length > 0; } catch { return false; }
+}
+// Con le esperienze: via l'interruttore, il prezzo e l'obbligo generali (lì
+// non contano), e sotto le regole l'elenco di chi paga e quanto.
+function mostraPagamentiPerEsperienze() {
+  const con = localeConEsperienze();
+  for (const id of ['#pag-interruttore', '#pag-prezzo-generale', '#pag-obbligo-generale']) { const el = $(id); if (el) el.hidden = con; }
+  const nota = $('#pag-con-esperienze');
+  if (nota) nota.hidden = !con;
+  return con;
+}
+// Le righe del conto sotto ogni esperienza: cambiano col modo e la percentuale.
+function ridisegnaContiEsperienze() {
+  document.querySelectorAll('#esperienze-elenco .esp').forEach((card) => {
+    const pc = card.querySelector('[data-paga-conto]');
+    const e = esperienzeUI[+card.dataset.i];
+    if (pc && e) { const [classe, testo] = contoEsperienza(e); pc.className = `esp-menu-stato ${classe}`; pc.textContent = testo; }
+  });
+}
 function aggiornaContoPagamento() {
+  if (mostraPagamentiPerEsperienze()) {
+    // La regola comune non sbiadisce mai: vale per ogni esperienza che paga.
+    $('#pag-regola').style.opacity = '';
+    const campoTempo = $('#cfg-bot_pagamento_minuti');
+    if (campoTempo && campoTempo.parentElement) { campoTempo.parentElement.style.opacity = ''; campoTempo.disabled = false; }
+    const paganti = esperienzeUI.filter((e) => e.paga && e.nome.trim());
+    $('#pag-conto').innerHTML = paganti.length
+      ? paganti.map((e) => `<b>${testoSicuro(e.nome.trim())}</b> — ${testoSicuro(contoEsperienza(e)[1].replace(/ Modo, percentuale e tempo si cambiano in «Pagamenti»\./, ''))}`).join('<br>')
+      : 'Nessuna esperienza ha la spunta «Pagamento obbligatorio»: oggi non paga nessuno.';
+    ridisegnaContiEsperienze();
+    aggiornaSpiaChiave(paganti.length > 0);
+    return;
+  }
   const acceso = $('#cfg-bot_pagamento_attivo').checked;
   // Sbiadita solo la REGOLA generale: la chiave e l'indirizzo di ritorno
   // servono anche a un'esperienza col suo pagamento, a regola spenta.
@@ -7983,6 +8029,11 @@ function aggiornaContoPagamento() {
     campoTempo.parentElement.style.opacity = obbligatorio ? '' : '.4';
     campoTempo.disabled = !obbligatorio;
   }
+  aggiornaSpiaChiave(acceso);
+}
+// La riga sotto la chiave di Stripe. `serve` dice se c'è qualcuno che paga.
+function aggiornaSpiaChiave(serve) {
+  const acceso = serve;
   const k = String($('#cfg-bot_pagamento_chiave').value || '').trim();
   const spia = $('#pag-chiave-stato');
   if (!k) {
@@ -9337,9 +9388,11 @@ function mostraEsperienze(d) {
     menu: e.menu || '', cappello: e.cappello || '',
     menuFile: e.menuFile || '', menuNome: e.menuNome || '', menuLink: e.menuLink || '',
     soloFeste: e.soloFeste === true,
-    // Il pagamento suo (24 novembre 2026): prezzo a persona, e quanta parte subito.
+    // «Paga» e il suo prezzo (24 novembre 2026). Modo, percentuale e tempo
+    // sono di Pagamenti, uguali per tutte. `facoltativo` non ha un tasto: lo
+    // porta chi veniva dal pagamento generale facoltativo, e qui si tiene.
     paga: e.paga === true, prezzo: e.paga ? String(e.prezzo || '').replace('.', ',') : '',
-    percentuale: e.paga ? String(e.percentuale || 100) : '100',
+    facoltativo: e.facoltativo === true,
   }));
   const imp = d.impostazioni || {};
   menuSchedaAttivi = {
@@ -9365,23 +9418,29 @@ function statoMenuEsperienza(e) {
   }
   return ['', 'A MENU il bot risponde che per questa esperienza non ha un menu da mandare (la frase si cambia in Frasi e domande).'];
 }
-// Il conto del pagamento di un'esperienza, scritto mentre lo si imposta — come
-// nella scheda Pagamenti: un prezzo per una percentuale per le persone è un
-// errore che sennò si scopre col primo cliente. Torna [classe, testo].
+// Il conto del pagamento di un'esperienza, scritto mentre lo si imposta: il
+// SUO prezzo, col modo e la percentuale di Pagamenti (uguali per tutte). Un
+// prezzo per una percentuale per le persone è un errore che sennò si scopre
+// col primo cliente. Torna [classe, testo].
 function contoEsperienza(e) {
   if (!e.paga) return ['', ''];
   const prezzo = Math.round(parseFloat(String(e.prezzo).replace(',', '.')) * 100) || 0;
-  if (prezzo <= 0) return ['manca', '⚠️ Scrivi il prezzo a persona: senza, questa esperienza non si salva.'];
-  const perc = Math.min(Math.max(Math.round(Number(e.percentuale) || 100), 1), 100);
+  if (prezzo <= 0) return ['manca', '⚠️ Scrivi il prezzo: senza, questa esperienza non si salva.'];
+  const campo = (id) => ($(id) || {}).value;
+  const percScritta = Number(campo('#cfg-bot_pagamento_percentuale'));
+  const perc = Math.min(Math.max(Number.isFinite(percScritta) && String(campo('#cfg-bot_pagamento_percentuale') || '').trim() !== '' ? percScritta : 100, 0), 100);
+  const perPersona = campo('#cfg-bot_pagamento_modo') !== 'prenotazione';
   const uno = Math.round(prezzo * perc / 100);
-  if (uno < 50) return ['manca', '⚠️ Stripe non accetta addebiti sotto 0,50 €: alza il prezzo o la percentuale.'];
-  const chiave = $('#cfg-bot_pagamento_chiave');
-  const ritorno = $('#cfg-bot_pagamento_ritorno');
-  const manca = [chiave && !chiave.value.trim() ? 'la chiave di Stripe' : '', ritorno && !ritorno.value.trim() ? 'l\'indirizzo di ritorno' : ''].filter(Boolean);
+  if (uno < 50) return ['manca', '⚠️ Stripe non accetta addebiti sotto 0,50 €: alza il prezzo, o la percentuale in «Pagamenti».'];
+  const manca = [!String(campo('#cfg-bot_pagamento_chiave') || '').trim() ? 'la chiave di Stripe' : '',
+    !String(campo('#cfg-bot_pagamento_ritorno') || '').trim() ? 'l\'indirizzo di ritorno' : ''].filter(Boolean);
   return [manca.length ? 'manca' : '',
-    `Un tavolo da 2 paga ${euroUI(uno * 2)} · da 4 paga ${euroUI(uno * 4)}`
-    + (perc < 100 ? ' — il resto si salda al ristorante.' : ' — pagamento intero.')
-    + ' Il tavolo non è prenotato finché il cliente non paga; se non paga in tempo, torna libero.'
+    (perPersona ? `${euroUI(prezzo)} a persona: un tavolo da 2 paga ${euroUI(uno * 2)} · da 4 paga ${euroUI(uno * 4)}`
+      : `${euroUI(prezzo)} a prenotazione: ogni tavolo paga ${euroUI(uno)}`)
+    + (perc < 100 ? ` adesso (il ${perc}%), il resto al ristorante.` : ' adesso, per intero.')
+    + (e.facoltativo ? ' È un acconto facoltativo: il tavolo è confermato subito.'
+      : ' Il tavolo non è prenotato finché il cliente non paga; se non paga in tempo, torna libero.')
+    + ' Modo, percentuale e tempo si cambiano in «Pagamenti».'
     + (manca.length ? ` ⚠️ In «Pagamenti» manca ${manca.join(' e ')}: senza, non si salva.` : '')];
 }
 function disegnaEsperienze() {
@@ -9389,6 +9448,8 @@ function disegnaEsperienze() {
   if (!el) return;
   if (!esperienzeUI.length) {
     el.innerHTML = '<p class="conteggio" style="margin:0">Nessuna esperienza: il bot chiede subito per quante persone, come sempre.</p>';
+    // Senza esperienze, in Pagamenti tornano l'interruttore e il prezzo generali.
+    aggiornaContoPagamento();
     return;
   }
   // «Solo nelle festività» spegne i giorni della settimana: lì non vale.
@@ -9413,10 +9474,8 @@ function disegnaEsperienze() {
         <div><span>Paga</span><label><input type="checkbox" data-paga${e.paga ? ' checked' : ''}>Pagamento obbligatorio per prenotarla</label></div>
       </div>
       ${e.paga ? `<div class="esp-paga">
-        <label>Prezzo a persona (€)
+        <label>Prezzo (€)
           <input data-campo="prezzo" inputmode="decimal" autocomplete="off" maxlength="10" placeholder="120" value="${testoSicuro(e.prezzo)}"></label>
-        <label>Da pagare subito (%)
-          <input data-campo="percentuale" inputmode="numeric" autocomplete="off" maxlength="3" placeholder="100" value="${testoSicuro(e.percentuale)}"></label>
         <p class="esp-menu-stato ${contoEsperienza(e)[0]}" data-paga-conto="${i}">${testoSicuro(contoEsperienza(e)[1])}</p>
       </div>` : ''}
       <label>Il suo menu, per chi scrive MENU
@@ -9440,6 +9499,8 @@ function disegnaEsperienze() {
       <p class="esp-anteprima${anteprimaEsperienza(e, i).startsWith('⚠️') ? ' attenzione' : ''}" data-anteprima="${i}">${testoSicuro(anteprimaEsperienza(e, i))}</p>
       <p class="esp-chiusi" data-chiusi="${i}"${avvisoChiusiEsperienza(e) ? '' : ' hidden'}>${testoSicuro(avvisoChiusiEsperienza(e))}</p>
     </div>`).join('');
+  // Chi paga è cambiato, forse: Pagamenti lo riscrive (e nasconde il generale).
+  aggiornaContoPagamento();
 }
 function esperienzeDaSalvare() { return esperienzeUI; }
 
@@ -9647,7 +9708,6 @@ $('#esperienze-elenco').addEventListener('input', (e) => {
   // La spunta del pagamento apre (o chiude) i suoi due campi: si ridisegna.
   if (e.target.hasAttribute('data-paga')) {
     esp.paga = e.target.checked;
-    if (esp.paga && !String(esp.percentuale || '').trim()) esp.percentuale = '100';
     esperienzeToccate = true;
     disegnaEsperienze();
     const prezzo = $(`#esperienze-elenco .esp[data-i="${i}"] [data-campo="prezzo"]`);
@@ -9680,8 +9740,8 @@ $('#esperienze-elenco').addEventListener('input', (e) => {
   });
   const st = card.querySelector('[data-menu-stato]');
   if (st) { const [classe, testo] = statoMenuEsperienza(esperienzeUI[i]); st.className = `esp-menu-stato ${classe}`; st.textContent = testo; }
-  const pc = card.querySelector('[data-paga-conto]');
-  if (pc) { const [classe, testo] = contoEsperienza(esperienzeUI[i]); pc.className = `esp-menu-stato ${classe}`; pc.textContent = testo; }
+  // Il conto sotto il prezzo, e l'elenco di chi paga in Pagamenti.
+  if (card.querySelector('[data-paga-conto]')) aggiornaContoPagamento();
 });
 // Il file del menu suo: si carica SUBITO sul computer del locale, ma vale
 // quando si preme Salva (il server butta quelli che nessuna esperienza
@@ -9723,7 +9783,7 @@ $('#esperienze-elenco').addEventListener('click', (e) => {
 $('#esperienze-aggiungi').addEventListener('click', () => {
   if (esperienzeUI.length >= 12) { toast('Al massimo dodici esperienze'); return; }
   esperienzeUI.push({ nome: '', parole: '', riga: '', pranzo: [], cena: [], menu: '', cappello: '', menuFile: '', menuNome: '', menuLink: '', soloFeste: false,
-    paga: false, prezzo: '', percentuale: '100' });
+    paga: false, prezzo: '', facoltativo: false });
   esperienzeToccate = true;
   disegnaEsperienze();
   const ultimo = $('#esperienze-elenco .esp:last-child input[data-campo="nome"]');

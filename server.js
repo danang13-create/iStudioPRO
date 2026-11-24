@@ -3669,6 +3669,59 @@ if (botDisponibile() && getSetting('rubrica_provenienza_di_prima') !== 'fatto') 
   }
 }
 
+// ---------- I prezzi nelle esperienze: il passaggio (24 novembre 2026) ----------
+// Da oggi, in un locale con le esperienze, paga chi sceglie un'esperienza con
+// «Paga» e un prezzo; modo, percentuale e tempo sono quelli di Pagamenti (vedi
+// `regolaDelPagamento` nel motore). ⚠️ Chi aveva già impostato qualcosa non
+// deve trovarsi, dopo un aggiornamento, a non incassare più — o a incassare
+// un'altra cifra — senza saperlo. Una volta sola, all'accensione:
+//   · pagamento generale ACCESO e delle esperienze: fin qui pagavano TUTTE il
+//     prezzo di Pagamenti. Quel prezzo si scrive in ognuna, con «Paga» (e
+//     `facoltativo`, se il generale lo era). Chi aveva già il suo lo tiene;
+//   · generale SPENTO, ed esperienze con «Paga» della versione di stamattina:
+//     avevano una percentuale loro, sempre a persona. Diventano la percentuale
+//     e il modo di Pagamenti, che a generale spento non usava nessuno.
+// Torna cosa ha fatto, da scrivere nel registro di avvio.
+function prezziNelleEsperienze(archivio = db) {
+  let grezze = [];
+  try { grezze = JSON.parse(String(bot.leggi(archivio, 'bot_esperienze') || '[]')); } catch { return 'le esperienze non si leggono: niente da fare'; }
+  if (!Array.isArray(grezze) || !grezze.length) return 'nessuna esperienza: niente da fare';
+  const cfg = bot.config(archivio);
+  const colSuo = (e) => e && e.paga === true && bot.inCentesimi(e.prezzo) > 0;
+  const fatto = [];
+  if (bot.boolDi(cfg.bot_pagamento_attivo)) {
+    const prezzo = String(cfg.bot_pagamento_prezzo || '').trim().replace(',', '.');
+    const facoltativo = !bot.boolDi(cfg.bot_pagamento_obbligatorio);
+    if (bot.inCentesimi(prezzo) > 0) {
+      for (const e of grezze) {
+        if (!e || typeof e !== 'object' || colSuo(e)) continue;
+        e.paga = true; e.prezzo = prezzo;
+        if (facoltativo) e.facoltativo = true;
+        fatto.push(`«${e.nome}» ${prezzo} €${facoltativo ? ' (facoltativo)' : ''}`);
+      }
+    }
+  } else {
+    const prima = grezze.find(colSuo);
+    if (prima) {
+      const perc = String(Math.min(Math.max(Math.round(bot.num(prima.percentuale, 100)), 1), 100));
+      bot.scrivi(archivio, 'bot_pagamento_percentuale', perc);
+      bot.scrivi(archivio, 'bot_pagamento_modo', 'persona');
+      fatto.push(`percentuale ${perc}% e modo «a persona» portati in Pagamenti`);
+    }
+  }
+  bot.scrivi(archivio, 'bot_esperienze', JSON.stringify(bot.esperienzeValide(grezze) || []));
+  return fatto.length ? fatto.join('; ') : 'niente da cambiare';
+}
+if (botDisponibile() && getSetting('pagamento_per_esperienza') !== 'fatto') {
+  try {
+    const cosa = prezziNelleEsperienze();
+    setSetting('pagamento_per_esperienza', 'fatto');
+    console.log(`Pagamenti: i prezzi stanno nelle esperienze — ${cosa}.`);
+  } catch (e) {
+    console.error('Pagamenti: non sono riuscito a portare i prezzi nelle esperienze:', e.message);
+  }
+}
+
 // Sulla copia di lavoro (MASTER) il bot c'è sempre. Sulle copie dei clienti
 // si accende solo se il seriale porta la funzione «bot»: e' cosi' che diventa
 // una cosa da vendere invece che un regalo a tutti alla prima pubblicazione.
@@ -7650,30 +7703,31 @@ app.post('/api/bot/impostazioni', (req, res) => {
   // ⚠️ Pagamento acceso senza chiave di Stripe: il cliente finirebbe in «attesa
   // di pagamento» SENZA NESSUN MODO DI PAGARE, con il tavolo tenuto fermo fino
   // alla scadenza. Un tavolo perso ogni volta, e nessun errore da nessuna parte.
-  // ⚠️ Lo stesso vale per UN'ESPERIENZA col suo pagamento (24 novembre 2026),
-  // anche col pagamento generale spento: la chiave e l'indirizzo di ritorno
-  // sono quelli della scheda Pagamenti, e senza non si salva.
-  const generale = bot.boolDi(dopo.bot_pagamento_attivo);
+  // ⚠️ Chi paga lo decide la spunta «Paga» dell'esperienza, col suo prezzo (24
+  // novembre 2026, vedi `regolaDelPagamento` nel motore). L'interruttore e il
+  // prezzo di Pagamenti valgono solo per un locale SENZA esperienze. La chiave
+  // e l'indirizzo di ritorno servono in tutti e due i casi.
   const conIlLoro = bot.esperienzeScritte(dopo).filter((e) => e.paga);
+  const generale = bot.boolDi(dopo.bot_pagamento_attivo) && !bot.esperienzeScritte(dopo).length;
   // Prima il prezzo: è l'errore di chi ha appena messo la spunta, e va detto
   // con il nome dell'esperienza — non con una frase sulla chiave di Stripe.
   for (const e of conIlLoro) {
     if (bot.inCentesimi(e.prezzo) <= 0) {
       return res.status(400).json({
         error: `L'esperienza «${e.nome}» ha il pagamento obbligatorio ma non ha un prezzo: `
-          + 'scrivi quanto costa a persona (per esempio 120), oppure togli la spunta.',
+          + 'scrivi quanto costa (per esempio 120), oppure togli la spunta.',
       });
     }
     const suo = bot.importoDaPagare(dopo, 1, e.nome);
     if (suo.adesso < bot.MINIMO_ADDEBITO) {
       return res.status(400).json({
-        error: `Per l'esperienza «${e.nome}», con questo prezzo e questa percentuale a una persona `
+        error: `Per l'esperienza «${e.nome}», con questo prezzo e la percentuale di Pagamenti a una persona `
           + `toccherebbe pagare ${bot.euro(suo.adesso)}: Stripe non accetta addebiti sotto `
           + `${bot.euro(bot.MINIMO_ADDEBITO)}. Alza il prezzo o la percentuale.`,
       });
     }
   }
-  const perChi = !generale && conIlLoro.length ? ` L'esperienza «${conIlLoro[0].nome}» ha il pagamento obbligatorio: si scrive nella scheda Pagamenti.` : '';
+  const perChi = conIlLoro.length ? ` L'esperienza «${conIlLoro[0].nome}» ha il pagamento obbligatorio: si scrive nella scheda Pagamenti.` : '';
   if (generale || conIlLoro.length) {
     const chiave = bot.chiaveStripe(dopo);
     if (!chiave.presente) {
@@ -9001,17 +9055,22 @@ app.patch('/api/bot/prenotazioni/:id', rottaModificaPrenotazione);
 // l'email dice di più, ed è quello da guardare.
 function prenotazioneDiEsempio(cfg, a) {
   const domani = new Date(Date.now() + 86400000);
-  const conPagamento = bot.boolDi(cfg.bot_pagamento_attivo) && bot.serveIlPagamento(cfg, 2);
-  const conti = bot.importoDaPagare(cfg, 2);
-  // Come una prenotazione vera di questo locale: col suo nome e la sua prima
+  // Come una prenotazione vera di questo locale: col suo nome e una sua
   // esperienza, se ne ha — così l'anteprima mostra la riga «Locale».
+  // ⚠️ Fra le esperienze si prende la prima che PAGA (24 novembre 2026: chi
+  // paga lo decide la spunta dell'esperienza): con la prima e basta, un locale
+  // col solo cenone a pagamento non vedrebbe mai l'email col collegamento.
+  const scritte = bot.esperienzeScritte(cfg);
+  const esperienza = ((scritte.find((e) => bot.serveIlPagamento(cfg, 2, e.nome)) || scritte[0]) || {}).nome || '';
+  const conPagamento = bot.serveIlPagamento(cfg, 2, esperienza);
+  const conti = bot.importoDaPagare(cfg, 2, esperienza);
   const locali = bot.localiDi(cfg);
   return {
     locale_scelto: locali.principale ? locali.principale.nome : '',
-    esperienza: (bot.esperienzeScritte(cfg)[0] || {}).nome || '',
+    esperienza,
     nome: 'Anna', cognome: 'Bianchi', data: bot.comeData(domani), ora: '20:00', persone: 2,
     telefono_contatto: '393331112233', note: 'senza glutine', email: a,
-    stato: conPagamento && bot.pagamentoObbligatorio(cfg) ? 'attesa_pagamento' : 'confermata',
+    stato: conPagamento && bot.pagamentoObbligatorio(cfg, esperienza) ? 'attesa_pagamento' : 'confermata',
     importo_dovuto: conPagamento ? conti.adesso : 0, importo_totale: conPagamento ? conti.totale : 0,
     pagamento_scade_at: conPagamento ? bot.comeOrario(new Date(Date.now() + 30 * 60000)) : null,
     pagato_at: null,

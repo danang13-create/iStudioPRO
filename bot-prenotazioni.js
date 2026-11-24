@@ -3431,6 +3431,39 @@ function inCentesimi(valore) {
   return Math.round(parseFloat(t) * 100);
 }
 
+// ⚠️ IL PREZZO STA NELL'ESPERIENZA (24 novembre 2026, dal titolare): «nelle
+// esperienze il costo a persona: essendo diversi non posso definirlo nella
+// sezione pagamenti», e «quello che stabilisce quale esperienza deve pagare è
+// il campo PAGA che è già presente». La regola, una sola:
+//   · locale CON esperienze → paga chi sceglie un'esperienza con la spunta
+//     «Paga» e un prezzo: al suo prezzo, obbligatorio. Senza spunta — o senza
+//     esperienza, come a una festa col solo tavolo — non si paga. L'interruttore
+//     e il prezzo di Pagamenti qui non contano: decide la spunta;
+//   · locale SENZA esperienze → l'interruttore, il prezzo e l'obbligo di
+//     Pagamenti, come è sempre stato: iStudio la usano anche locali che le
+//     esperienze non le hanno.
+// Modo (a persona o a prenotazione), percentuale e tempo sono di Pagamenti,
+// uguali per tutti. Torna { prezzo (in centesimi), obbligatorio } o null.
+// (Per mezza giornata, il 24, l'esperienza ha avuto una percentuale sua,
+// sempre a persona: vedi `prezziNelleEsperienze` nel server.)
+function regolaDelPagamento(cfg, esperienza = '') {
+  const scritte = esperienzeScritte(cfg);
+  if (!scritte.length) {
+    if (!boolDi(cfg.bot_pagamento_attivo)) return null;
+    return { prezzo: inCentesimi(cfg.bot_pagamento_prezzo), obbligatorio: boolDi(cfg.bot_pagamento_obbligatorio) };
+  }
+  const nome = normalizza(esperienza);
+  const e = nome ? scritte.find((x) => normalizza(x.nome) === nome) : null;
+  if (!e || e.paga !== true || inCentesimi(e.prezzo) <= 0) return null;
+  return { prezzo: inCentesimi(e.prezzo), obbligatorio: e.facoltativo !== true };
+}
+// C'è un pagamento da seguire? Lo chiedono i lavori che parlano con Stripe.
+// ⚠️ Anche l'interruttore di Pagamenti, in un locale con le esperienze: lì non
+// decide chi paga, ma un pagamento aperto prima va seguito fino in fondo.
+function pagamentoInUso(cfg) {
+  return boolDi(cfg.bot_pagamento_attivo) || esperienzeScritte(cfg).some((e) => e.paga === true && inCentesimi(e.prezzo) > 0);
+}
+
 // Quanto si deve pagare, in centesimi.
 //
 //   totale  = prezzo × persone (o × 1, se l'importo è a prenotazione)
@@ -3439,41 +3472,12 @@ function inCentesimi(valore) {
 //
 // Il «resto» non è un di più da mostrare: è la riga che evita la discussione
 // all'arrivo — «ma io avevo già pagato». Con il 100% non c'è, e non si scrive.
-// ⚠️ UN'ESPERIENZA COL SUO PAGAMENTO (24 novembre 2026, dal titolare): «per
-// alcune esperienze, un modo per dire che quella ha l'obbligo del pagamento».
-// Il cenone si paga per prenotarlo, il business lunch no. Deciso con lui: si
-// imposta nella scheda dell'esperienza, col SUO prezzo a persona e la SUA
-// parte da pagare subito; le altre seguono la regola generale com'era.
-// Per quell'esperienza il pagamento è sempre obbligatorio (il tavolo non è
-// preso finché non si paga), anche col pagamento generale spento o
-// facoltativo. Torna l'esperienza, o null se non ha un pagamento suo — e
-// allora vale la regola generale.
-function esperienzaCheSiPaga(cfg, esperienza) {
-  const nome = normalizza(esperienza);
-  if (!nome) return null;
-  const e = esperienzeScritte(cfg).find((x) => normalizza(x.nome) === nome);
-  return e && e.paga === true && inCentesimi(e.prezzo) > 0 ? e : null;
-}
-// C'è almeno un pagamento da seguire? Il generale acceso, o un'esperienza col
-// suo. Lo chiedono i lavori che parlano con Stripe: guardando solo
-// l'interruttore generale, col generale spento il cenone pagato non
-// risulterebbe mai pagato.
-function pagamentoInUso(cfg) {
-  return boolDi(cfg.bot_pagamento_attivo) || esperienzeScritte(cfg).some((e) => e.paga === true && inCentesimi(e.prezzo) > 0);
-}
-
 function importoDaPagare(cfg, persone, esperienza = '') {
-  const sua = esperienzaCheSiPaga(cfg, esperienza);
-  if (sua) {
-    const totale = inCentesimi(sua.prezzo) * Math.max(num(persone, 0), 0);
-    const adesso = Math.round(totale * Math.min(Math.max(num(sua.percentuale, 100), 1), 100) / 100);
-    return { totale, adesso, resto: Math.max(totale - adesso, 0) };
-  }
-  if (!boolDi(cfg.bot_pagamento_attivo)) return { totale: 0, adesso: 0, resto: 0 };
-  const prezzo = inCentesimi(cfg.bot_pagamento_prezzo);
+  const regola = regolaDelPagamento(cfg, esperienza);
+  if (!regola) return { totale: 0, adesso: 0, resto: 0 };
   const quanti = String(cfg.bot_pagamento_modo || 'persona') === 'prenotazione'
     ? 1 : Math.max(num(persone, 0), 0);
-  const totale = prezzo * quanti;
+  const totale = regola.prezzo * quanti;
   // La percentuale si tiene fra 0 e 100: sopra il 100 si chiederebbe più di
   // quanto il locale ha scritto come prezzo, e nessuno lo vorrebbe.
   const perc = Math.min(Math.max(num(cfg.bot_pagamento_percentuale, 100), 0), 100);
@@ -3538,10 +3542,14 @@ function serveIlPagamento(cfg, persone, esperienza = '') {
 // Niente scadenza, niente posto che torna libero — e quindi niente di quello
 // che, in questo pezzo di programma, può togliere un tavolo a qualcuno.
 function pagamentoObbligatorio(cfg, esperienza = '') {
-  // Un'esperienza col suo pagamento ha sempre l'obbligo: è il motivo per cui
-  // la si spunta.
-  if (esperienzaCheSiPaga(cfg, esperienza)) return true;
-  return boolDi(cfg.bot_pagamento_obbligatorio);
+  // Lo dice la regola: l'esperienza, se il locale le ha; sennò Pagamenti.
+  // ⚠️ Senza esperienze risponde la tendina di Pagamenti ANCHE a pagamento
+  // spento, com'è sempre stato: di partenza è «obbligatorio», e chi accende il
+  // pagamento non deve trovarsi con i tavoli non tenuti. Se si paga davvero lo
+  // dice `serveIlPagamento`; le due domande restano due.
+  if (!esperienzeScritte(cfg).length) return boolDi(cfg.bot_pagamento_obbligatorio);
+  const regola = regolaDelPagamento(cfg, esperienza);
+  return !!regola && regola.obbligatorio;
 }
 
 // Questa prenotazione nasce «in attesa» (e quindi può scadere) oppure
@@ -3939,14 +3947,16 @@ function esperienzeValide(valore) {
       // giorni della settimana, che vale dove la si spunta in una festività.
       // Il segno c'è solo quando è acceso: le altre restano scritte come prima.
       ...(e.soloFeste === true ? { soloFeste: true } : {}),
-      // Il pagamento suo (24 novembre 2026, vedi «esperienzaCheSiPaga»): il
-      // prezzo a persona come lo scrive il locale, e quanta parte si paga
-      // subito. ⚠️ `paga` resta anche col prezzo vuoto: così chi salva può
-      // rifiutarla dicendo perché, invece di perdere la spunta in silenzio.
+      // «Paga» e il suo PREZZO (vedi «regolaDelPagamento»). ⚠️ `paga` resta
+      // anche col prezzo vuoto o storto: così chi salva può rifiutarla dicendo
+      // perché, invece di perdere la spunta in silenzio. `facoltativo` non ha
+      // un tasto: lo scrive solo il passaggio dal pagamento generale (vedi
+      // `prezziNelleEsperienze` nel server), per non cambiare a nessuno quello
+      // che aveva.
       ...(e.paga === true ? {
         paga: true,
         prezzo: String(e.prezzo == null ? '' : e.prezzo).trim().replace(',', '.').slice(0, 10),
-        percentuale: Math.min(Math.max(Math.round(num(e.percentuale, 100)), 1), 100),
+        ...(e.facoltativo === true ? { facoltativo: true } : {}),
       } : {}),
     });
   }
@@ -9153,7 +9163,7 @@ module.exports = {
   servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI, turnoDellOra, numeroDaDire, rigaTurno, oraColTurno, arrivoDetto, fasciaDetta, ordinaleDi, interpretaTurno,
   tavoliDi, usaTavoli, capienzaDi, trovaTavolo, postoPer, ciStanno, gruppoMassimo, tavoliLiberi,
   chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, numeroDelTurno, tavoloCheResta, daAssegnare, tavoliPresiPer, minimoDi, adattoA, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
-  importoDaPagare, esperienzaCheSiPaga, pagamentoInUso,
+  importoDaPagare, regolaDelPagamento, pagamentoInUso,
   serveIlPagamento,
   pagamentoObbligatorio,
   bloccaLaPrenotazione,
