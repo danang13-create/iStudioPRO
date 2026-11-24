@@ -3700,6 +3700,25 @@ function chiaveStripe(cfg) {
 //
 // Senza pagamento torna stringa vuota, e il riepilogo resta pulito: nessuna
 // riga che parla di soldi dove soldi non ce ne sono.
+// I FATTI del pagamento di una prenotazione, senza le parole (24 novembre
+// 2026). Li usano il testo qui sotto e il riquadro dell'email in HTML (il
+// pulsante «Paga ora», nel server): tre casi, e chi li decide è uno solo —
+// sennò il testo e il riquadro finirebbero per dire due cose diverse.
+//   · 'ricevuto' — ha pagato (lo dice `pagato_at`, NON lo stato);
+//   · 'acconto'  — confermata ma non pagata: la caparra facoltativa;
+//   · 'attesa'   — il tavolo non è suo finché non paga.
+// Importi in centesimi. null se non c'è niente da pagare.
+function fattiDelPagamento(p) {
+  if (!p || !p.importo_dovuto) return null;
+  const caso = p.pagato_at ? 'ricevuto' : (p.stato === 'confermata' || p.stato === 'presentata') ? 'acconto' : 'attesa';
+  return {
+    caso,
+    adesso: p.importo_dovuto,
+    resto: p.importo_totale > p.importo_dovuto ? p.importo_totale - p.importo_dovuto : 0,
+    scade: caso === 'attesa' && p.pagamento_scade_at ? oreEMinuti(p.pagamento_scade_at) : '',
+  };
+}
+
 function bloccoPagamento(p, link) {
   if (!p || !p.importo_dovuto) return '';
   const resto = p.importo_totale > p.importo_dovuto
@@ -9219,6 +9238,7 @@ module.exports = {
   chiaveStripe,
   comeOrario,
   bloccoPagamento,
+  fattiDelPagamento,
   STATI_VIVI,
   dentro,
   STATI_TOCCABILI,

@@ -6426,9 +6426,14 @@ function htmlSicuro(t) {
 // Da testo a HTML: scappato, a capo con <br>, e i collegamenti cliccabili.
 // ⚠️ Il collegamento si fa DOPO aver scappato: nell'indirizzo un «&» deve
 // diventare «&amp;» anche dentro href, ed è così che vuole l'HTML.
+// ⚠️ Un collegamento LUNGO non si scrive per intero (24 novembre 2026): quello
+// di Stripe sono trecento caratteri, otto righe di lettere a caso in mezzo
+// all'email. Si vede il sito («checkout.stripe.com/…»), e premendo si va
+// all'indirizzo intero.
 function testoInHtml(t) {
   return htmlSicuro(t)
-    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#128c7e">$1</a>')
+    .replace(/(https?:\/\/[^\s<]+)/g, (u) => '<a href="' + u + '" style="color:#128c7e">'
+      + (u.length > 60 ? u.replace(/^(https?:\/\/[^/]+).*$/, '$1/…') : u) + '</a>')
     .replace(/\n/g, '<br>');
 }
 
@@ -6445,6 +6450,22 @@ function corpoEmailRiepilogo(cfg, valori, testo, conLogo) {
   const logoHtml = conLogo
     ? '<img src="cid:logo-istudio" alt="' + htmlSicuro(valori.locale || '') + '" style="max-width:220px;max-height:120px;height:auto;display:block;margin:0 auto 18px">'
     : '';
+  // ⚠️ Il pezzo dei soldi in HTML è un RIQUADRO suo (`valori.pagamento_html`,
+  // composto in `composizioneEmail`): importi in colonna e un pulsante «Paga
+  // ora», invece del testo con l'indirizzo di Stripe scritto per intero. Va al
+  // posto di «{pagamento}» nei modelli, e dentro al testo dell'email prende il
+  // posto delle righe del pagamento. Chi non lo passa (il promemoria) ha il
+  // testo com'era.
+  const riquadro = String(valori.pagamento_html || '');
+  const testoColRiquadro = () => {
+    const tutto = testoInHtml(testo);
+    const righe = String(valori.pagamento || '').replace(/\n+$/, '');
+    if (!riquadro || !righe.trim()) return tutto;
+    const dentro = testoInHtml(righe);
+    const incorniciato = '<div style="margin:14px 0;padding:16px;background:#f7f8fa;border:1px solid #e0e4e8;border-radius:9px">' + riquadro + '</div>';
+    if (tutto.includes(dentro + '<br>')) return tutto.replace(dentro + '<br>', () => incorniciato);
+    return tutto.includes(dentro) ? tutto.replace(dentro, () => incorniciato) : tutto;
+  };
   const modello = String(cfg.bot_email_html || '').trim();
   if (modello) {
     // ⚠️ I BLOCCHI CONDIZIONALI: «{?note} … {/note}» compare solo se quel
@@ -6464,8 +6485,9 @@ function corpoEmailRiepilogo(cfg, valori, testo, conLogo) {
       (intero, chiave, dentro) => (pieno(chiave) ? dentro : '')
     ).replace(/\{(\w+)\}/g, (intero, chiave) => {
       if (chiave === 'logo') return logoHtml;
-      if (chiave === 'testo') return testoInHtml(testo);
-      if (chiave === 'pagamento') return testoInHtml(valori.pagamento || '');
+      if (chiave === 'testo') return testoColRiquadro();
+      if (chiave === 'pagamento') return riquadro || testoInHtml(valori.pagamento || '');
+      if (chiave === 'pagamento_html') return intero;
       if (valori[chiave] === undefined || valori[chiave] === null) return intero;
       return testoInHtml(String(valori[chiave]));
     });
@@ -6474,7 +6496,7 @@ function corpoEmailRiepilogo(cfg, valori, testo, conLogo) {
     + '<div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #e0e4e8;border-radius:12px;padding:28px 26px;color:#222;font-size:15px;line-height:1.6">'
     + logoHtml
     + (valori.locale ? '<div style="text-align:center;font-size:18px;font-weight:700;color:#128c7e;margin-bottom:18px">' + htmlSicuro(valori.locale) + '</div>' : '')
-    + testoInHtml(testo)
+    + testoColRiquadro()
     + '</div>'
     + '<div style="max-width:600px;margin:12px auto 0;text-align:center;font-size:12px;color:#667781">'
     + 'Questa email riguarda la tua prenotazione' + (valori.locale ? ' da ' + htmlSicuro(valori.locale) : '') + '.</div>'
@@ -6485,9 +6507,53 @@ function corpoEmailRiepilogo(cfg, valori, testo, conLogo) {
 // solo: la usa chi spedisce davvero e la usano l'anteprima e la prova — così
 // quello che vedi prima è esattamente quello che parte dopo.
 function composizioneEmail(cfg, p, link) {
+  // ⚠️ «Ciao daniele» (24 novembre 2026, dal titolare: «rendila più seria»):
+  // il nome arriva come il cliente l'ha battuto su WhatsApp. Se non ha messo
+  // NEMMENO una maiuscola gliele mettiamo noi, alle iniziali; se ne ha messa
+  // anche una sola lo ha scritto come voleva («Rossi & figli», «McDonald»), e
+  // non si tocca. Solo nell'email: in archivio resta com'è.
+  const comeNome = (t) => {
+    const s = String(t || '').trim();
+    return /\p{Lu}/u.test(s) ? s : s.replace(/(^|[\s'’-])(\p{Ll})/gu, (tutto, prima, lettera) => prima + lettera.toUpperCase());
+  };
+  // Il riquadro del pagamento per l'HTML: gli stessi fatti del testo
+  // (`bot.fattiDelPagamento`), in colonna, col pulsante al posto dell'indirizzo.
+  // ⚠️ Su UNA riga sola, senza «a capo»: finisce dentro a modelli scritti dal
+  // locale. Tabelle e stili in linea: Outlook non conosce altro.
+  const riquadroPagamento = () => {
+    const f = bot.fattiDelPagamento(p);
+    if (!f) return '';
+    const sicuro = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const dove = link ? sicuro(link) : '';
+    const riga = (titolo, valore, forte) => '<tr><td style="padding:7px 0;border-top:1px solid #e0e4e8;color:#667781;font-size:14px">' + titolo + '</td>'
+      + '<td style="padding:7px 0;border-top:1px solid #e0e4e8;text-align:right;font-size:' + (forte ? '16px;font-weight:700' : '14px;font-weight:600') + ';color:#111b21;white-space:nowrap">' + valore + '</td></tr>';
+    const testata = (colore, titolo, sotto) => '<div style="font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:' + colore + '">' + titolo + '</div>'
+      + (sotto ? '<div style="margin-top:6px;font-size:14px;line-height:1.5;color:#111b21">' + sotto + '</div>' : '');
+    const tabella = (righe) => '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin-top:12px">' + righe + '</table>';
+    const pulsante = (scritta) => (dove
+      ? '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:16px auto 0"><tr><td bgcolor="#0f7a6d" style="border-radius:8px;text-align:center">'
+        + '<a href="' + dove + '" style="display:inline-block;padding:12px 28px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none">' + scritta + '</a></td></tr></table>'
+        + '<div style="margin-top:10px;text-align:center;font-size:12px;line-height:1.5;color:#667781">'
+        + (/(^|\.)stripe\.com$/.test(String(link).replace(/^https?:\/\//, '').split(/[/?#]/)[0]) ? 'Pagamento sicuro con carta, tramite Stripe. ' : '')
+        + 'Se il pulsante non funziona, <a href="' + dove + '" style="color:#0f7a6d">apri la pagina di pagamento</a>.</div>'
+      : '');
+    const saldo = f.resto ? riga('Saldo al ristorante', bot.euro(f.resto)) : '';
+    if (f.caso === 'ricevuto') {
+      return testata('#0f7a6d', 'Pagamento ricevuto', '') + tabella(riga('Importo ricevuto', bot.euro(f.adesso), true) + saldo);
+    }
+    if (f.caso === 'acconto') {
+      return testata('#0f7a6d', 'Tavolo riservato', 'Non è richiesta alcuna azione.'
+        + (dove ? ' Se lo desideri, puoi versare fin d\'ora un acconto.' : ''))
+        + (dove || saldo ? tabella((dove ? riga('Acconto facoltativo', bot.euro(f.adesso), true) : '') + saldo) : '')
+        + pulsante('Versa l\'acconto');
+    }
+    return testata('#8a5a00', 'Pagamento richiesto', 'Il tavolo non è ancora riservato: la prenotazione sarà confermata al ricevimento del pagamento.')
+      + tabella(riga('Da pagare adesso', bot.euro(f.adesso), true) + saldo + (f.scade ? riga('Da pagare entro', 'le ore ' + f.scade) : ''))
+      + pulsante('Paga ora ' + bot.euro(f.adesso));
+  };
   const valori = {
-    nome: p.nome || '',
-    cognome: p.cognome || '',
+    nome: comeNome(p.nome),
+    cognome: comeNome(p.cognome),
     data: bot.dataItaliana(p.data),
     ora: p.ora || '',
     persone: p.persone,
@@ -6515,7 +6581,9 @@ function composizioneEmail(cfg, p, link) {
   const logo = leggiImmagine(cfg.bot_email_logo);
   return {
     oggetto, testo,
-    html: corpoEmailRiepilogo(cfg, valori, testo, !!logo),
+    // Il riquadro NON sta fra i valori del testo: è HTML, e nel testo semplice
+    // (e nell'oggetto) non deve poterci finire.
+    html: corpoEmailRiepilogo(cfg, { ...valori, pagamento_html: riquadroPagamento() }, testo, !!logo),
     allegati: logo ? [{ filename: 'logo.png', content: Buffer.from(logo.base64, 'base64'), cid: 'logo-istudio' }] : undefined,
   };
 }
