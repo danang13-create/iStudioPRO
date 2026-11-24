@@ -1004,6 +1004,9 @@ const PREDEFINITI = {
   bot_t_orari_giorno_chiuso: '{data} siamo chiusi.',
   // Un giorno in cui il locale c'è ma quell'esperienza no: non è «chiuso».
   bot_t_esperienza_chiusa: '{esperienza}: per {data} non è disponibile ({quando}).\n\nTi va di scegliere un altro giorno?',
+  // «No» all'unico giorno (o all'ultimo rimasto) di un'esperienza: non resta
+  // un giorno da proporre. Sotto, l'elenco delle esperienze di nuovo.
+  bot_t_esperienza_finita: 'Per {esperienza} non ho altri giorni da proporti.',
   // ⚠️ Quando il cliente ha fatto una DOMANDA chiara — «è possibile
   // parcheggiare», «accettate la carta?» — la frase qui sopra è mezza
   // sbagliata: gli propone di prenotare, che non è quello che ha chiesto.
@@ -8353,6 +8356,27 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     return esito;
   }
 
+  // ⚠️ Non resta nessun giorno da proporre (24 novembre 2026). Succede a chi
+  // dice «no» all'unico orario dell'unico giorno di un'esperienza da festa
+  // («Cenone della Vigilia»): prima arrivava «Quale giorno desideri
+  // prenotare?» con SOTTO NIENTE, e ogni risposta era un «non ho capito».
+  // Con più esperienze lo si dice e si rimette l'elenco, con le persone già
+  // dette; sennò una persona, come quando non c'è posto in nessun giorno.
+  function nessunAltroGiorno(d) {
+    const e = esperienzaScelta(d);
+    if (e && esperienze.length > 1) {
+      const prima = risposte.length;
+      const r = sceltaDaCapo({ persone: d.persone });
+      const detto = di('bot_t_esperienza_finita', { esperienza: e.nome });
+      if (risposte.length > prima && detto.trim()) risposte[prima] = `${detto}\n\n${risposte[prima]}`;
+      return r;
+    }
+    risposte.push(di('bot_t_completo', { data: 'i prossimi giorni' }));
+    esito.passaAUmano = true;
+    azzeraStato(db, telefono);
+    return esito;
+  }
+
   // Non vuole nessuno dei turni di quel giorno: si torna ai giorni.
   // ⚠️ L'esperienza resta (19 ottobre 2026): qui si salvavano solo persone e
   // servizio, e dopo un «no» il business lunch spariva — riepilogo senza
@@ -8363,6 +8387,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const opzioni = { ...perEsperienza(d), tranne: rifiutati.map((r) => r.split(' ')[0]) };
     const conServ = d.servizio ? giorniDisponibili(db, cfg, d.persone, adesso, 5, { ...opzioni, servizio: d.servizio }) : [];
     const giorni = conServ.length ? conServ : giorniDisponibili(db, cfg, d.persone, adesso, 5, opzioni);
+    if (!giorni.length) return nessunAltroGiorno(d);
     salvaStato(db, telefono, 'giorno', { ...nomeEsperienza(d), persone: d.persone, giorni,
       ...(conServ.length ? { servizio: d.servizio } : {}), ...(rifiutati.length ? { rifiutati } : {}) });
     risposte.push(`${di('bot_t_giorno')}\n${elencoGiorni(giorni)}`);
@@ -8461,6 +8486,18 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // richiedere il giorno come se non l'avesse mai scritto.
     if (giornoDetto) {
       return scegliGiorno({ ...conE, persone, giorni, ...conServizio() }, giornoDetto);
+    }
+    // ⚠️ Un'esperienza che esiste in UNA festività sola («Cenone della
+    // Vigilia») il giorno ce l'ha già (24 novembre 2026, dal titolare): «Quale
+    // giorno desideri prenotare?» con sotto una riga sola — «giovedì 24
+    // dicembre» — faceva ricopiare l'unica risposta possibile, e sembrava una
+    // conferma da dare. Si va dritti agli orari, che il giorno lo dicono («Per
+    // giovedì 24 dicembre a cena…»). Come per il turno unico.
+    // Solo per le esperienze DA FESTA: per quelle di tutti i giorni un giorno
+    // solo con posto è un caso (gli altri sono pieni), e chi ne voleva un
+    // altro deve poterlo dire e sentirsi rispondere «pieno».
+    if (giorni.length === 1 && esperienzaScelta(base) && !diTuttiIGiorni(esperienzaScelta(base))) {
+      return scegliGiorno({ ...conE, persone, giorni, ...conServizio() }, giorni[0]);
     }
     salvaStato(db, telefono, 'giorno', { ...conE, persone, giorni, ...conServizio() });
     risposte.push(`${di('bot_t_giorno')}\n${elencoGiorni(giorni)}`);
@@ -8586,6 +8623,8 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
           ? giorniDisponibili(db, cfg, dati.persone, adesso, 5, { ...perEsperienza(), servizio: suo, tranne }) : [];
         const giorni = conServ.length ? conServ
           : giorniDisponibili(db, cfg, dati.persone, adesso, 5, { ...perEsperienza(), tranne: rifiutati.map((r) => r.split(' ')[0]) });
+        // Nessun altro giorno, e nemmeno l'altro servizio di questo: vedi `nessunAltroGiorno`.
+        if (!giorni.length && !offrireAltro) return nessunAltroGiorno(dati);
         salvaStato(db, telefono, 'giorno', { ...nomeEsperienza(), persone: dati.persone, giorni, rifiutati,
           ...(conServ.length ? { servizio: suo } : {}),
           ...(offrireAltro ? { altroGiorno: { data: dati.data, servizio: altroServizio } } : {}) });
