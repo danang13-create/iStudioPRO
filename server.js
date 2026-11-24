@@ -6508,14 +6508,10 @@ function corpoEmailRiepilogo(cfg, valori, testo, conLogo) {
 // quello che vedi prima è esattamente quello che parte dopo.
 function composizioneEmail(cfg, p, link) {
   // ⚠️ «Ciao daniele» (24 novembre 2026, dal titolare: «rendila più seria»):
-  // il nome arriva come il cliente l'ha battuto su WhatsApp. Se non ha messo
-  // NEMMENO una maiuscola gliele mettiamo noi, alle iniziali; se ne ha messa
-  // anche una sola lo ha scritto come voleva («Rossi & figli», «McDonald»), e
-  // non si tocca. Solo nell'email: in archivio resta com'è.
-  const comeNome = (t) => {
-    const s = String(t || '').trim();
-    return /\p{Lu}/u.test(s) ? s : s.replace(/(^|[\s'’-])(\p{Ll})/gu, (tutto, prima, lettera) => prima + lettera.toUpperCase());
-  };
+  // nome e cognome senza nemmeno una maiuscola prendono le iniziali maiuscole
+  // (`bot.comeNome`, la stessa regola delle frasi in chat). Qui serve dirlo
+  // perché nell'HTML i valori non passano da `bot.riempi`.
+  const comeNome = bot.comeNome;
   // Il riquadro del pagamento per l'HTML: gli stessi fatti del testo
   // (`bot.fattiDelPagamento`), in colonna, col pulsante al posto dell'indirizzo.
   // ⚠️ Su UNA riga sola, senza «a capo»: finisce dentro a modelli scritti dal

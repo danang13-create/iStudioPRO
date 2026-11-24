@@ -517,8 +517,15 @@ const TESTI_SUPERATI = {
     // mai arrivata; e «ho bisogno di una torta» non veniva riconosciuto affatto.
     'Me la sono segnata 📝\n\nQuesta però non posso confermartela io: la giro a {locale} e ti rispondono appena possibile.',
   ],
+  bot_t_caparra: [
+    // Fino al 24 novembre 2026: il collegamento in mezzo al messaggio.
+    '✅ Prenotazione confermata, {nome}!\n\n📅 {data}  🕘 {ora}  👥 {persone}\n\nIl tavolo è tuo: non devi fare altro.\n\nSe vuoi, puoi lasciare fin d\'ora un acconto di {importo}:\n👉 {link}\n{resto}\nSe hai un imprevisto scrivi CANCELLA.',
+  ],
   bot_t_pagamento: [
-    'Perfetto {nome}, ci siamo quasi ✨\nTi collego al pagamento per confermare il tavolo.\n\n📅 {data}  🕘 {ora}  👥 {persone}\n💳 Da pagare adesso: {importo}\n\n👉 Paga qui: {link}\n{resto}\n⚠️ Il tavolo NON è ancora prenotato: lo diventa appena ricevo il pagamento.\nHo tenuto il tuo posto fino alle {scadenza}.',  ],
+    'Perfetto {nome}, ci siamo quasi ✨\nTi collego al pagamento per confermare il tavolo.\n\n📅 {data}  🕘 {ora}  👥 {persone}\n💳 Da pagare adesso: {importo}\n\n👉 Paga qui: {link}\n{resto}\n⚠️ Il tavolo NON è ancora prenotato: lo diventa appena ricevo il pagamento.\nHo tenuto il tuo posto fino alle {scadenza}.',
+    // Fino al 24 novembre 2026: il collegamento in mezzo al messaggio.
+    'Perfetto {nome}, ci siamo quasi ✨\nTi collego al pagamento per confermare il tavolo.\n\n📅 {data}  🕘 {ora}  👥 {persone}\n💳 Da pagare adesso: {importo}\n\n👉 Paga qui: {link}\n{resto}\n⚠️ Il tavolo NON è ancora prenotato: lo diventa appena ricevo il pagamento.\nHo tenuto il tuo posto fino alle {scadenza}.\n\nDopo aver pagato torna pure qui: appena ricevo il pagamento ti scrivo io la conferma.',
+  ],
   bot_t_benvenuto: [
     'Buonasera! Sono l\'assistente di {locale} 🍽️\nPer quante persone devo prenotare?\n(rispondi con un numero, es. 4)',
     '{saluto}! Sono l\'assistente di {locale} 🍽️\nPer quante persone devo prenotare?\n(rispondi con un numero, es. 4)',
@@ -1016,7 +1023,13 @@ const PREDEFINITI = {
   // chi legge «richiesta ricevuta» e poi «confermata» due righe sotto capisce
   // di avere un tavolo, e sabato sera si presenta. È il rischio numero uno di
   // tutta questa funzione, e sta in una parola.
-  bot_t_pagamento: 'Perfetto {nome}, ci siamo quasi ✨\nTi collego al pagamento per confermare il tavolo.\n\n📅 {data}  🕘 {ora}  👥 {persone}\n💳 Da pagare adesso: {importo}\n\n👉 Paga qui: {link}\n{resto}\n⚠️ Il tavolo NON è ancora prenotato: lo diventa appena ricevo il pagamento.\nHo tenuto il tuo posto fino alle {scadenza}.\n\nDopo aver pagato torna pure qui: appena ricevo il pagamento ti scrivo io la conferma.',
+  // ⚠️ Il collegamento sta IN FONDO, da solo (24 novembre 2026, dal titolare:
+  // «nella chat il link è troppo lungo… rendilo più armonico»). Quello di
+  // Stripe sono trecento caratteri e non si può accorciare: in mezzo al
+  // messaggio lo spezzava in due, e la riga del resto e l'avviso finivano
+  // sotto un muro di lettere. In fondo, il messaggio si legge tutto e poi si
+  // preme. Lo stesso per l'acconto facoltativo, qui sotto.
+  bot_t_pagamento: 'Perfetto {nome}, ci siamo quasi ✨\n\n📅 {data}  🕘 {ora}  👥 {persone}\n\n💳 Da pagare adesso: {importo}\n{resto}\n⚠️ Il tavolo NON è ancora prenotato: lo diventa appena ricevo il pagamento.\nHo tenuto il tuo posto fino alle {scadenza}.\n\nDopo aver pagato torna pure qui: ti scrivo io la conferma.\n\n👉 Paga qui:\n{link}',
   bot_t_pagata: '✅ Prenotazione CONFERMATA, {nome}!\n\n📅 {data}  🕘 {ora}  👥 {persone}\n💳 Ricevuti {importo}\n\nTi aspettiamo! Se hai un imprevisto scrivi CANCELLA.',
   // «Non ti è stato addebitato niente» sembra ovvia a noi, non a chi ha
   // cliccato un link di pagamento e poi si sente dire «scaduto». Senza quella
@@ -1027,7 +1040,7 @@ const PREDEFINITI = {
   // Il pagamento facoltativo: il tavolo è GIÀ prenotato, e questo va detto per
   // primo. Un messaggio che comincia parlando di soldi si legge come una
   // richiesta, e il cliente che non paga resta col dubbio di non avere il tavolo.
-  bot_t_caparra: '✅ Prenotazione confermata, {nome}!\n\n📅 {data}  🕘 {ora}  👥 {persone}\n\nIl tavolo è tuo: non devi fare altro.\n\nSe vuoi, puoi lasciare fin d\'ora un acconto di {importo}:\n👉 {link}\n{resto}\nSe hai un imprevisto scrivi CANCELLA.',
+  bot_t_caparra: '✅ Prenotazione confermata, {nome}!\n\n📅 {data}  🕘 {ora}  👥 {persone}\n\nIl tavolo è tuo: non devi fare altro.\nSe hai un imprevisto scrivi CANCELLA.\n\nSe vuoi, puoi lasciare fin d\'ora un acconto di {importo}.\n{resto}\n👉 Versa l\'acconto qui:\n{link}',
   bot_t_caparra_ricevuta: '💳 Ricevuto il tuo acconto di {importo}, {nome}. Grazie!\n\n📅 {data}  🕘 {ora}  👥 {persone}\n{resto}\nTi aspettiamo!',
   bot_t_pagamento_scaduto: '⏰ Il tempo per pagare è scaduto e ho liberato il tavolo.\n\nNon ti è stato addebitato niente.\nSe vuoi ancora venire scrivi NUOVA e ricominciamo.',
   bot_t_persone_no: 'Non sono riuscita a capire il numero di persone!\n\nPuoi indicarmi solo il numero?\n(esempio: 2)',
@@ -3256,10 +3269,22 @@ function orariARighe(testo, valori) {
 // mandarla, come gli orari; il testo salvato resta del ristorante.
 const conCosaSistemata = (t) => t.replace(/Eravamo rimasti a \{cosa\}/g, 'Ti stavo chiedendo {cosa}');
 
+// ⚠️ «Perfetto daniele» (24 novembre 2026, dal titolare): il nome arriva come
+// il cliente l'ha battuto su WhatsApp. Se non ha messo NEMMENO una maiuscola
+// gliele mettiamo noi, alle iniziali; se ne ha messa anche una sola lo ha
+// scritto come voleva («Rossi & figli», «McDonald», «de Rossi») e non si
+// tocca. Solo quando lo si DICE (qui sotto, e nell'email): in archivio resta
+// com'è, e la ricerca e la rubrica non cambiano.
+function comeNome(t) {
+  const s = String(t == null ? '' : t).trim();
+  return /\p{Lu}/u.test(s) ? s : s.replace(/(^|[\s'’-])(\p{Ll})/gu, (tutto, prima, lettera) => prima + lettera.toUpperCase());
+}
+
 function riempi(testo, valori) {
   const pieno = conCosaSistemata(orariARighe(testo, valori)).replace(/\{(\w+)\}/g, (intero, chiave) => {
     const v = valori[chiave];
-    return v === undefined || v === null ? intero : String(v);
+    if (v === undefined || v === null) return intero;
+    return (chiave === 'nome' || chiave === 'cognome') && typeof v === 'string' ? comeNome(v) : String(v);
   });
   // Un segnaposto lasciato vuoto (il nome dell'assistente, per esempio) lascia
   // dietro di sé uno spazio doppio o una virgola appesa. Sono i dettagli da
@@ -9239,6 +9264,7 @@ module.exports = {
   comeOrario,
   bloccoPagamento,
   fattiDelPagamento,
+  comeNome,
   STATI_VIVI,
   dentro,
   STATI_TOCCABILI,
