@@ -6008,6 +6008,29 @@ async function stripeChiSono(cfg) {
 // NaN — quando la data non c'è o non si legge: `comeModulo` i valori nulli li
 // lascia fuori dal corpo, mentre un NaN lo scriverebbe così com'è e la
 // richiesta verrebbe rifiutata tutta.
+// «Prova la chiave». ⚠️ Con una chiave RISTRETTA — quella che la pagina stessa
+// consiglia — «chi sono?» risponde 403: il conto non lo può leggere, ed è
+// giusto così. Il tasto però diceva «❌ Permission denied…» in inglese a chi
+// aveva appena fatto la cosa giusta (24 novembre 2026, al REAR). Ora, a quel
+// 403, si prova quello che a iStudio serve davvero: leggere i pagamenti
+// (`checkout/sessions`). Se riesce la chiave va bene, e si dice cosa NON si è
+// potuto provare: crearli — per quello il permesso dev'essere «Scrittura», e
+// provarlo vorrebbe dire creare un pagamento vero.
+const eSenzaPermesso = (r) => !!r && !r.ok && (r.stato === 403 || /required permissions|permission denied/i.test(String(r.errore || '')));
+async function provaLaChiaveStripe(cfg) {
+  const chi = await stripeChiSono(cfg);
+  if (chi.ok) return chi;
+  if (!eSenzaPermesso(chi)) return chi;
+  const pagamenti = await stripeChiedi(cfg, 'GET', '/v1/checkout/sessions?limit=1');
+  if (pagamenti.ok) return { ok: true, nome: '', ristretta: true };
+  if (eSenzaPermesso(pagamenti)) {
+    return { ok: false, errore: 'Stripe riconosce la chiave, ma non le hai dato il permesso «Checkout Sessions»: '
+      + 'senza, iStudio non può creare i pagamenti. Nel cruscotto Stripe apri la chiave, metti '
+      + '«Checkout Sessions» su Scrittura e riprova.' };
+  }
+  return pagamenti;
+}
+
 function orarioUnix(quando) {
   if (!quando) return null;
   const t = new Date(String(quando).replace(' ', 'T')).getTime();
@@ -9058,9 +9081,9 @@ app.post('/api/bot/pagamento/prova', async (req, res) => {
   // La pubblicabile non si manda nemmeno a Stripe: risponderebbe con un
   // errore in inglese che non dice cosa fare.
   if (k.pubblicabile) return res.status(400).json({ error: CHIAVE_PUBBLICABILE });
-  const r = await stripeChiSono(cfg);
+  const r = await provaLaChiaveStripe(cfg);
   if (!r.ok) return res.status(400).json({ error: r.errore });
-  res.json({ ok: true, nome: r.nome, prova: k.prova });
+  res.json({ ok: true, nome: r.nome, ristretta: !!r.ristretta, prova: k.prova });
 });
 
 app.post('/api/bot/prenotazioni/:id/pagata', async (req, res) => {

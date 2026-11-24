@@ -6894,7 +6894,11 @@ $('#pag-prova').addEventListener('click', async () => {
     });
     const d = await r.json();
     if (d.error) { esito.textContent = '❌ ' + d.error; esito.style.color = 'var(--male-testo)'; return; }
-    esito.textContent = `✅ Collegato a Stripe — ${d.nome}${d.prova ? ' (MODO PROVA)' : ''}`;
+    // Una chiave con restrizioni non può leggere il nome del conto: va bene
+    // così, e si dice cosa si è provato e cosa no.
+    esito.textContent = d.ristretta
+      ? `✅ Stripe riconosce la chiave e le fa leggere i pagamenti${d.prova ? ' (MODO PROVA)' : ''}. Per crearli, «Checkout Sessions» dev'essere su Scrittura.`
+      : `✅ Collegato a Stripe — ${d.nome}${d.prova ? ' (MODO PROVA)' : ''}`;
     esito.style.color = d.prova ? 'var(--avviso-testo)' : '';
   } catch (e) {
     esito.textContent = '❌ Non riesco a contattare Stripe: ' + e.message;
