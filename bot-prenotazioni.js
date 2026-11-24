@@ -3439,7 +3439,36 @@ function inCentesimi(valore) {
 //
 // Il «resto» non è un di più da mostrare: è la riga che evita la discussione
 // all'arrivo — «ma io avevo già pagato». Con il 100% non c'è, e non si scrive.
-function importoDaPagare(cfg, persone) {
+// ⚠️ UN'ESPERIENZA COL SUO PAGAMENTO (24 novembre 2026, dal titolare): «per
+// alcune esperienze, un modo per dire che quella ha l'obbligo del pagamento».
+// Il cenone si paga per prenotarlo, il business lunch no. Deciso con lui: si
+// imposta nella scheda dell'esperienza, col SUO prezzo a persona e la SUA
+// parte da pagare subito; le altre seguono la regola generale com'era.
+// Per quell'esperienza il pagamento è sempre obbligatorio (il tavolo non è
+// preso finché non si paga), anche col pagamento generale spento o
+// facoltativo. Torna l'esperienza, o null se non ha un pagamento suo — e
+// allora vale la regola generale.
+function esperienzaCheSiPaga(cfg, esperienza) {
+  const nome = normalizza(esperienza);
+  if (!nome) return null;
+  const e = esperienzeScritte(cfg).find((x) => normalizza(x.nome) === nome);
+  return e && e.paga === true && inCentesimi(e.prezzo) > 0 ? e : null;
+}
+// C'è almeno un pagamento da seguire? Il generale acceso, o un'esperienza col
+// suo. Lo chiedono i lavori che parlano con Stripe: guardando solo
+// l'interruttore generale, col generale spento il cenone pagato non
+// risulterebbe mai pagato.
+function pagamentoInUso(cfg) {
+  return boolDi(cfg.bot_pagamento_attivo) || esperienzeScritte(cfg).some((e) => e.paga === true && inCentesimi(e.prezzo) > 0);
+}
+
+function importoDaPagare(cfg, persone, esperienza = '') {
+  const sua = esperienzaCheSiPaga(cfg, esperienza);
+  if (sua) {
+    const totale = inCentesimi(sua.prezzo) * Math.max(num(persone, 0), 0);
+    const adesso = Math.round(totale * Math.min(Math.max(num(sua.percentuale, 100), 1), 100) / 100);
+    return { totale, adesso, resto: Math.max(totale - adesso, 0) };
+  }
   if (!boolDi(cfg.bot_pagamento_attivo)) return { totale: 0, adesso: 0, resto: 0 };
   const prezzo = inCentesimi(cfg.bot_pagamento_prezzo);
   const quanti = String(cfg.bot_pagamento_modo || 'persona') === 'prenotazione'
@@ -3494,8 +3523,8 @@ function euro(centesimi) {
 // ⚠️ Con l'importo a zero NON si chiede niente e si conferma subito. Un link da
 // zero euro Stripe lo rifiuta, e il cliente resterebbe appeso a una pagina che
 // non funziona — con il tavolo tenuto fermo fino alla scadenza, per niente.
-function serveIlPagamento(cfg, persone) {
-  return importoDaPagare(cfg, persone).adesso >= MINIMO_ADDEBITO;
+function serveIlPagamento(cfg, persone, esperienza = '') {
+  return importoDaPagare(cfg, persone, esperienza).adesso >= MINIMO_ADDEBITO;
 }
 
 // Il pagamento BLOCCA la prenotazione?
@@ -3508,7 +3537,10 @@ function serveIlPagamento(cfg, persone) {
 // Facoltativo vuol dire: il tavolo è prenotato SUBITO, la caparra è un invito.
 // Niente scadenza, niente posto che torna libero — e quindi niente di quello
 // che, in questo pezzo di programma, può togliere un tavolo a qualcuno.
-function pagamentoObbligatorio(cfg) {
+function pagamentoObbligatorio(cfg, esperienza = '') {
+  // Un'esperienza col suo pagamento ha sempre l'obbligo: è il motivo per cui
+  // la si spunta.
+  if (esperienzaCheSiPaga(cfg, esperienza)) return true;
   return boolDi(cfg.bot_pagamento_obbligatorio);
 }
 
@@ -3516,8 +3548,8 @@ function pagamentoObbligatorio(cfg) {
 // confermata? È l'unica riga che lo decide, e la usano sia il motore sia le
 // prove: due posti che rispondono a questa domanda finirebbero per rispondere
 // in modo diverso.
-function bloccaLaPrenotazione(cfg, persone) {
-  return serveIlPagamento(cfg, persone) && pagamentoObbligatorio(cfg);
+function bloccaLaPrenotazione(cfg, persone, esperienza = '') {
+  return serveIlPagamento(cfg, persone, esperienza) && pagamentoObbligatorio(cfg, esperienza);
 }
 
 // Da «2026-09-02 20:30:00» a «20:30». Al cliente si dice l'ora, non la data:
@@ -3902,6 +3934,15 @@ function esperienzeValide(valore) {
       // giorni della settimana, che vale dove la si spunta in una festività.
       // Il segno c'è solo quando è acceso: le altre restano scritte come prima.
       ...(e.soloFeste === true ? { soloFeste: true } : {}),
+      // Il pagamento suo (24 novembre 2026, vedi «esperienzaCheSiPaga»): il
+      // prezzo a persona come lo scrive il locale, e quanta parte si paga
+      // subito. ⚠️ `paga` resta anche col prezzo vuoto: così chi salva può
+      // rifiutarla dicendo perché, invece di perdere la spunta in silenzio.
+      ...(e.paga === true ? {
+        paga: true,
+        prezzo: String(e.prezzo == null ? '' : e.prezzo).trim().replace(',', '.').slice(0, 10),
+        percentuale: Math.min(Math.max(Math.round(num(e.percentuale, 100)), 1), 100),
+      } : {}),
     });
   }
   return buone.slice(0, ESPERIENZE_MASSIME);
@@ -8928,19 +8969,22 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const recapito = d.telefono || numeroDallaChat(telefono);
     // Il pagamento decide con quale stato NASCE la prenotazione. Con l'importo
     // a zero — o il pagamento spento — nasce confermata, come è sempre stato.
-    const conti = importoDaPagare(cfg, d.persone);
+    // L'esperienza che finisce sulla prenotazione decide anche il conto: se ha
+    // un pagamento suo vale quello, sennò la regola generale.
+    const scelta = (soloIlTavolo(cfg, d.data) ? '' : nomeEsperienza(d).esperienza) || '';
+    const conti = importoDaPagare(cfg, d.persone, scelta);
     // ⚠️ Due domande, non una. `daPagare` dice che c'è un importo e quindi un
     // collegamento da mandare; `blocca` dice se il tavolo resta sospeso nel
     // frattempo. Con il pagamento FACOLTATIVO la prima è vera e la seconda no:
     // il cliente riceve il collegamento, ma il tavolo è già suo.
-    const daPagare = serveIlPagamento(cfg, d.persone);
-    const blocca = bloccaLaPrenotazione(cfg, d.persone);
+    const daPagare = serveIlPagamento(cfg, d.persone, scelta);
+    const blocca = bloccaLaPrenotazione(cfg, d.persone, scelta);
     const info = db.prepare(
       'INSERT INTO prenotazioni (telefono, nome, cognome, data, ora, persone, note, telefono_contatto, email, '
       + 'per_altri, tavolo, esperienza, locale_scelto, fuori_sala, stato, importo_dovuto, importo_totale, pagamento_scade_at) '
       + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(telefono, d.nome || '', d.cognome || '', d.data, d.ora, d.persone,
-          d.note || '', recapito, d.email || '', d.perAltri ? 1 : 0, '', (soloIlTavolo(cfg, d.data) ? '' : nomeEsperienza(d).esperienza) || '',
+          d.note || '', recapito, d.email || '', d.perAltri ? 1 : 0, '', scelta,
           // Il locale: quello scelto, o — se il titolare li ha nominati — quello di sempre.
           d.fuoriSala ? d.localeScelto : (localePrincipale ? localePrincipale.nome : ''), d.fuoriSala ? 1 : 0,
           blocca ? 'attesa_pagamento' : 'confermata',
@@ -9087,7 +9131,7 @@ module.exports = {
   servizioDellOra, servizioDetto, servizioPerOrario, elencoTurni, SERVIZI, turnoDellOra, numeroDaDire, rigaTurno, oraColTurno, arrivoDetto, fasciaDetta, ordinaleDi, interpretaTurno,
   tavoliDi, usaTavoli, capienzaDi, trovaTavolo, postoPer, ciStanno, gruppoMassimo, tavoliLiberi,
   chiTieneIlTavolo, chiaveTavolo, riepilogoDelGiorno, numeroDelTurno, tavoloCheResta, daAssegnare, tavoliPresiPer, minimoDi, adattoA, personeMassimeBot, prenotazioniSovrapposte, POSTI_MASSIMI_TAVOLO,
-  importoDaPagare,
+  importoDaPagare, esperienzaCheSiPaga, pagamentoInUso,
   serveIlPagamento,
   pagamentoObbligatorio,
   bloccaLaPrenotazione,

@@ -6135,7 +6135,8 @@ const ATTESA_PRIMA_DI_RIPROVARE = 90 * 1000;
 async function riprovaICollegamenti(adesso = new Date()) {
   if (!botConcesso()) return 0;
   const cfg = bot.config(db);
-  if (!bot.boolDi(cfg.bot_pagamento_attivo)) return 0;
+  // Il generale acceso, o un'esperienza col suo pagamento (vedi `pagamentoInUso`).
+  if (!bot.pagamentoInUso(cfg)) return 0;
   const senza = db.prepare(
     "SELECT * FROM prenotazioni WHERE stato = 'attesa_pagamento' AND pagamento_id = '' "
     + "AND (pagato_at IS NULL OR pagato_at = '') AND creata_at <= ?"
@@ -6502,7 +6503,8 @@ let controlloInCorso = false;
 async function guardaChiHaPagato() {
   if (!botConcesso() || controlloInCorso) return 0;
   const cfg = bot.config(db);
-  if (!bot.boolDi(cfg.bot_pagamento_attivo)) return 0;
+  // Il generale acceso, o un'esperienza col suo pagamento (vedi `pagamentoInUso`).
+  if (!bot.pagamentoInUso(cfg)) return 0;
   // ⚠️ Non solo le «in attesa». Col pagamento FACOLTATIVO la prenotazione nasce
   // confermata e la caparra arriva dopo: cercando per stato, quel versamento
   // non lo si sarebbe visto mai — incassato su Stripe e invisibile in sala.
@@ -6755,7 +6757,7 @@ app.get('/api/bot/registro', (req, res) => {
   // Le voci del pagamento compaiono SOLO se il pagamento è acceso: un elenco di
   // controlli pieno di righe che non riguardano questo locale si smette di
   // leggere, ed è proprio quando smetti di leggerlo che ti serve.
-  if (bot.boolDi(cfg.bot_pagamento_attivo)) {
+  if (bot.pagamentoInUso(cfg)) {
     const k = bot.chiaveStripe(cfg);
     controlli.push(
       { voce: 'Chiave di Stripe presente', ok: k.presente && k.forma,
@@ -7510,13 +7512,37 @@ app.post('/api/bot/impostazioni', (req, res) => {
   // ⚠️ Pagamento acceso senza chiave di Stripe: il cliente finirebbe in «attesa
   // di pagamento» SENZA NESSUN MODO DI PAGARE, con il tavolo tenuto fermo fino
   // alla scadenza. Un tavolo perso ogni volta, e nessun errore da nessuna parte.
-  if (bot.boolDi(dopo.bot_pagamento_attivo)) {
+  // ⚠️ Lo stesso vale per UN'ESPERIENZA col suo pagamento (24 novembre 2026),
+  // anche col pagamento generale spento: la chiave e l'indirizzo di ritorno
+  // sono quelli della scheda Pagamenti, e senza non si salva.
+  const generale = bot.boolDi(dopo.bot_pagamento_attivo);
+  const conIlLoro = bot.esperienzeScritte(dopo).filter((e) => e.paga);
+  // Prima il prezzo: è l'errore di chi ha appena messo la spunta, e va detto
+  // con il nome dell'esperienza — non con una frase sulla chiave di Stripe.
+  for (const e of conIlLoro) {
+    if (bot.inCentesimi(e.prezzo) <= 0) {
+      return res.status(400).json({
+        error: `L'esperienza «${e.nome}» ha il pagamento obbligatorio ma non ha un prezzo: `
+          + 'scrivi quanto costa a persona (per esempio 120), oppure togli la spunta.',
+      });
+    }
+    const suo = bot.importoDaPagare(dopo, 1, e.nome);
+    if (suo.adesso < bot.MINIMO_ADDEBITO) {
+      return res.status(400).json({
+        error: `Per l'esperienza «${e.nome}», con questo prezzo e questa percentuale a una persona `
+          + `toccherebbe pagare ${bot.euro(suo.adesso)}: Stripe non accetta addebiti sotto `
+          + `${bot.euro(bot.MINIMO_ADDEBITO)}. Alza il prezzo o la percentuale.`,
+      });
+    }
+  }
+  const perChi = !generale && conIlLoro.length ? ` L'esperienza «${conIlLoro[0].nome}» ha il pagamento obbligatorio: si scrive nella scheda Pagamenti.` : '';
+  if (generale || conIlLoro.length) {
     const chiave = bot.chiaveStripe(dopo);
     if (!chiave.presente) {
       return res.status(400).json({
         error: 'Per accendere il pagamento serve la chiave di Stripe: senza, il cliente '
           + 'resterebbe in attesa di pagamento senza avere un modo per pagare, e il tavolo '
-          + 'verrebbe tenuto fermo fino alla scadenza.',
+          + `verrebbe tenuto fermo fino alla scadenza.${perChi}`,
       });
     }
     if (!chiave.forma) {
@@ -7533,9 +7559,11 @@ app.post('/api/bot/impostazioni', (req, res) => {
       return res.status(400).json({
         error: 'Serve l\'indirizzo dove torna il cliente dopo aver pagato (il sito del '
           + 'ristorante, o la sua pagina Google). Stripe lo richiede, e dev\'essere un '
-          + 'indirizzo intero che comincia con http:// o https://.',
+          + `indirizzo intero che comincia con http:// o https://.${perChi}`,
       });
     }
+  }
+  if (generale) {
     // ⚠️ E il conto deve dare qualcosa che Stripe accetti davvero. Sotto i 50
     // centesimi rifiuta l'addebito: il link non si creerebbe, e il guasto si
     // scoprirebbe col primo cliente invece che adesso.
@@ -8703,7 +8731,7 @@ const rottaModificaPrenotazione = async (req, res) => {
   // quello di prima e il «resto da saldare» dice una cifra che non esiste.
   if (!p.pagato_at && p.importo_dovuto > 0 && nuovi.persone !== p.persone
       && p.stato !== 'attesa_pagamento') {
-    const conti = bot.importoDaPagare(cfg, nuovi.persone);
+    const conti = bot.importoDaPagare(cfg, nuovi.persone, nuovi.esperienza !== undefined ? nuovi.esperienza : p.esperienza);
     db.prepare('UPDATE prenotazioni SET importo_dovuto = ?, importo_totale = ? WHERE id = ?')
       .run(conti.adesso, conti.totale, p.id);
     // Va detto: il collegamento già mandato al cliente chiede ancora la cifra
