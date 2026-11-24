@@ -1041,6 +1041,17 @@ const PREDEFINITI = {
   // primo. Un messaggio che comincia parlando di soldi si legge come una
   // richiesta, e il cliente che non paga resta col dubbio di non avere il tavolo.
   bot_t_caparra: '✅ Prenotazione confermata, {nome}!\n\n📅 {data}  🕘 {ora}  👥 {persone}\n\nIl tavolo è tuo: non devi fare altro.\nSe hai un imprevisto scrivi CANCELLA.\n\nSe vuoi, puoi lasciare fin d\'ora un acconto di {importo}.\n{resto}\n👉 Versa l\'acconto qui:\n{link}',
+  // ⚠️ IL COLLEGAMENTO PER EMAIL (24 novembre 2026, dal titolare: «il bot non
+  // mostra nessun link ma dice che arriva un'email… semplifichiamo e diamo
+  // valore all'email»). Quello di Stripe sono trecento caratteri; nell'email
+  // è un pulsante. Queste due frasi prendono il posto delle due qui sopra
+  // quando l'email è PARTITA DAVVERO (lo sa il server): senza indirizzo, o con
+  // la posta che non va, resta la frase col collegamento. ⚠️ La parola LINK
+  // è la via d'uscita di chi l'email non la trova (lo spam, un indirizzo
+  // scritto male): ha mezz'ora, e senza quella riga perderebbe il tavolo
+  // senza sapere perché. Niente {link}, e mai «confermata» nella prima.
+  bot_t_pagamento_email: 'Perfetto {nome}, ci siamo quasi ✨\n\n📅 {data}  🕘 {ora}  👥 {persone}\n\n💳 Da pagare adesso: {importo}\n{resto}\n📧 Ti ho mandato un\'email a {email} con il pulsante per pagare.\nSe non la trovi guarda anche nello spam, oppure scrivi LINK e te lo mando qui.\n\n⚠️ Il tavolo NON è ancora prenotato: lo diventa appena ricevo il pagamento.\nHo tenuto il tuo posto fino alle {scadenza}.\n\nDopo aver pagato torna pure qui: ti scrivo io la conferma.',
+  bot_t_caparra_email: '✅ Prenotazione confermata, {nome}!\n\n📅 {data}  🕘 {ora}  👥 {persone}\n\nIl tavolo è tuo: non devi fare altro.\nSe hai un imprevisto scrivi CANCELLA.\n\nSe vuoi, puoi lasciare fin d\'ora un acconto di {importo}.\n{resto}\n📧 Ti ho mandato un\'email a {email} con il pulsante per versarlo.\nSe non la trovi guarda anche nello spam, oppure scrivi LINK e te lo mando qui.',
   bot_t_caparra_ricevuta: '💳 Ricevuto il tuo acconto di {importo}, {nome}. Grazie!\n\n📅 {data}  🕘 {ora}  👥 {persone}\n{resto}\nTi aspettiamo!',
   bot_t_pagamento_scaduto: '⏰ Il tempo per pagare è scaduto e ho liberato il tavolo.\n\nNon ti è stato addebitato niente.\nSe vuoi ancora venire scrivi NUOVA e ricominciamo.',
   bot_t_persone_no: 'Non sono riuscita a capire il numero di persone!\n\nPuoi indicarmi solo il numero?\n(esempio: 2)',
@@ -3278,6 +3289,17 @@ const conCosaSistemata = (t) => t.replace(/Eravamo rimasti a \{cosa\}/g, 'Ti sta
 function comeNome(t) {
   const s = String(t == null ? '' : t).trim();
   return /\p{Lu}/u.test(s) ? s : s.replace(/(^|[\s'’-])(\p{Ll})/gu, (tutto, prima, lettera) => prima + lettera.toUpperCase());
+}
+
+// «LINK», «mandami il collegamento», «non mi è arrivata l'email»: chi deve
+// pagare e l'email col pulsante non la trova. Vale solo per chi ha un pagamento
+// aperto (lo controlla chi chiama): per tutti gli altri è una frase qualunque.
+function chiedeIlCollegamento(testo) {
+  const t = normalizza(testo).replace(/[’']/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  if (/\b(link|collegamento)\b/.test(t) && t.split(' ').length <= 8) return true;
+  return /\b(e ?mail|mail|posta)\b/.test(t)
+    && /\b(non (mi |ci )?(e |ho |l ho |la )?(arrivat\w*|ricevut\w*|trov\w*|ved\w*)|non c e|niente|nessuna|dov e|dove)\b/.test(t);
 }
 
 function riempi(testo, valori) {
@@ -7699,6 +7721,19 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // fargli fare tutto il giro e prenotare due volte — è il modo più rapido
     // di riempire il locale di doppioni e di telefonate per disfarli.
     const gia = prenotazioneFutura(db, telefono, adesso, contesto.numero);
+    // ⚠️ «LINK» (24 novembre 2026): chi deve pagare e l'email non la trova.
+    // Il collegamento lo sa solo Stripe: qui si dice al server QUALE
+    // prenotazione, e lo manda lui. Solo se un pagamento aperto c'è davvero:
+    // per chi non deve niente «link» resta una parola qualunque.
+    if (gia && chiedeIlCollegamento(testo)) {
+      const aperta = prenotazioniFuture(db, telefono, adesso, 5, contesto.numero)
+        .find((p) => p.importo_dovuto > 0 && !p.pagato_at && p.stato !== 'presentata');
+      if (aperta) {
+        azzeraStato(db, telefono);
+        esito.rimandaIlCollegamento = { id: aperta.id };
+        return esito;
+      }
+    }
     // Gli si ricorda il tavolo che ha già, con dentro le due parole per
     // cambiarlo o disdirlo. Serve in due casi diversi che finiscono uguale:
     // quando saluta, e quando scrive qualcosa di incomprensibile.
@@ -8978,7 +9013,13 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // ⚠️ Con l'email accesa, il riepilogo NON chiede più «scrivi SÌ»: chiede
     // l'email, e scriverla è la conferma. Una domanda sola invece di due —
     // ogni passo in più è gente che si ferma a metà e non torna.
-    const conEmail = boolDi(cfg.bot_chiedi_email);
+    // ⚠️ Chi deve PAGARE dà l'email anche dove il locale non la chiede (24
+    // novembre 2026): il collegamento per pagare gli arriva lì, col pulsante.
+    // Solo se l'email di riepilogo è accesa: sennò non c'è nessuna email da
+    // mandare, e il collegamento va in chat come sempre.
+    const sceltaQui = (soloIlTavolo(cfg, d.data) ? '' : nomeEsperienza(d).esperienza) || '';
+    const emailPerPagare = boolDi(cfg.bot_email_attiva) && serveIlPagamento(cfg, d.persone, sceltaQui);
+    const conEmail = boolDi(cfg.bot_chiedi_email) || emailPerPagare;
     salvaStato(db, telefono, conEmail ? 'email' : 'conferma', d);
     // ⚠️ La NOTA va nel riepilogo. Il cliente scriveva «siamo con un bimbo» e
     // poi non la vedeva scritta da nessuna parte: l'unico modo che ha di
@@ -9135,6 +9176,11 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
         scade: nata.pagamento_scade_at,
         obbligatorio: blocca,
         testo: di(blocca ? 'bot_t_pagamento' : 'bot_t_caparra', valori),
+        // Quello da mandare se l'email col pulsante parte davvero (lo decide
+        // il server, dopo averla spedita). Vuoto senza indirizzo o con l'email
+        // spenta: lì il collegamento va in chat.
+        testoEmail: d.email && boolDi(cfg.bot_email_attiva)
+          ? di(blocca ? 'bot_t_pagamento_email' : 'bot_t_caparra_email', { ...valori, email: d.email }) : '',
         // ⚠️ Il ripiego per quando Stripe non risponde, e vale SOLO col
         // pagamento facoltativo: lì il tavolo è già prenotato, e lasciare il
         // cliente con un «sto preparando il collegamento» gli farebbe credere
@@ -9265,6 +9311,7 @@ module.exports = {
   bloccoPagamento,
   fattiDelPagamento,
   comeNome,
+  chiedeIlCollegamento,
   STATI_VIVI,
   dentro,
   STATI_TOCCABILI,

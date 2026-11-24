@@ -5304,6 +5304,10 @@ if (botDisponibile()) {
       // subito. Con il pagamento acceso l'ha già mandato `mandaIlPagamento`,
       // col link dentro — qui si finirebbe per mandarne due.
       else if (esito.prenotazione) await mandaEmailPrenotazione(esito.prenotazione);
+      // «LINK»: il collegamento in chat a chi l'email non la trova. Se Stripe
+      // non lo ridà, una persona: lì il cliente ha un tavolo che scade.
+      else if (esito.rimandaIlCollegamento
+        && !(await rimandaIlCollegamento((t) => rispondiConRitmo(chatId, t), esito.rimandaIlCollegamento.id))) esito.passaAUmano = true;
       await hoFinitoDiScrivere(chatId);
       if (esito.risposte.length) annota('risposto', esito.risposte[0].split('\n')[0]);
       if (esito.evento) annota('eventi', 'ha chiesto degli eventi: mandato il collegamento alla pagina');
@@ -6134,6 +6138,10 @@ async function stripeCreaPagamento(cfg, p) {
     },
   }, idempotenza);
   if (!r.ok) return r;
+  // ⚠️ Un «sì» senza il collegamento non è un sì (24 novembre 2026): chi chiama
+  // scrive `id` sulla prenotazione e manda `link` al cliente. Senza, il primo
+  // faceva saltare la scrittura e il secondo mandava «Paga qui: undefined».
+  if (!r.dati || !r.dati.id || !r.dati.url) return { ok: false, errore: 'Stripe ha risposto senza il collegamento per pagare' };
   return { ok: true, id: r.dati.id, link: r.dati.url };
 }
 
@@ -6249,6 +6257,46 @@ function testoDelCollegamento(cfg, p, link) {
   }).split('{link}').join(link);
 }
 
+// Lo stesso messaggio, per chi il collegamento lo riceve PER EMAIL (24 novembre
+// 2026): senza indirizzo di Stripe, con l'indirizzo di posta e la parola LINK.
+function testoDelPagamentoViaEmail(cfg, p) {
+  const resto = p.importo_totale - p.importo_dovuto;
+  return bot.riempi(p.stato === 'attesa_pagamento' ? cfg.bot_t_pagamento_email : cfg.bot_t_caparra_email, {
+    data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
+    nome: p.nome || '', cognome: p.cognome || '', email: p.email || '',
+    importo: bot.euro(p.importo_dovuto),
+    resto: resto > 0 ? `Il resto — ${bot.euro(resto)} — si salda al ristorante.\n` : '',
+    scadenza: bot.oreEMinuti(p.pagamento_scade_at),
+  });
+}
+
+// «LINK»: il cliente l'email col pulsante non la trova, e vuole il collegamento
+// in chat. ⚠️ Non se ne crea uno nuovo: si richiede a Stripe con la STESSA
+// chiave di prima (vedi `stripeCreaPagamento`), che ridà lo stesso pagamento —
+// due collegamenti per la stessa prenotazione sarebbero due modi di pagarla due
+// volte. Torna false se non c'è riuscito: chi chiama passa la mano a una persona.
+async function rimandaIlCollegamento(rispondi, id) {
+  const cfg = bot.config(db);
+  const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(id);
+  if (!p || !p.importo_dovuto || p.pagato_at) return false;
+  const r = await stripeCreaPagamento(cfg, p);
+  if (!r.ok || !r.link) {
+    annota('errore', `ha scritto LINK ma non riesco a riavere il collegamento per la ${p.id}: ${r.errore || 'Stripe non l\'ha dato'}`);
+    return false;
+  }
+  if (r.id && r.id !== p.pagamento_id) db.prepare('UPDATE prenotazioni SET pagamento_id = ? WHERE id = ?').run(r.id, p.id);
+  const resto = p.importo_totale - p.importo_dovuto;
+  await rispondi(p.stato === 'attesa_pagamento'
+    ? testoDelCollegamento(cfg, p, r.link)
+    : bot.riempi(cfg.bot_t_caparra, {
+      data: bot.dataItaliana(p.data), ora: p.ora, persone: p.persone,
+      nome: p.nome || '', cognome: p.cognome || '', importo: bot.euro(p.importo_dovuto),
+      resto: resto > 0 ? `Il resto — ${bot.euro(resto)} — si salda al ristorante.\n` : '',
+    }).split('{link}').join(r.link));
+  annota('pagamento', `collegamento rimandato in chat per la ${p.id}: il cliente ha scritto LINK`);
+  return true;
+}
+
 // ⚠️ Quando Stripe non risponde, il bot scrive «te lo mando appena è pronto»
 // — e fino a qui nessuno lo mandava mai. La prenotazione restava in attesa
 // senza un collegamento, per mezz'ora, e poi scadeva: al cliente arrivava
@@ -6293,14 +6341,18 @@ async function riprovaICollegamenti(adesso = new Date()) {
     }
     riprovaICollegamenti.zitto = false;
     db.prepare('UPDATE prenotazioni SET pagamento_id = ? WHERE id = ?').run(r.id, p.id);
+    // Con l'indirizzo, PRIMA l'email col pulsante: se parte, in chat si dice
+    // dove guardare; sennò il collegamento va in chat (vedi `mandaIlPagamento`).
+    const conIndirizzo = !!String(p.email || '').trim();
+    const perEmail = conIndirizzo ? await mandaEmailPrenotazione(p, r.link) : null;
     try {
-      await inviaAlCliente(p, testoDelCollegamento(cfg, p, r.link));
+      await inviaAlCliente(p, perEmail && perEmail.ok ? testoDelPagamentoViaEmail(cfg, p) : testoDelCollegamento(cfg, p, r.link));
       mandati++;
       annota('pagamento', `collegamento per pagare mandato in ritardo per la ${p.id}`);
     } catch (e) {
       annota('errore', `collegamento creato per la ${p.id} ma il messaggio non è partito: ${e.message}`);
     }
-    await mandaEmailPrenotazione(p, r.link);
+    if (!conIndirizzo) await mandaEmailPrenotazione(p, r.link);
   }
   return mandati;
 }
@@ -6663,6 +6715,18 @@ async function mandaIlPagamento(chatId, esito) {
     return;
   }
   db.prepare('UPDATE prenotazioni SET pagamento_id = ? WHERE id = ?').run(r.id, p.id);
+  // ⚠️ IL COLLEGAMENTO PER EMAIL (24 novembre 2026, dal titolare). Se il
+  // cliente ha dato l'indirizzo, PRIMA parte l'email — col pulsante «Paga ora»
+  // — e solo se è partita davvero in chat si scrive «ti ho mandato un'email»,
+  // senza il collegamento di trecento caratteri. Se non parte (posta giù,
+  // indirizzo rifiutato) il collegamento va in chat come sempre: dire «guarda
+  // la posta» a chi non riceverà niente gli farebbe perdere il tavolo.
+  if (esito.daPagare.testoEmail) {
+    const perEmail = await mandaEmailPrenotazione(p, r.link);
+    await rispondiConRitmo(chatId, perEmail && perEmail.ok
+      ? esito.daPagare.testoEmail : String(esito.daPagare.testo).split('{link}').join(r.link));
+    return;
+  }
   await rispondiConRitmo(chatId, String(esito.daPagare.testo).split('{link}').join(r.link));
   // ⚠️ L'email parte DOPO il messaggio, e col link dentro. Prima non si poteva:
   // il link non esisteva ancora, e un'email che dice «paga qui» senza il dove
@@ -9507,7 +9571,13 @@ app.post('/api/bot/simula', async (req, res) => {
     const r = p ? await stripeCreaPagamento(cfg, p) : { ok: false, errore: 'prenotazione sparita' };
     if (r.ok) {
       db.prepare('UPDATE prenotazioni SET pagamento_id = ? WHERE id = ?').run(r.id, p.id);
-      esito.risposte.push(String(esito.daPagare.testo).split('{link}').join(r.link));
+      // Come nella chat vera: con l'indirizzo, prima l'email; se parte, in chat
+      // il messaggio senza collegamento (vedi `mandaIlPagamento`).
+      if (esito.daPagare.testoEmail) {
+        esito.simulaEmail = await mandaEmailPrenotazione(p, r.link);
+        esito.risposte.push(esito.simulaEmail && esito.simulaEmail.ok
+          ? esito.daPagare.testoEmail : String(esito.daPagare.testo).split('{link}').join(r.link));
+      } else esito.risposte.push(String(esito.daPagare.testo).split('{link}').join(r.link));
     } else {
       // Anche il fallimento va mostrato: è quello che vedrebbe il cliente, e
       // provare il bot serve proprio a scoprire che Stripe non risponde PRIMA
@@ -9518,7 +9588,11 @@ app.post('/api/bot/simula', async (req, res) => {
       }));
       esito.risposte.push(`⚠️ (solo nel simulatore) Stripe non ha risposto: ${r.errore}`);
     }
-    if (p) esito.simulaEmail = await mandaEmailPrenotazione(p, r.ok ? r.link : '');
+    if (p && !esito.simulaEmail) esito.simulaEmail = await mandaEmailPrenotazione(p, r.ok ? r.link : '');
+  } else if (esito.rimandaIlCollegamento) {
+    if (!(await rimandaIlCollegamento(async (t) => { esito.risposte.push(t); }, esito.rimandaIlCollegamento.id))) {
+      esito.risposte.push('⚠️ (solo nel simulatore) Stripe non ha ridato il collegamento: nella chat vera qui risponde una persona.');
+    }
   } else if (esito.prenotazione) {
     esito.simulaEmail = await mandaEmailPrenotazione(esito.prenotazione);
   }
