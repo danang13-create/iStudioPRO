@@ -6499,6 +6499,22 @@ function testoInHtml(t) {
 // o niente) e «{testo}» (tutto il testo dell'email già riempito, così un
 // modello può limitarsi a metterci una cornice intorno).
 function corpoEmailRiepilogo(cfg, valori, testo, conLogo) {
+  // ⚠️ L'intestazione, il saluto e la chiusura dei modelli sono FRASI (24
+  // novembre 2026): «{intestazione}», «{apertura}», «{chiusura}», da «Frasi e
+  // domande» → «L'email della prenotazione». Si riempiono QUI, e non in chi
+  // chiama, perché questo corpo lo usa anche il promemoria: lì resterebbe
+  // scritto «{apertura}» in mezzo all'email. Una frase vuota torna a quella
+  // di partenza.
+  const fraseDi = (chiave) => {
+    const scritta = cfg[chiave] === undefined || cfg[chiave] === null ? '' : String(cfg[chiave]);
+    return scritta.trim() ? scritta : String(bot.PREDEFINITI[chiave] || '');
+  };
+  // (La firma resta «cfg, valori, testo, conLogo»: le prove la cercano così.)
+  const avuti = valori;
+  valori = { ...avuti };
+  for (const [chiave, frase] of [['intestazione', 'bot_t_posta_intestazione'], ['apertura', 'bot_t_posta_apertura'], ['chiusura', 'bot_t_posta_chiusura']]) {
+    if (valori[chiave] === undefined) valori[chiave] = bot.riempi(fraseDi(frase), avuti);
+  }
   const logoHtml = conLogo
     ? '<img src="cid:logo-istudio" alt="' + htmlSicuro(valori.locale || '') + '" style="max-width:220px;max-height:120px;height:auto;display:block;margin:0 auto 18px">'
     : '';
@@ -6582,22 +6598,30 @@ function composizioneEmail(cfg, p, link) {
       ? '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:16px auto 0"><tr><td bgcolor="#0f7a6d" style="border-radius:8px;text-align:center">'
         + '<a href="' + dove + '" style="display:inline-block;padding:12px 28px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none">' + scritta + '</a></td></tr></table>'
         + '<div style="margin-top:10px;text-align:center;font-size:12px;line-height:1.5;color:#667781">'
-        + (/(^|\.)stripe\.com$/.test(String(link).replace(/^https?:\/\//, '').split(/[/?#]/)[0]) ? 'Pagamento sicuro con carta, tramite Stripe. ' : '')
-        + 'Se il pulsante non funziona, <a href="' + dove + '" style="color:#0f7a6d">apri la pagina di pagamento</a>.</div>'
+        + (/(^|\.)stripe\.com$/.test(String(link).replace(/^https?:\/\//, '').split(/[/?#]/)[0]) ? frase('bot_t_posta_pag_sicuro') + ' ' : '')
+        + '<a href="' + dove + '" style="color:#0f7a6d">' + frase('bot_t_posta_pag_riserva') + '</a></div>'
       : '');
-    const saldo = f.resto ? riga('Saldo al ristorante', bot.euro(f.resto)) : '';
+    // Le scritte sono frasi (gruppo «L'email della prenotazione»): rese
+    // innocue come tutto il resto. Vuota, torna quella di partenza.
+    const frase = (chiave, v) => {
+      const scritta = cfg[chiave] === undefined || cfg[chiave] === null ? '' : String(cfg[chiave]);
+      return sicuro(bot.riempi(scritta.trim() ? scritta : String(bot.PREDEFINITI[chiave] || ''), v || {})).replace(/\n/g, '<br>');
+    };
+    const saldo = f.resto ? riga(frase('bot_t_posta_pag_saldo'), bot.euro(f.resto)) : '';
     if (f.caso === 'ricevuto') {
-      return testata('#0f7a6d', 'Pagamento ricevuto', '') + tabella(riga('Importo ricevuto', bot.euro(f.adesso), true) + saldo);
+      return testata('#0f7a6d', frase('bot_t_posta_ricevuto_titolo'), '') + tabella(riga(frase('bot_t_posta_ricevuto_riga'), bot.euro(f.adesso), true) + saldo);
     }
     if (f.caso === 'acconto') {
-      return testata('#0f7a6d', 'Tavolo riservato', 'Non è richiesta alcuna azione.'
-        + (dove ? ' Se lo desideri, puoi versare fin d\'ora un acconto.' : ''))
-        + (dove || saldo ? tabella((dove ? riga('Acconto facoltativo', bot.euro(f.adesso), true) : '') + saldo) : '')
-        + pulsante('Versa l\'acconto');
+      // Senza collegamento resta solo la prima frase: l'invito a versare non
+      // avrebbe un posto dove versare.
+      const avviso = frase('bot_t_posta_acconto_avviso');
+      return testata('#0f7a6d', frase('bot_t_posta_acconto_titolo'), dove ? avviso : avviso.split(/(?<=\.)\s/)[0])
+        + (dove || saldo ? tabella((dove ? riga(frase('bot_t_posta_acconto_riga'), bot.euro(f.adesso), true) : '') + saldo) : '')
+        + pulsante(frase('bot_t_posta_acconto_pulsante', { importo: bot.euro(f.adesso) }));
     }
-    return testata('#8a5a00', 'Pagamento richiesto', 'Il tavolo non è ancora riservato: la prenotazione sarà confermata al ricevimento del pagamento.')
-      + tabella(riga('Da pagare adesso', bot.euro(f.adesso), true) + saldo + (f.scade ? riga('Da pagare entro', 'le ore ' + f.scade) : ''))
-      + pulsante('Paga ora ' + bot.euro(f.adesso));
+    return testata('#8a5a00', frase('bot_t_posta_pag_titolo'), frase('bot_t_posta_pag_avviso'))
+      + tabella(riga(frase('bot_t_posta_pag_adesso'), bot.euro(f.adesso), true) + saldo + (f.scade ? riga(frase('bot_t_posta_pag_entro'), 'le ore ' + f.scade) : ''))
+      + pulsante(frase('bot_t_posta_pag_pulsante', { importo: bot.euro(f.adesso) }));
   };
   const valori = {
     nome: comeNome(p.nome),
@@ -8227,7 +8251,11 @@ app.post('/api/bot/testi/ripristina', (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const chiave = req.body && req.body.chiave;
   if (chiave) {
-    if (!String(chiave).startsWith('bot_t_')) return res.status(400).json({ error: 'Non è un testo del bot' });
+    // Anche l'oggetto e il testo dell'email: dal 24 novembre 2026 si cambiano
+    // pure dalla scheda Frasi, e «Riporta com'era» deve valere lì come per le altre.
+    if (!String(chiave).startsWith('bot_t_') && !['bot_email_oggetto', 'bot_email_testo'].includes(String(chiave))) {
+      return res.status(400).json({ error: 'Non è un testo del bot' });
+    }
     db.prepare('DELETE FROM settings WHERE key = ?').run(chiave);
   } else {
     db.prepare("DELETE FROM settings WHERE key LIKE 'bot\\_t\\_%' ESCAPE '\\'").run();

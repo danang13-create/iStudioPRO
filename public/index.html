@@ -2596,6 +2596,9 @@
           Manda al cliente un'email con il riepilogo della prenotazione
         </label>
         <div id="email-campi" style="margin-top:10px">
+          <p class="conteggio" style="margin:0 0 10px">Le parole dell'email — l'oggetto, il testo, il saluto, le scritte
+            del riquadro del pagamento e del pulsante — si cambiano anche in <b>Frasi e domande</b>, gruppo
+            «L'email della prenotazione».</p>
           <label style="display:block">Oggetto
             <input id="cfg-bot_email_oggetto" autocomplete="off" placeholder="La tua prenotazione da {locale} — {data}"></label>
           <label style="margin-top:10px;display:block">Testo dell'email
@@ -6034,6 +6037,26 @@ const TESTI_BOT = [
   ['bot_t_caparra_email', 'Acconto facoltativo: il collegamento è nell\'email', 'Come sopra, col pagamento FACOLTATIVO: il tavolo è già suo, e il pulsante per versare l\'acconto è nell\'email. Segnaposto: {nome} {data} {ora} {persone} {importo} {resto} {email}.'],
   ['bot_t_caparra_ricevuta', 'Acconto facoltativo: ricevuto', 'Quando la caparra facoltativa arriva. Qui NON si dice «prenotazione confermata»: lo era già, e ridirlo fa credere che prima non lo fosse.'],
   ['bot_t_pagamento_scaduto', 'Tempo per pagare scaduto', 'Il posto è tornato libero. La riga «non ti è stato addebitato niente» sembra ovvia ma non lo è: senza, qualcuno telefona preoccupato.'],
+  [null, 'L\'email della prenotazione'],
+  ['bot_email_oggetto', 'L\'oggetto dell\'email', 'Quello che il cliente legge nell\'elenco della posta. È lo stesso campo di Prenotazioni → email: cambiandolo qui cambia anche lì. Segnaposto: {locale} {data} {ora} {persone} {nome}.'],
+  ['bot_email_testo', 'Il testo dell\'email', 'Il testo dell\'email, e la versione per chi la legge senza grafica. È lo stesso campo di Prenotazioni → email. Segnaposto: {nome} {cognome} {data} {ora} {persone} {esperienza} {note} {pagamento} {locale}. ⚠️ Con un «Modello HTML avanzato» salvato, a vedersi è il modello: questo resta la versione semplice.'],
+  ['bot_t_posta_intestazione', 'Email: la riga sotto il nome del locale', 'Nel modello pronto, in piccolo sotto il nome del locale. Nei modelli è <b>{intestazione}</b>.'],
+  ['bot_t_posta_apertura', 'Email: il saluto', 'La prima riga dell\'email nel modello pronto. <b>{nome}</b> è il nome del cliente (con l\'iniziale maiuscola). Nei modelli è <b>{apertura}</b>. ⚠️ Non scrivere che la prenotazione è confermata: la stessa email parte anche quando il pagamento non è ancora arrivato.'],
+  ['bot_t_posta_chiusura', 'Email: la chiusura', 'In fondo, sopra il nome del locale. Nei modelli è <b>{chiusura}</b>.'],
+  ['bot_t_posta_pag_titolo', 'Email, da pagare: il titolo del riquadro', 'Il riquadro del pagamento lo compone iStudio: queste sono le sue scritte. Questa è la testata quando il tavolo aspetta il pagamento.'],
+  ['bot_t_posta_pag_avviso', 'Email, da pagare: l\'avviso', 'Sotto il titolo. ⚠️ Deve dire che il tavolo NON è ancora suo: chi legge «confermata» sabato sera si presenta.'],
+  ['bot_t_posta_pag_adesso', 'Email, da pagare: la riga dell\'importo', 'Accanto c\'è la cifra da pagare subito.'],
+  ['bot_t_posta_pag_saldo', 'Email: la riga del saldo', 'Accanto c\'è quello che resta da pagare al ristorante. Compare solo se si paga una parte.'],
+  ['bot_t_posta_pag_entro', 'Email, da pagare: la riga della scadenza', 'Accanto c\'è l\'ora («le ore 19:51»).'],
+  ['bot_t_posta_pag_pulsante', 'Email, da pagare: il pulsante', 'La scritta sul pulsante che porta a Stripe. <b>{importo}</b> è la cifra da pagare subito.'],
+  ['bot_t_posta_pag_sicuro', 'Email: «pagamento sicuro»', 'In piccolo sotto il pulsante. Compare solo se il collegamento è di Stripe.'],
+  ['bot_t_posta_pag_riserva', 'Email: se il pulsante non funziona', 'In piccolo sotto il pulsante: tutta la frase è un collegamento alla pagina di pagamento, per i programmi di posta che non mostrano i pulsanti.'],
+  ['bot_t_posta_ricevuto_titolo', 'Email, pagato: il titolo del riquadro', 'Nell\'email che parte quando il pagamento è arrivato.'],
+  ['bot_t_posta_ricevuto_riga', 'Email, pagato: la riga dell\'importo', 'Accanto c\'è la cifra ricevuta.'],
+  ['bot_t_posta_acconto_titolo', 'Email, acconto facoltativo: il titolo', 'Col pagamento FACOLTATIVO il tavolo è già suo: il titolo lo dice per primo.'],
+  ['bot_t_posta_acconto_avviso', 'Email, acconto facoltativo: l\'invito', 'Sotto il titolo. La prima frase (fino al punto) esce da sola quando il collegamento non c\'è.'],
+  ['bot_t_posta_acconto_riga', 'Email, acconto facoltativo: la riga dell\'importo', 'Accanto c\'è la cifra dell\'acconto.'],
+  ['bot_t_posta_acconto_pulsante', 'Email, acconto facoltativo: il pulsante', 'La scritta sul pulsante. Volendo, <b>{importo}</b> è la cifra.'],
   [null, 'Confermata — o lasciata a metà'],
   ['bot_t_conferma', 'Prenotazione confermata', ''],
   ['bot_t_rinuncia', 'Il cliente ha rinunciato mentre prenotava', 'Quando dice NO al riepilogo, o a metà scrive che non vuole più prenotare («non voglio più prenotare», «lascia stare», «ho cambiato idea»): non è stata segnata nessuna prenotazione, e il bot non torna a cercarlo con «Sei ancora lì?».'],
@@ -8394,7 +8417,7 @@ async function caricaConfigBot() {
       <label style="display:block" data-frase="${chiave}" data-cerca="${testoSicuro(daCercare)}">
         <span style="font-weight:600;font-size:.92rem">${numeroFrase}. ${titolo}</span>
         ${aiuto ? `<br><span class="conteggio" style="margin:0">${aiuto}</span>` : ''}
-        <textarea id="txt-${chiave}" autocomplete="off" rows="${chiave === 'bot_t_ora_turno' ? 6 : chiave === 'bot_t_benvenuto' ? 4 : 3}"
+        <textarea id="txt-${chiave}" autocomplete="off" rows="${chiave === 'bot_email_testo' ? 12 : chiave === 'bot_t_ora_turno' ? 6 : chiave === 'bot_t_benvenuto' ? 4 : 3}"
           class="frase-testo" style="width:100%;margin-top:5px;padding:9px;border:1px solid var(--bordo);border-radius:8px;font-family:inherit;resize:vertical">${testoSicuro(d.impostazioni[chiave] || '')}</textarea>
         ${FRASI_CON_ELENCO.includes(chiave) ? `<span class="conteggio" data-avviso-elenco="${chiave}" style="display:none;margin:2px 0 0;color:var(--avviso-testo)"></span>` : ''}
         ${chiave === 'bot_t_ricominciato' ? '<span class="conteggio" data-avviso-domanda style="display:none;margin:2px 0 0;color:var(--avviso-testo)"></span>' : ''}
@@ -10241,6 +10264,22 @@ function annullaModificaFaq() {
   $('#faq-annulla').style.display = 'none';
 }
 
+// ⚠️ L'oggetto e il testo dell'email stanno in DUE posti (24 novembre 2026):
+// nella sezione dell'email e, dal titolare, anche qui fra le frasi. Sono lo
+// stesso valore: mentre si scrive in uno, l'altro lo segue. Sennò «Salva le
+// frasi» — che salva TUTTE le frasi — rimetterebbe il testo vecchio sopra
+// quello appena cambiato nell'altra scheda, e viceversa.
+const CAMPI_EMAIL_DOPPI = ['bot_email_oggetto', 'bot_email_testo'];
+$('#pren-testi').addEventListener('input', (e) => {
+  const chiave = String(e.target.id || '').replace(/^txt-/, '');
+  if (!CAMPI_EMAIL_DOPPI.includes(chiave)) return;
+  const gemello = $('#cfg-' + chiave);
+  if (gemello) gemello.value = e.target.value;
+});
+for (const chiave of CAMPI_EMAIL_DOPPI) {
+  const campo = $('#cfg-' + chiave);
+  if (campo) campo.addEventListener('input', () => { const gemello = $('#txt-' + chiave); if (gemello) gemello.value = campo.value; });
+}
 $('#testi-salva').addEventListener('click', async () => {
   const corpo = {};
   for (const [chiave] of TESTI_BOT) {
@@ -10266,20 +10305,21 @@ const MODELLO_EMAIL_PRONTO = `<!-- Modello dell'email della prenotazione. Tabell
      ⚠️ Qui non si scrive che la prenotazione e a posto: la stessa email parte
      anche quando il pagamento non e ancora arrivato, ed e il riquadro del
      pagamento a dire come stanno le cose. Quel riquadro (importi, scadenza,
-     il pulsante per pagare) lo compone iStudio: qui c'e solo la cornice. -->
+     il pulsante per pagare) lo compone iStudio: qui c'e solo la cornice.
+     L'intestazione, il saluto e la chiusura sono frasi: si cambiano in
+     Frasi e domande, gruppo L'email della prenotazione. -->
 <div style="margin:0;padding:24px 12px;background:#f0f2f5;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e0e4e8;border-radius:12px">
 
   <tr><td style="padding:30px 26px 20px;text-align:center;border-bottom:2px solid #0f7a6d">
     {?logo}{logo}{/logo}
     {?locale}<div style="font-size:20px;font-weight:700;color:#111b21;letter-spacing:.3px">{locale}</div>{/locale}
-    <div style="font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#667781;margin-top:8px">Riepilogo della prenotazione</div>
+    {?intestazione}<div style="font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#667781;margin-top:8px">{intestazione}</div>{/intestazione}
   </td></tr>
 
-  <tr><td style="padding:24px 26px 0;font-size:15px;color:#111b21;line-height:1.6">
-    Gentile {nome},<br>
-    di seguito trovi il riepilogo della tua prenotazione.
-  </td></tr>
+  {?apertura}<tr><td style="padding:24px 26px 0;font-size:15px;color:#111b21;line-height:1.6">
+    {apertura}
+  </td></tr>{/apertura}
 
   <tr><td style="padding:14px 26px 0">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:15px;color:#111b21">
@@ -10326,7 +10366,7 @@ const MODELLO_EMAIL_PRONTO = `<!-- Modello dell'email della prenotazione. Tabell
 
   <tr><td style="padding:22px 26px 26px">
     <div style="border-top:1px solid #eef0f2;padding-top:16px;font-size:14px;color:#111b21;line-height:1.6">
-      Cordiali saluti{?locale},<br><b>{locale}</b>{/locale}
+      {chiusura}{?locale}<br><b>{locale}</b>{/locale}
     </div>
   </td></tr>
 

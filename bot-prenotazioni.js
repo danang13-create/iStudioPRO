@@ -1052,6 +1052,30 @@ const PREDEFINITI = {
   // senza sapere perché. Niente {link}, e mai «confermata» nella prima.
   bot_t_pagamento_email: 'Perfetto {nome}, ci siamo quasi ✨\n\n📅 {data}  🕘 {ora}  👥 {persone}\n\n💳 Da pagare adesso: {importo}\n{resto}\n📧 Ti ho mandato un\'email a {email} con il pulsante per pagare.\nSe non la trovi guarda anche nello spam, oppure scrivi LINK e te lo mando qui.\n\n⚠️ Il tavolo NON è ancora prenotato: lo diventa appena ricevo il pagamento.\nHo tenuto il tuo posto fino alle {scadenza}.\n\nDopo aver pagato torna pure qui: ti scrivo io la conferma.',
   bot_t_caparra_email: '✅ Prenotazione confermata, {nome}!\n\n📅 {data}  🕘 {ora}  👥 {persone}\n\nIl tavolo è tuo: non devi fare altro.\nSe hai un imprevisto scrivi CANCELLA.\n\nSe vuoi, puoi lasciare fin d\'ora un acconto di {importo}.\n{resto}\n📧 Ti ho mandato un\'email a {email} con il pulsante per versarlo.\nSe non la trovi guarda anche nello spam, oppure scrivi LINK e te lo mando qui.',
+  // ---- LE SCRITTE DELL'EMAIL (24 novembre 2026, dal titolare: «metti pure
+  // nella sezione frasi il testo del messaggio che riepiloga la
+  // prenotazione») ---- Fino a oggi stavano scritte nel server (il riquadro
+  // del pagamento) e nel modello pronto (il saluto, la chiusura): per
+  // cambiare «Paga ora» bisognava aprire il codice. Sono testo semplice,
+  // senza HTML: entrano nell'email rese innocue. Una lasciata vuota torna a
+  // quella di partenza — un pulsante senza scritta non serve a nessuno.
+  bot_t_posta_intestazione: 'Riepilogo della prenotazione',
+  bot_t_posta_apertura: 'Gentile {nome},\ndi seguito trovi il riepilogo della tua prenotazione.',
+  bot_t_posta_chiusura: 'Cordiali saluti,',
+  bot_t_posta_pag_titolo: 'Pagamento richiesto',
+  bot_t_posta_pag_avviso: 'Il tavolo non è ancora riservato: la prenotazione sarà confermata al ricevimento del pagamento.',
+  bot_t_posta_pag_adesso: 'Da pagare adesso',
+  bot_t_posta_pag_saldo: 'Saldo al ristorante',
+  bot_t_posta_pag_entro: 'Da pagare entro',
+  bot_t_posta_pag_pulsante: 'Paga ora {importo}',
+  bot_t_posta_pag_sicuro: 'Pagamento sicuro con carta, tramite Stripe.',
+  bot_t_posta_pag_riserva: 'Se il pulsante non funziona, apri la pagina di pagamento.',
+  bot_t_posta_ricevuto_titolo: 'Pagamento ricevuto',
+  bot_t_posta_ricevuto_riga: 'Importo ricevuto',
+  bot_t_posta_acconto_titolo: 'Tavolo riservato',
+  bot_t_posta_acconto_avviso: 'Non è richiesta alcuna azione. Se lo desideri, puoi versare fin d\'ora un acconto.',
+  bot_t_posta_acconto_riga: 'Acconto facoltativo',
+  bot_t_posta_acconto_pulsante: 'Versa l\'acconto',
   bot_t_caparra_ricevuta: '💳 Ricevuto il tuo acconto di {importo}, {nome}. Grazie!\n\n📅 {data}  🕘 {ora}  👥 {persone}\n{resto}\nTi aspettiamo!',
   bot_t_pagamento_scaduto: '⏰ Il tempo per pagare è scaduto e ho liberato il tavolo.\n\nNon ti è stato addebitato niente.\nSe vuoi ancora venire scrivi NUOVA e ricominciamo.',
   bot_t_persone_no: 'Non sono riuscita a capire il numero di persone!\n\nPuoi indicarmi solo il numero?\n(esempio: 2)',
