@@ -557,6 +557,9 @@
   tr.riga-no-consenso { background: var(--senza-fondo); }
   tr.riga-no-consenso td { color: var(--senza-testo); }
   .segno-no { cursor: help; font-size: .82rem; }
+  /* «Prenotazione»: il contatto è entrato in rubrica da solo, prenotando dal bot. */
+  .segno-prov { display: inline-block; margin-left: 6px; padding: 1px 7px; border: 1px solid var(--bordo);
+    border-radius: 999px; font-size: .74rem; color: var(--grigio); white-space: nowrap; cursor: help; }
   /* stima del tempo di invio sotto il menu "Limite messaggi" */
   .stima-tempo {
     margin: 8px 0; padding: 9px 13px; border-radius: 9px; font-size: .9rem;
@@ -1713,6 +1716,14 @@
       <div class="riga-strumenti">
         <h2 style="margin:0">Contatti</h2>
         <input id="ricerca" placeholder="Cerca…">
+        <!-- Da dove arriva il contatto (24 novembre 2026, dal titolare): chi
+             prenota dal bot con email e telefono entra in rubrica da solo,
+             segnato «Prenotazione». -->
+        <select id="rubrica-provenienza" autocomplete="off" aria-label="Provenienza dei contatti" style="width:auto">
+          <option value="tutti">Tutte le provenienze</option>
+          <option value="prenotazione">Dalle prenotazioni</option>
+          <option value="miei">Gli altri contatti</option>
+        </select>
         <button class="btn btn-piccolo" id="btn-nuovo-contatto">➕ Aggiungi contatto</button>
         <button class="btn btn-secondario btn-piccolo" id="btn-controlla-cancellazioni" title="Cerca subito nelle chat le richieste di cancellazione">🔎 Controlla cancellazioni</button>
       </div>
@@ -1855,10 +1866,16 @@
       <div class="riga-strumenti">
         <h2 style="margin:0">Destinatari</h2>
         <input id="cerca-destinatari" placeholder="Cerca per nome, cognome o numero…">
+        <select id="dest-provenienza" autocomplete="off" aria-label="Provenienza dei destinatari" style="width:auto">
+          <option value="miei">I miei contatti</option>
+          <option value="prenotazione">Dalle prenotazioni</option>
+          <option value="tutti">Tutti</option>
+        </select>
         <button class="btn btn-secondario btn-piccolo" id="btn-tutti">Seleziona tutti</button>
         <button class="btn btn-secondario btn-piccolo" id="btn-nessuno">Deseleziona</button>
       </div>
       <div id="lista-destinatari" style="max-height:340px;overflow-y:auto"></div>
+      <p class="conteggio" id="dest-prov-nota" hidden></p>
       <p class="conteggio"><span id="n-selezionati">0</span> destinatari selezionati</p>
       <button class="btn" id="btn-invia">Invia il messaggio</button>
       <div id="progresso" style="display:none; margin-top:14px">
@@ -2477,6 +2494,11 @@
           prenotazioni, ultima visita — pronto da importare in Rubrica o in un programma di newsletter.
           Chi ha scritto STOP arriva segnato «non contattare», e la Rubrica lo importa già escluso.
           ⚠️ Chi ha solo prenotato un tavolo non ha chiesto le novità: mandale a chi ti ha dato il consenso.
+        </p>
+        <p class="conteggio" style="margin:0 0 10px">
+          Chi prenota <b>dal bot</b> lasciando email e telefono entra in Rubrica da solo, segnato
+          «Prenotazione». Negli invii WhatsApp e nelle newsletter resta fuori finché non scegli
+          «Dalle prenotazioni» fra i destinatari.
         </p>
         <input id="cli-cerca" type="search" autocomplete="off" placeholder="nome, cognome, numero o email…" style="max-width:420px">
         <!-- LA TABELLA (23 novembre 2026, dal titolare): Nome, Cognome, Email,
@@ -3224,10 +3246,16 @@
       <div class="riga-strumenti">
         <h2 style="margin:0">Destinatari (solo contatti con email)</h2>
         <input id="cerca-email-destinatari" placeholder="Cerca per nome, cognome o email…">
+        <select id="email-dest-provenienza" autocomplete="off" aria-label="Provenienza dei destinatari" style="width:auto">
+          <option value="miei">I miei contatti</option>
+          <option value="prenotazione">Dalle prenotazioni</option>
+          <option value="tutti">Tutti</option>
+        </select>
         <button class="btn btn-secondario btn-piccolo" id="btn-email-tutti">Seleziona tutti</button>
         <button class="btn btn-secondario btn-piccolo" id="btn-email-nessuno">Deseleziona</button>
       </div>
       <div id="lista-email-destinatari" style="max-height:340px;overflow-y:auto"></div>
+      <p class="conteggio" id="email-dest-prov-nota" hidden></p>
       <p class="conteggio"><span id="n-email-selezionati">0</span> destinatari selezionati</p>
       <button class="btn" id="btn-invia-email">Invia newsletter</button>
       <div id="email-progresso" style="display:none; margin-top:14px">
@@ -4117,6 +4145,32 @@ async function caricaContatti() {
   disegnaEmailDestinatari();
 }
 
+// ---- Da dove arriva un contatto (24 novembre 2026, dal titolare) ----
+// Chi prenota dal bot con email e telefono entra in rubrica da solo, con
+// provenienza «Prenotazione» (vedi `inRubricaDaSola` nel server). Deciso con
+// lui: negli invii quei contatti restano FUORI finché non li si sceglie — chi
+// ha prenotato un tavolo non ha chiesto le novità del locale. Di partenza
+// l'elenco dei destinatari è «I miei contatti», e «Seleziona tutti» prende
+// quello che si vede.
+const DALLA_PRENOTAZIONE = 'Prenotazione';
+const ePrenotazione = (c) => c.provenienza === DALLA_PRENOTAZIONE;
+function perProvenienza(lista, quale) {
+  if (quale === 'prenotazione') return lista.filter(ePrenotazione);
+  if (quale === 'tutti') return lista;
+  return lista.filter((c) => !ePrenotazione(c));
+}
+const SEGNO_PROV = '<span class="segno-prov" title="È entrato in rubrica da solo, prenotando dal bot: negli invii resta fuori finché non lo scegli">Prenotazione</span>';
+// Sotto l'elenco dei destinatari: quanti ne restano fuori, e come vederli.
+function notaProvenienza(dove, disponibili, quale) {
+  const nota = $(dove);
+  if (!nota) return;
+  const fuori = quale === 'miei' ? disponibili.filter(ePrenotazione).length : 0;
+  nota.hidden = !fuori;
+  nota.textContent = fuori
+    ? `${fuori === 1 ? 'Un contatto arrivato' : fuori + ' contatti arrivati'} dalle prenotazioni non ${fuori === 1 ? 'è' : 'sono'} in questo elenco: per scrivergli scegli «Dalle prenotazioni».`
+    : '';
+}
+
 const PER_PAGINA = 100;
 let paginaRubrica = 1;
 let ordinaPer = 'nome';        // nome | cognome | email | telefono
@@ -4132,7 +4186,7 @@ function etichettaStato(s) {
 
 function disegnaContatti() {
   const filtro = $('#ricerca').value.toLowerCase();
-  const righe = contatti.filter((c) =>
+  const righe = perProvenienza(contatti, ($('#rubrica-provenienza') || {}).value || 'tutti').filter((c) =>
     (c.nome + ' ' + c.cognome + ' ' + c.email + ' ' + c.telefono).toLowerCase().includes(filtro)
   );
 
@@ -4152,7 +4206,7 @@ function disegnaContatti() {
 
   $('#tabella-contatti').innerHTML = visibili.map((c) => `
     <tr${c.opt_out ? ' class="riga-no-consenso"' : ''}>
-      <td>${c.opt_out ? '<span class="segno-no" title="Consenso: No — non riceve messaggi">🚫</span> ' : ''}${esc(c.nome)}</td>
+      <td>${c.opt_out ? '<span class="segno-no" title="Consenso: No — non riceve messaggi">🚫</span> ' : ''}${esc(c.nome)}${ePrenotazione(c) ? SEGNO_PROV : ''}</td>
       <td>${esc(c.cognome)}</td>
       <td style="word-break:break-all">${esc(c.email)}</td>
       <td class="rub-tel">${esc(c.telefono)}</td>
@@ -4425,6 +4479,7 @@ document.querySelectorAll('.token-inserisci').forEach((b) => {
 });
 
 $('#ricerca').addEventListener('input', () => { paginaRubrica = 1; disegnaContatti(); });
+$('#rubrica-provenienza').addEventListener('change', () => { paginaRubrica = 1; disegnaContatti(); });
 
 $('#form-contatto').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -4619,7 +4674,9 @@ function destinatariFiltrati() {
   const q = ($('#cerca-destinatari').value || '').toLowerCase().trim();
   // chi ha chiesto di non essere contattato non compare proprio fra i destinatari:
   // non deve essere nemmeno possibile selezionarlo per sbaglio
-  const disponibili = contatti.filter((c) => !c.opt_out);
+  // …e chi è in rubrica solo perché ha prenotato resta fuori finché non lo si
+  // sceglie (vedi `perProvenienza`).
+  const disponibili = perProvenienza(contatti.filter((c) => !c.opt_out), $('#dest-provenienza').value);
   if (!q) return disponibili;
   return disponibili.filter((c) =>
     (c.nome + ' ' + c.cognome + ' ' + c.telefono + ' ' + c.email).toLowerCase().includes(q));
@@ -4686,7 +4743,7 @@ function disegnaDestinatari() {
     box.innerHTML = elenco.map((c) => `
       <label style="display:flex;align-items:center;gap:9px;padding:7px 2px;font-size:.92rem;color:var(--testo);cursor:pointer">
         <input type="checkbox" style="width:auto" data-id="${c.id}" ${selezionati.has(c.id) ? 'checked' : ''}>
-        ${esc(c.nome)} ${esc(c.cognome)} — ${esc(c.telefono)}
+        ${esc(c.nome)} ${esc(c.cognome)} — ${esc(c.telefono)}${ePrenotazione(c) ? SEGNO_PROV : ''}
       </label>`).join('');
     box.querySelectorAll('input[type=checkbox]').forEach((cb) => {
       cb.addEventListener('change', () => {
@@ -4698,10 +4755,12 @@ function disegnaDestinatari() {
     });
   }
   $('#n-selezionati').textContent = selezionati.size;
+  notaProvenienza('#dest-prov-nota', contatti.filter((c) => !c.opt_out), $('#dest-provenienza').value);
   aggiornaStima('whatsapp');
 }
 
 $('#cerca-destinatari').addEventListener('input', disegnaDestinatari);
+$('#dest-provenienza').addEventListener('change', disegnaDestinatari);
 // "Seleziona tutti" agisce sui contatti attualmente visibili, così la ricerca è utile
 $('#btn-tutti').addEventListener('click', () => {
   destinatariFiltrati().forEach((c) => selezionati.add(c.id));
@@ -5179,7 +5238,7 @@ $('#btn-test-smtp').addEventListener('click', async () => {
 // Contatti con email visibili nell'elenco, in base alla ricerca
 function emailDestinatariFiltrati() {
   const q = ($('#cerca-email-destinatari').value || '').toLowerCase().trim();
-  const conEmail = contatti.filter((c) => c.email && !c.opt_out);
+  const conEmail = perProvenienza(contatti.filter((c) => c.email && !c.opt_out), $('#email-dest-provenienza').value);
   if (!q) return conEmail;
   return conEmail.filter((c) =>
     (c.nome + ' ' + c.cognome + ' ' + c.email).toLowerCase().includes(q));
@@ -5197,7 +5256,7 @@ function disegnaEmailDestinatari() {
     box.innerHTML = conEmail.map((c) => `
       <label style="display:flex;align-items:center;gap:9px;padding:7px 2px;font-size:.92rem;color:var(--testo);cursor:pointer">
         <input type="checkbox" style="width:auto" data-id="${c.id}" ${emailSelezionati.has(c.id) ? 'checked' : ''}>
-        ${esc(c.nome)} ${esc(c.cognome)} — ${esc(c.email)}
+        ${esc(c.nome)} ${esc(c.cognome)} — ${esc(c.email)}${ePrenotazione(c) ? SEGNO_PROV : ''}
       </label>`).join('');
     box.querySelectorAll('input[type=checkbox]').forEach((cb) => {
       cb.addEventListener('change', () => {
@@ -5209,10 +5268,12 @@ function disegnaEmailDestinatari() {
     });
   }
   $('#n-email-selezionati').textContent = emailSelezionati.size;
+  notaProvenienza('#email-dest-prov-nota', tuttiConEmail, $('#email-dest-provenienza').value);
   aggiornaStima('email');
 }
 
 $('#cerca-email-destinatari').addEventListener('input', disegnaEmailDestinatari);
+$('#email-dest-provenienza').addEventListener('change', disegnaEmailDestinatari);
 $('#btn-email-tutti').addEventListener('click', () => {
   emailDestinatariFiltrati().forEach((c) => emailSelezionati.add(c.id));
   disegnaEmailDestinatari();

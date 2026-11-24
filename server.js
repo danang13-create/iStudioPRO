@@ -2528,8 +2528,11 @@ app.post('/api/contacts/import', (req, res) => {
   const existing = db.prepare('SELECT telefono, email FROM contacts').all();
   const phoneSet = new Set(existing.map((r) => normalizePhone(r.telefono)));
   const emailSet = new Set(existing.map((r) => r.email.toLowerCase()).filter(Boolean));
+  // ⚠️ La provenienza viaggia col file: un backup che la perde farebbe
+  // rientrare fra «i miei contatti» — e quindi in «Seleziona tutti» — chi è
+  // in rubrica solo perché ha prenotato un tavolo.
   const insert = db.prepare(
-    'INSERT INTO contacts (nome, cognome, email, telefono, opt_out, opt_out_at, opt_out_motivo) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO contacts (nome, cognome, email, telefono, opt_out, opt_out_at, opt_out_motivo, provenienza) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   );
   const vero = (v) => /^(si|sì|s|yes|y|1|true|x)$/i.test(String(v || '').trim());
 
@@ -2548,7 +2551,8 @@ app.post('/api/contacts/import', (req, res) => {
       insert.run(nome, cognome, email, numeroInRubrica(telefono),
         escluso ? 1 : 0,
         escluso ? new Date().toISOString() : null,
-        escluso ? 'Importato dal CSV' : null);
+        escluso ? 'Importato dal CSV' : null,
+        String(r.provenienza || '').replace(/\s+/g, ' ').trim().slice(0, 40));
       phoneSet.add(phoneKey);
       if (email) emailSet.add(email.toLowerCase());
       importati++;
@@ -2560,12 +2564,13 @@ app.post('/api/contacts/import', (req, res) => {
 
 // Esportazione contatti in CSV
 app.get('/api/contacts/export', (req, res) => {
-  const rows = db.prepare('SELECT nome, cognome, email, telefono, opt_out FROM contacts ORDER BY nome COLLATE NOCASE, cognome COLLATE NOCASE').all();
+  const rows = db.prepare('SELECT nome, cognome, email, telefono, opt_out, provenienza FROM contacts ORDER BY nome COLLATE NOCASE, cognome COLLATE NOCASE').all();
   const quote = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   // La colonna del consenso (= non contattare) viaggia col CSV: un backup che la perde
   // farebbe rientrare negli invii chi aveva consenso "No".
-  const csv = ['nome;cognome;email;telefono;non_contattare']
-    .concat(rows.map((r) => [r.nome, r.cognome, r.email, r.telefono, r.opt_out ? 'si' : ''].map(quote).join(';')))
+  // …e la provenienza anche (vedi l'importazione): «Prenotazione» resta tale.
+  const csv = ['nome;cognome;email;telefono;non_contattare;provenienza']
+    .concat(rows.map((r) => [r.nome, r.cognome, r.email, r.telefono, r.opt_out ? 'si' : '', r.provenienza || ''].map(quote).join(';')))
     .join('\r\n');
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="contatti.csv"');
@@ -5226,6 +5231,10 @@ if (botDisponibile()) {
         esito.prenotazione = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(esito.prenotazione.id);
         annota('prenotato', `${esito.prenotazione.data} ${esito.prenotazione.ora}, ${esito.prenotazione.persone} pers.`);
         await avvisaPrenotazione(esito.prenotazione, 'nuova');
+        // Con email e telefono, in rubrica da sola (vedi `inRubricaDaSola`).
+        // ⚠️ Dentro un «try», qui e negli altri due punti: è un di più, e non
+        // deve MAI fermare una prenotazione o un pagamento.
+        try { inRubricaDaSola(esito.prenotazione); } catch (e) { console.error('Rubrica automatica:', e && e.message); }
       }
       if (esito.annullata) {
         annota('annullata', `${esito.annullata.data} ${esito.annullata.ora}`);
@@ -6566,6 +6575,8 @@ async function guardaChiHaPagato() {
     }
     for (const esito of confermate) {
       const q = esito.prenotazione;
+      // Adesso il tavolo è suo: è il momento in cui entra in rubrica.
+      try { inRubricaDaSola(q); } catch (e) { console.error('Rubrica automatica:', e && e.message); }
       try {
         await inviaAlCliente(q, testoDelPagamento(cfg, q, esito.eraGiaConfermata));
       } catch (e) {
@@ -8194,6 +8205,45 @@ function numeroDaRubrica(p) {
   return /^\d{8,}$/.test(chat) ? chat : '';
 }
 
+// ---------- La rubrica si riempie da sola (24 novembre 2026) ----------
+// Chiesto dal titolare: «alla registrazione di un cliente che presenta email
+// e telefono, viene salvato in automatico in rubrica», e «nella rubrica
+// l'origine: Prenotazione, se viene dal bot, così possiamo individuare o
+// filtrare eventuali invii di newsletter». Deciso con lui:
+//   · solo le prenotazioni PRESE DAL BOT (i dati li ha scritti il cliente);
+//     quelle inserite a mano si mettono in rubrica col tasto, come sempre;
+//   · il contatto nasce con provenienza «Prenotazione», e negli invii resta
+//     FUORI finché non lo si sceglie (vedi `destinatariFiltrati` nella pagina):
+//     chi ha prenotato un tavolo non ha chiesto le novità del locale.
+// ⚠️ Chi ha scritto STOP non ci entra. Chi c'è già non si tocca — né il nome,
+// né il consenso, né la provenienza: gli si collega la prenotazione e basta.
+// Una prenotazione fatta PER UN ALTRO no: il nome è dell'ospite e l'email di
+// chi ha scritto, e ne uscirebbe un contatto che non è nessuno dei due.
+// Solo a tavolo CONFERMATO: chi non ha ancora pagato non è un cliente, e se
+// non paga quella riga si annulla da sola.
+const PROVENIENZA_PRENOTAZIONE = 'Prenotazione';
+function inRubricaDaSola(p) {
+  if (!p) return { fatto: false, motivo: 'nessuna prenotazione' };
+  if (p.origine === 'manuale') return { fatto: false, motivo: 'inserita a mano' };
+  if (p.per_altri) return { fatto: false, motivo: 'per un altro' };
+  if (bot.eSimulatore(p.telefono)) return { fatto: false, motivo: 'simulatore' };
+  if (p.stato !== 'confermata' && p.stato !== 'presentata') return { fatto: false, motivo: 'non confermata' };
+  const nome = String(p.nome || '').trim();
+  const email = String(p.email || '').trim();
+  const telefono = numeroDaRubrica(p);
+  if (!nome || !telefono || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { fatto: false, motivo: 'mancano email o telefono' };
+  if (bot.haDettoBasta(db, p.chat_id || p.telefono || '', telefono)) return { fatto: false, motivo: 'ha scritto STOP' };
+  const dup = trovaDuplicato(telefono, email, null);
+  if (dup) {
+    if (!p.contact_id) db.prepare('UPDATE prenotazioni SET contact_id = ? WHERE id = ?').run(dup.contatto.id, p.id);
+    return { fatto: false, gia: true, motivo: 'c\'è già', id: dup.contatto.id };
+  }
+  const info = db.prepare('INSERT INTO contacts (nome, cognome, email, telefono, provenienza) VALUES (?, ?, ?, ?, ?)')
+    .run(nome, String(p.cognome || '').trim(), email, numeroInRubrica(telefono), PROVENIENZA_PRENOTAZIONE);
+  db.prepare('UPDATE prenotazioni SET contact_id = ? WHERE id = ?').run(info.lastInsertRowid, p.id);
+  annota('rubrica', `${bot.nomeInSala(p)} salvato in rubrica dalla prenotazione`);
+  return { fatto: true, id: info.lastInsertRowid };
+}
 function contattoDellaPrenotazione(rubrica, p) {
   // Prima il collegamento diretto: il numero può essere stato scritto solo in
   // rubrica — succede quando lo si aggiunge a mano nel pannello — e cercare
@@ -8970,6 +9020,7 @@ app.post('/api/bot/prenotazioni/:id/pagata', async (req, res) => {
   const p = esito.prenotazione;
   if (!esito.gia) {
     annota('pagamento', `${bot.nomeInSala(p)} segnata come pagata a mano`);
+    try { inRubricaDaSola(p); } catch (e) { console.error('Rubrica automatica:', e && e.message); }
     // Il cliente deve sapere che adesso il tavolo è suo davvero: fin qui gli
     // avevamo scritto a lettere chiare che NON era prenotato.
     try {
