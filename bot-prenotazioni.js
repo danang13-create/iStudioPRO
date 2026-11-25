@@ -1280,6 +1280,9 @@ const PREDEFINITI = {
   bot_t_scelta_feste: '🎄 Festeggia le feste con noi',
   // Chi sceglie le feste: solo le esperienze delle feste ancora prenotabili.
   bot_t_feste_elenco: 'Ecco cosa abbiamo preparato per le feste 🎄\n\n{esperienze}\n\nQuale ti piacerebbe prenotare? Scrivi il numero: {numeri}.',
+  // Chi scrive un giorno di festa che ha UN solo menu, senza averlo scelto
+  // (25 novembre 2026): glielo si fa vedere, col prezzo, prima di prenderlo.
+  bot_t_festa_unica: 'Per {data} ({festa}) abbiamo un menu speciale 🎄\n\n{esperienza}\n\nTi va bene? Rispondi SÌ per prenotarlo, oppure scrivimi un altro giorno.',
   bot_t_eventi: 'Che bello! 🎉 Organizziamo eventi privati, cene aziendali, feste e ricorrenze.\n\nTrovi le proposte e il modulo di richiesta qui:\n👉 {link}\n\nSe vuoi anche prenotare un tavolo, scrivi PRENOTA.',
   // A chi prova a CHIAMARE il numero su WhatsApp (23 novembre 2026). Vuota, il
   // bot a chi chiama non scrive niente.
@@ -8325,7 +8328,19 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // Niente da scegliere (una festività senza esperienze, o solo esperienze
     // «da festa» e nessun giorno detto): si va avanti senza chiedere.
     if (elenco.ristrette && !elenco.valide.length) return conTesta(() => dopoLEsperienza(d, ''));
-    if (elenco.ristrette && elenco.valide.length === 1) return conTesta(() => presaLEsperienza(elenco.valide[0], d));
+    // ⚠️ Un giorno di festa con UN solo menu, che il cliente non ha nominato
+    // (25 novembre 2026, dal titolare): «prenotare un tavolo», poi «24
+    // dicembre», e il bot gli prendeva da sé il Cenone della Vigilia — 120 €
+    // a persona, mai visti né scelti. Glielo si fa vedere, col prezzo, e si
+    // chiede. Nominato da lui («il cenone»), si prende come sempre.
+    if (elenco.ristrette && elenco.valide.length === 1) {
+      const unica = elenco.valide[0];
+      const festa = d.giornoDetto ? festivitaDelGiorno(cfg, d.giornoDetto) : null;
+      if (festa && !esperienzeNominate(testo, elenco.valide).length && String(cfg.bot_t_festa_unica || '').trim()) {
+        return conTesta(() => proponiLaFesta(unica, festa, d));
+      }
+      return conTesta(() => presaLEsperienza(unica, d));
+    }
     // L'ha già detta («vorrei il business lunch da 45 per 4»): si prende,
     // senza fargliela riscegliere da un elenco. Se il nome vale per più
     // d'una, si chiede fra quelle.
@@ -8360,6 +8375,18 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // venerdì a pranzo, scritto due volte, è rumore.
     const conQuando = new Set(sue.map((e) => quandoDetto(e))).size > 1;
     risposte.push(diConElenco('bot_t_esperienza_quale', elencoEsperienze(sue, { numeri, conQuando }), { numeri: numeriDetti(numeri) }));
+    return esito;
+  }
+  // Il menu unico di un giorno di festa, fatto vedere prima di prenderlo:
+  // SÌ lo prende, NO rimette l'elenco di tutti i giorni, un altro giorno
+  // riparte da quello (vedi il passo dell'esperienza, `festaProposta`).
+  function proponiLaFesta(e, festa, d) {
+    const { scelte, ...resto } = d;
+    salvaStato(db, telefono, 'esperienza', { ...resto, scelte: [e.nome], festaProposta: e.nome });
+    risposte.push(di('bot_t_festa_unica', {
+      data: dataItaliana(d.giornoDetto), festa: festa.nome || 'festa',
+      esperienza: `🎄 *${e.nome}*${e.riga ? `\n${e.riga}` : ''}`,
+    }));
     return esito;
   }
   // «No» a «Perfetto, business lunch 👍»: l'elenco di nuovo, tutte.
@@ -8570,6 +8597,23 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     return personeAltroLocale(a, persone);
   }
 
+  if (stato.passo === 'esperienza' && dati.festaProposta) {
+    // La risposta al menu unico di un giorno di festa (`proponiLaFesta`).
+    const { festaProposta, ...senza } = dati;
+    const e = esperienze.find((x) => x.nome === festaProposta);
+    const si = interpretaSiNo(testo);
+    if (e && si === true) return presaLEsperienza(e, { ...avanzato(senza), ...conServizio() });
+    if (si === false) {
+      // Non lo vuole: l'elenco di tutti i giorni, e il giorno di festa si
+      // dimentica (con quello, l'elenco sarebbe di nuovo il solo menu).
+      const { giornoDetto, ...resto } = avanzato(senza);
+      return sceltaDaCapo(resto);
+    }
+    // Un altro giorno, il numero, il nome: come una risposta qualunque
+    // all'elenco, senza più la proposta in sospeso.
+    salvaStato(db, telefono, 'esperienza', senza);
+    return rispondiAlMessaggio(db, telefono, testo, adesso, contesto);
+  }
   if (stato.passo === 'esperienza') {
     // Prima fra quelle proposte (i numeri sono quelli), poi fra tutte: chi
     // di sabato scrive «business lunch» ha scelto, e il giorno glielo dice.
