@@ -1211,6 +1211,12 @@ const PREDEFINITI = {
   // cliente si presenta aspettandosi la torta.
   // ⚠️ Il nome della chiave è storico: vale per QUALUNQUE nota, non solo per le
   // domande. Non si rinomina perché chi l'ha già riscritta perderebbe il testo.
+  // «Cena» davanti agli orari che sono già quelli della cena (25 novembre 2026).
+  bot_t_ora_gia_servizio: 'Sì, a {servizio} 😊 Quale di questi orari preferisci?\n',
+  // L'orario scritto nel primo messaggio, preso senza chiederlo (25 novembre 2026).
+  bot_t_ora_gia_detta: 'C’è posto {data} alle {ora} ✨',
+  // Ha risposto «sì» alla domanda delle allergie, senza dire quale (25 novembre 2026).
+  bot_t_note_quale: 'Dimmi pure 😊 Cosa dobbiamo sapere?',
   bot_t_nota_domanda: 'Me la sono segnata 📝\n\nLa trovano scritta sulla prenotazione. Se c’è qualcosa da confermare te lo dicono loro: io non posso farlo al posto del ristorante.',
   bot_t_conferma: '✅ Prenotazione confermata!\n\nGrazie, {nome}. ✨\nTi aspettiamo da {locale} per una nuova esperienza.\n\nSe dovessi avere un imprevisto, contattami in questa chat.\n\nA presto!',
   bot_t_rinuncia: 'OK! Non ho prenotato niente.\n\nSperiamo di poterti accogliere presto da {locale}. ✨',
@@ -2196,6 +2202,12 @@ function eUnaRichiesta(testo, cfg) {
 // La nota COME VA SCRITTA sulla riga, da qualunque parte arrivi — il cliente
 // alla domanda del bot, la sala che detta con NUOVA, chi la batte a mano nella
 // piattaforma: tagliata a 200, e vuota se dice soltanto «niente».
+// «Sì», «sì c'è», «certo»: alla domanda delle allergie dice che qualcosa c'è,
+// ma non cosa. Da solo: «sì, celiaco» è già la nota.
+function soloUnSi(testo) {
+  const t = normalizza(testo).replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+  return /^(si+|s|yes|certo|certamente|esatto|si certo|si ce|si c e|si ce qualcosa|si qualcosa|si una cosa|si ce n e|si ce ne|si abbiamo|si ho|si grazie)$/.test(t);
+}
 function notaDaScrivere(testo, cfg) {
   const nota = String(testo || '').trim().slice(0, 200);
   return soloUnNo(nota, cfg) ? '' : nota;
@@ -7005,6 +7017,76 @@ function rispostaAlConsenso(db, telefono, testo, adesso) {
 function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {}) {
   const alConsenso = rispostaAlConsenso(db, telefono, testo, adesso);
   if (alConsenso) return alConsenso;
+  const prima = statoDi(db, telefono, adesso);
+  return conLOraGiaDetta(db, telefono, testo, adesso, contesto, prima, elaboraDaSolo(db, telefono, testo, adesso, contesto));
+}
+
+// ⚠️ L'ORARIO DETTO NEL PRIMO MESSAGGIO (dal titolare, 25 novembre 2026):
+// «vorrei prenotare per 2 sabato sera alle 21:30 alla carta» si sentiva
+// richiedere «pranzo o cena?» e poi l'elenco dei turni, come se le 21:30 non
+// le avesse scritte. L'orario si ricorda (`oraVoluta`) e, quando il bot arriva
+// alla domanda del servizio o dell'orario, risponde da solo se quell'orario
+// c'è: la domanda non parte, e si va avanti. Se non c'è, la domanda parte
+// come sempre. Dal primo messaggio o da una risposta prima dell'orario
+// («giovedì alle 21:30»), e solo scritto da orario: «alle 21», «ore 20:30»,
+// «21:30» — «per 2» e «sabato 12» non sono un'ora.
+const PASSI_VERSO_L_ORA = new Set(['esperienza', 'persone', 'giorno', 'servizio', 'ora']);
+function oraNellaFrase(testo) {
+  const t = normalizza(testo);
+  const m = t.match(/\b(?:alle|ore|per le|verso le)\s+(\d{1,2})(?:\s*[:.,]\s*(\d{2}))?\b/) || t.match(/\b(\d{1,2}):(\d{2})\b/);
+  if (!m) return null;
+  const ore = Number(m[1]); const minuti = Number(m[2] || 0);
+  if (ore > 23 || minuti > 59) return null;
+  return m[2] ? `${String(ore).padStart(2, '0')}:${m[2]}` : `alle ${ore}`;
+}
+function conLOraGiaDetta(db, telefono, testo, adesso, contesto, prima, esito) {
+  // Detto ora (al primo messaggio o a una delle domande prima dell'orario:
+  // «giovedì alle 21:30»), o detto prima e ricordato.
+  // ⚠️ Un orario scritto DA SOLO non vale: «20:00» a conversazione chiusa è
+  // una risposta a qualcosa di prima, non la richiesta di un tavolo.
+  const conAltro = (t) => normalizza(t).replace(/\b(?:alle|ore|per le|verso le)?\s*\d{1,2}(?:\s*[:.,]\s*\d{2})?\b/g, ' ').replace(/[^a-z]/g, '').length >= 3;
+  const qui = (prima.passo === 'inizio' || (PASSI_VERSO_L_ORA.has(prima.passo) && prima.passo !== 'ora')) && conAltro(testo) ? oraNellaFrase(testo) : null;
+  // ⚠️ Quello ricordato vale solo finché si è PRIMA dell'orario: dopo, in
+  // un altro passo (la lista d'attesa, uno spostamento), è un orario già
+  // provato, e riusarlo prenderebbe un altro giorno a quell'ora senza chiedere.
+  const ricordata = PASSI_VERSO_L_ORA.has(prima.passo) && prima.passo !== 'ora' ? (prima.dati || {}).oraVoluta : null;
+  const voluta = qui || ricordata;
+  if (!voluta || !esito || !Array.isArray(esito.risposte)) return esito;
+  let fatto = esito;
+  for (let giro = 0; giro < 3; giro++) {
+    const ora = statoDi(db, telefono, adesso);
+    if (!PASSI_VERSO_L_ORA.has(ora.passo)) return fatto;
+    const d = ora.dati || {};
+    const scelto = d.data && !d.unico && !d.attesaOra && (ora.passo === 'servizio' || ora.passo === 'ora') ? interpretaOra(voluta, d.turni || []) : null;
+    const domanda = fatto.domandaDellOra || '';
+    const ultima = fatto.risposte[fatto.risposte.length - 1] || '';
+    if (!scelto || !domanda || !ultima.endsWith(domanda)) {
+      // Non ancora (manca l'esperienza, le persone, il giorno): si ricorda.
+      // Alla domanda dell'orario senza quell'orario fra i liberi: si lascia
+      // la domanda, e l'orario si dimentica (ha avuto la sua occasione).
+      if (ora.passo !== 'ora' && d.oraVoluta !== voluta) scriviStato(db, telefono, ora.passo, { ...d, oraVoluta: voluta }, adesso);
+      if (ora.passo === 'ora' && d.oraVoluta) { const { oraVoluta, ...senza } = d; scriviStato(db, telefono, 'ora', senza, adesso); }
+      return fatto;
+    }
+    // Si risponde da soli, e la domanda appena scritta non parte.
+    const risposta = ora.passo === 'servizio' ? servizioDellOra(config(db), d.data, scelto) : scelto;
+    const resto = ultima.slice(0, ultima.length - domanda.length).trim();
+    const seguito = elaboraDaSolo(db, telefono, risposta, adesso, contesto);
+    const nuove = [...seguito.risposte];
+    // Preso l'orario, lo si dice: il cliente deve sapere cosa abbiamo capito.
+    const cfg = config(db);
+    const detto = ora.passo === 'ora' && cfg.bot_t_ora_gia_detta ? riempi(cfg.bot_t_ora_gia_detta, { data: dataItaliana(d.data), ora: scelto, persone: d.persone || '' }).trim() : '';
+    if (detto && nuove.length) nuove[0] = `${detto}\n\n${nuove[0]}`;
+    if (resto) { if (nuove.length) nuove[0] = `${resto}\n\n${nuove[0]}`; else nuove.push(resto); }
+    fatto = { ...fatto, ...seguito, risposte: [...fatto.risposte.slice(0, -1), ...nuove],
+      passaAUmano: !!(fatto.passaAUmano || seguito.passaAUmano),
+      ...((fatto.allegati || seguito.allegati) ? { allegati: [...(fatto.allegati || []), ...(seguito.allegati || [])] } : {}) };
+    if (!seguito.domandaDellOra) delete fatto.domandaDellOra;
+  }
+  return fatto;
+}
+
+function elaboraDaSolo(db, telefono, testo, adesso = new Date(), contesto = {}) {
   const ripresa = gestisciLaLasciata(db, telefono, testo, adesso, contesto);
   if (ripresa && ripresa.esito) return senzaRigheDiTroppo(ripresa.esito);
   const esito = elaboraComeSempre(db, telefono, ripresa ? ripresa.testo : testo, adesso, contesto);
@@ -8577,6 +8659,8 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     } else {
       risposte.push(`${prima}\n${elenco}`);
     }
+    // Per chi l'orario l'ha già detto (vedi `conLOraGiaDetta`).
+    if (!unoSolo) esito.domandaDellOra = risposte[risposte.length - 1];
     return esito;
   }
 
@@ -8591,6 +8675,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     if (liberi.length > 1) {
       salvaStato(db, telefono, passi.servizio, { ...avanzato(d), data: iso, turni, servizio: undefined, unico: undefined });
       risposte.push(di('bot_t_servizio', { data: dataItaliana(iso) }));
+      esito.domandaDellOra = risposte[risposte.length - 1];
       return esito;
     }
     const pieno = turniAmmessi(cfg, iso, esperienzaScelta(d), turniDelGiorno(cfg, iso)).map((o) => servizioDellOra(cfg, iso, o)).find((x) => x !== liberi[0]);
@@ -8927,6 +9012,14 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       // «A pranzo?» non è un orario, ma non è nemmeno un equivoco: si
       // rispondono gli orari del pranzo.
       const chiesto = servizioDetto(testo);
+      // ⚠️ «Cena» davanti agli orari della cena (dal titolare, 25 novembre
+      // 2026): si rimandava lo stesso elenco, identico, come se non avesse
+      // sentito. Gli orari sono già quelli: si dice di sì e si chiede quale.
+      const mostrati = turniDaMostrare(dati);
+      if (chiesto && mostrati.length && mostrati.every((o) => servizioDellOra(cfg, dati.data, o) === chiesto)) {
+        risposte.push(`${di('bot_t_ora_gia_servizio', { servizio: chiesto })}\n${elencoTurni(mostrati, cfg, dati.data)}`.trim());
+        return esito;
+      }
       if (chiesto) return proponiOrari('ora', dati, dati.data, dati.turni || [], chiesto);
       const nonTrovata = oraSenzaTurno('ora', dati);
       if (nonTrovata) return nonTrovata;
@@ -9155,8 +9248,23 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   }
 
   if (stato.passo === 'note') {
+    // ⚠️ «Sì» da solo (dal titolare, 25 novembre 2026: nel riepilogo usciva
+    // «📝 Note: sì», e l'allergia vera non la sapeva nessuno). Si chiede quale,
+    // una volta; se torna un altro «sì» si va avanti, la nota dice com'è andata
+    // e lo vede una persona.
+    if (soloUnSi(testo)) {
+      if (!dati.notaChiesta) {
+        salvaStato(db, telefono, 'note', { ...dati, notaChiesta: true });
+        risposte.push(di('bot_t_note_quale'));
+        return esito;
+      }
+      esito.passaAUmano = true;
+      const { notaChiesta, ...resto } = dati;
+      return vaiAlRiepilogo({ ...resto, note: 'Allergia o richiesta da chiarire: ti contattiamo noi' }, true);
+    }
     // ⚠️ NON «interpretaSiNo»: qui la domanda non è da sì o no. Vedi «soloUnNo».
     const note = notaDaScrivere(testo, cfg);
+    if (dati.notaChiesta) delete dati.notaChiesta;
     if (note) {
       // ⚠️ La frase è la STESSA per qualunque nota, e non conferma mai niente.
       // Prima dipendeva dal riconoscere una domanda, e bastava un «ho bisogno di
