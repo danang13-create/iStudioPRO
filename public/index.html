@@ -10442,82 +10442,83 @@ const MODELLO_EMAIL_PRONTO = `<!-- Modello dell'email della prenotazione. Tabell
      flex. I pezzi aperti con una graffa e un punto interrogativo compaiono
      solo quando quella cosa c'e (le note, il pagamento, il logo).
      Pensato prima per il telefono, anche vecchio e stretto (320 punti): una
-     colonna sola, scritte grandi, niente che debba stare affiancato per forza.
+     colonna sola, scritte leggibili ma non grandi (fra 11 e 19 punti), niente
+     che debba stare affiancato per forza.
      ⚠️ Qui non si scrive che la prenotazione e a posto: la stessa email parte
      anche quando il pagamento non e ancora arrivato, ed e il riquadro del
      pagamento a dire come stanno le cose. Quel riquadro (importi, scadenza,
      il pulsante per pagare) lo compone iStudio: qui c'e solo la cornice.
      L'intestazione, il saluto e la chiusura sono frasi: si cambiano in
      Frasi e domande, gruppo L'email della prenotazione. -->
-<div style="margin:0;padding:20px 10px;background:#eef2f1;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%">
+<div style="margin:0;padding:16px 8px;background:#eef2f1;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dde4e2;border-radius:14px;border-collapse:separate">
 
   <tr><td style="height:6px;line-height:6px;font-size:0;background:#0f7a6d;border-radius:14px 14px 0 0">&nbsp;</td></tr>
 
-  <tr><td style="padding:26px 22px 4px;text-align:center">
+  <tr><td style="padding:22px 20px 2px;text-align:center">
     {?logo}{logo}{/logo}
-    {?locale}<div style="font-size:22px;line-height:1.3;font-weight:700;color:#111b21">{locale}</div>{/locale}
-    {?intestazione}<div style="margin-top:6px;font-size:12px;line-height:1.4;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#0f7a6d">{intestazione}</div>{/intestazione}
+    {?locale}<div style="font-size:19px;line-height:1.3;font-weight:700;color:#111b21">{locale}</div>{/locale}
+    {?intestazione}<div style="margin-top:5px;font-size:11px;line-height:1.4;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#0f7a6d">{intestazione}</div>{/intestazione}
   </td></tr>
 
-  {?apertura}<tr><td style="padding:20px 22px 0;font-size:16px;line-height:1.6;color:#111b21">
+  {?apertura}<tr><td style="padding:18px 20px 0;font-size:15px;line-height:1.55;color:#111b21">
     {apertura}
   </td></tr>{/apertura}
 
-  <tr><td style="padding:18px 22px 0">
+  <tr><td style="padding:16px 20px 0">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f1f7f5;border:1px solid #d6e7e2;border-radius:12px;border-collapse:separate">
-      <tr><td style="padding:18px 18px 16px">
-        <div style="font-size:12px;line-height:1.4;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#667781">Quando</div>
-        <div style="margin-top:4px;font-size:20px;line-height:1.3;font-weight:700;color:#111b21">{data}</div>
-        <div style="margin-top:2px;font-size:20px;line-height:1.3;font-weight:700;color:#0f7a6d">ore {ora}</div>
+      <tr><td style="padding:14px 16px 12px">
+        <div style="font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#667781">Quando</div>
+        <div style="margin-top:3px;font-size:17px;line-height:1.3;font-weight:700;color:#111b21">{data}</div>
+        <div style="margin-top:1px;font-size:16px;line-height:1.3;font-weight:700;color:#0f7a6d">ore {ora}</div>
       </td></tr>
-      <tr><td style="padding:0 18px 18px">
+      <tr><td style="padding:0 16px 14px">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border-top:1px solid #d6e7e2">
           <tr>
-            <td width="38%" valign="top" style="padding:14px 8px 0 0">
-              <div style="font-size:12px;line-height:1.4;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#667781">Persone</div>
-              <div style="margin-top:4px;font-size:17px;line-height:1.35;font-weight:700;color:#111b21">{persone}</div>
+            <td width="38%" valign="top" style="padding:12px 8px 0 0">
+              <div style="font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#667781">Persone</div>
+              <div style="margin-top:3px;font-size:15px;line-height:1.35;font-weight:700;color:#111b21">{persone}</div>
             </td>
-            <td valign="top" style="padding:14px 0 0 8px">
-              <div style="font-size:12px;line-height:1.4;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#667781">A nome di</div>
-              <div style="margin-top:4px;font-size:17px;line-height:1.35;font-weight:700;color:#111b21;word-break:break-word">{nome} {cognome}</div>
+            <td valign="top" style="padding:12px 0 0 8px">
+              <div style="font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#667781">A nome di</div>
+              <div style="margin-top:3px;font-size:15px;line-height:1.35;font-weight:700;color:#111b21;word-break:break-word">{nome} {cognome}</div>
             </td>
           </tr>
         </table>
-        {?scelta}<div style="margin-top:14px;padding-top:14px;border-top:1px solid #d6e7e2">
-          <div style="font-size:12px;line-height:1.4;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#667781">{scelta_titolo}</div>
-          <div style="margin-top:4px;font-size:17px;line-height:1.35;font-weight:700;color:#111b21">{scelta}</div>
+        {?scelta}<div style="margin-top:12px;padding-top:12px;border-top:1px solid #d6e7e2">
+          <div style="font-size:11px;line-height:1.4;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#667781">{scelta_titolo}</div>
+          <div style="margin-top:3px;font-size:15px;line-height:1.35;font-weight:700;color:#111b21">{scelta}</div>
         </div>{/scelta}
       </td></tr>
     </table>
   </td></tr>
 
-  {?note}<tr><td style="padding:16px 22px 0">
+  {?note}<tr><td style="padding:14px 20px 0">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#fff6dc;border:1px solid #ecd9a6;border-radius:12px;border-collapse:separate">
-      <tr><td style="padding:14px 16px;font-size:15px;color:#5a4212;line-height:1.5">
+      <tr><td style="padding:12px 14px;font-size:14px;color:#5a4212;line-height:1.5">
         <b>Le tue richieste</b><br>{note}
       </td></tr>
     </table>
   </td></tr>{/note}
 
-  {?pagamento}<tr><td style="padding:16px 22px 0">
+  {?pagamento}<tr><td style="padding:14px 20px 0">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f8f9fa;border:1px solid #dde4e2;border-radius:12px;border-collapse:separate">
-      <tr><td style="padding:16px;font-size:15px;color:#111b21;line-height:1.6">{pagamento}</td></tr>
+      <tr><td style="padding:14px;font-size:14px;color:#111b21;line-height:1.55">{pagamento}</td></tr>
     </table>
   </td></tr>{/pagamento}
 
-  {?telefono}<tr><td style="padding:16px 22px 0;font-size:14px;color:#667781;line-height:1.5">
+  {?telefono}<tr><td style="padding:14px 20px 0;font-size:13px;color:#667781;line-height:1.5">
     Per eventuali comunicazioni ti contatteremo al numero {telefono}.
   </td></tr>{/telefono}
 
-  <tr><td style="padding:22px 22px 26px">
-    <div style="font-size:16px;color:#111b21;line-height:1.6">
+  <tr><td style="padding:18px 20px 22px">
+    <div style="font-size:15px;color:#111b21;line-height:1.55">
       {chiusura}{?locale}<br><b>{locale}</b>{/locale}
     </div>
   </td></tr>
 
 </table>
-<div style="max-width:560px;margin:14px auto 0;padding:0 8px;text-align:center;font-size:12px;color:#667781;line-height:1.5">
+<div style="max-width:560px;margin:12px auto 0;padding:0 8px;text-align:center;font-size:12px;color:#667781;line-height:1.5">
   Questa email riguarda la tua prenotazione{?locale} da {locale}{/locale}.
 </div>
 </div>`;

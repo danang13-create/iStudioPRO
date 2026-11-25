@@ -3774,24 +3774,27 @@ if (bot) {
 // ---------- Il modello pronto dell'email, quello di prima ----------
 // Dal titolare (25 novembre 2026), con la foto dell'email: «brutta grafica!
 // rendi più bella e funzionale, adatta per un responsive e per uno
-// smartphone datato». Il modello pronto è stato rifatto (nella pagina,
+// smartphone datato» — e un'ora dopo: «i font sono troppo grandi». Il
+// modello pronto è stato rifatto (nella pagina,
 // `MODELLO_EMAIL_PRONTO`). Chi aveva salvato uno di quelli di prima così
 // com'era passa da solo al nuovo: si riconosce dall'impronta, spazi a parte e
 // con la riga di chiusura libera — quella spesso è l'unica cosa ritoccata
 // («Grazie e presto!»), e si porta nella frase «chiusura» se quella è ancora
 // la sua di partenza. Un modello toccato altrove resta com'è: è lavoro suo.
 const IMPRONTE_DEI_PRONTI_DI_PRIMA = [
-  'fedb5eef7f6bc752d422254403e2324cd7e9fb07ab4f67bd66e3c1a0cc029365',   // 19 ottobre 2026
-  '84c7be50e997fc9b5d0252460a2dc36eab987d026e4b951f3e24558d5fbbfc64',   // 24 novembre, il tono più serio
-  'ce2235d993a86d16adf641fb3cecc9d42ee250c9e57be51da81843edc236d5a4',   // 24 novembre, le frasi
+  '03457114f034afd42c74e1378a5abad9964682efbe222375ec9e26fb47afa361',   // 19 ottobre 2026
+  'f42511ebdfb234c5cb088f651619de0152aa49d017c6b03399106251441a440b',   // 24 novembre, il tono più serio
+  'c3dc1cc915709fa101eb7e0f63205c23ad2f2a15ee8ebb9a8eafb38c246dca5d',   // 24 novembre, le frasi
+  'c98fb2e6bc0ed3eee90f7d07e4f15c29b1b33878270611f1f5042d36b73915ee',   // 25 novembre, a una colonna ma coi caratteri grandi
 ];
 function prontoDiPrima(modello) {
   let chiusura = null;
-  const n = String(modello || '').replace(/(padding-top:16px;font-size:14px;color:#111b21;line-height:1\.6">)([\s\S]*?)(<\/div>)/,
+  // La riga di chiusura è il testo subito prima di «{?locale}<br><b>{locale}</b>».
+  const n = String(modello || '').replace(/(">)([^<>]*?)(\{\?locale\},?<br><b>\{locale\}<\/b>\{\/locale\})/,
     (x, a, c, b) => { chiusura = c; return a + '§' + b; }).replace(/\s+/g, ' ').trim();
   if (chiusura === null) return null;
   if (!IMPRONTE_DEI_PRONTI_DI_PRIMA.includes(crypto.createHash('sha256').update(n).digest('hex'))) return null;
-  return { chiusura: chiusura.replace(/\{\?locale\}[\s\S]*?\{\/locale\}/g, '').replace(/\s+/g, ' ').trim() };
+  return { chiusura: chiusura.replace(/\s+/g, ' ').trim() };
 }
 function aggiornaIlModelloPronto(base, paginaHtml) {
   const salvato = base.prepare("SELECT value FROM settings WHERE key = 'bot_email_html'").get();
