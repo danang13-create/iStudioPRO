@@ -3758,6 +3758,65 @@ try {
 
 const botDisponibile = () => bot !== null;
 
+// Le prove di prima del banco di prova (25 novembre 2026): fino a lì il
+// simulatore scriveva nel database vero, e le sue prenotazioni (numero 000…,
+// vedi `eSimulatore`) stavano nel servizio del giorno. Si tolgono, una volta
+// e per sempre: adesso la prova vive in `bancoDelSimulatore`.
+if (bot) {
+  try {
+    for (const t of ['prenotazioni', 'bot_conversazioni', 'bot_attese']) {
+      const via = db.prepare(`DELETE FROM ${t} WHERE telefono LIKE '000%'`).run().changes;
+      if (via) console.log(`Simulatore: ${via} righe di prova tolte da ${t}`);
+    }
+  } catch (e) { console.error('Simulatore: le prove di prima non si sono tolte:', e.message); }
+}
+
+// ---------- Il modello pronto dell'email, quello di prima ----------
+// Dal titolare (25 novembre 2026), con la foto dell'email: «brutta grafica!
+// rendi più bella e funzionale, adatta per un responsive e per uno
+// smartphone datato». Il modello pronto è stato rifatto (nella pagina,
+// `MODELLO_EMAIL_PRONTO`). Chi aveva salvato uno di quelli di prima così
+// com'era passa da solo al nuovo: si riconosce dall'impronta, spazi a parte e
+// con la riga di chiusura libera — quella spesso è l'unica cosa ritoccata
+// («Grazie e presto!»), e si porta nella frase «chiusura» se quella è ancora
+// la sua di partenza. Un modello toccato altrove resta com'è: è lavoro suo.
+const IMPRONTE_DEI_PRONTI_DI_PRIMA = [
+  'fedb5eef7f6bc752d422254403e2324cd7e9fb07ab4f67bd66e3c1a0cc029365',   // 19 ottobre 2026
+  '84c7be50e997fc9b5d0252460a2dc36eab987d026e4b951f3e24558d5fbbfc64',   // 24 novembre, il tono più serio
+  'ce2235d993a86d16adf641fb3cecc9d42ee250c9e57be51da81843edc236d5a4',   // 24 novembre, le frasi
+];
+function prontoDiPrima(modello) {
+  let chiusura = null;
+  const n = String(modello || '').replace(/(padding-top:16px;font-size:14px;color:#111b21;line-height:1\.6">)([\s\S]*?)(<\/div>)/,
+    (x, a, c, b) => { chiusura = c; return a + '§' + b; }).replace(/\s+/g, ' ').trim();
+  if (chiusura === null) return null;
+  if (!IMPRONTE_DEI_PRONTI_DI_PRIMA.includes(crypto.createHash('sha256').update(n).digest('hex'))) return null;
+  return { chiusura: chiusura.replace(/\{\?locale\}[\s\S]*?\{\/locale\}/g, '').replace(/\s+/g, ' ').trim() };
+}
+function aggiornaIlModelloPronto(base, paginaHtml) {
+  const salvato = base.prepare("SELECT value FROM settings WHERE key = 'bot_email_html'").get();
+  const prima = salvato && prontoDiPrima(salvato.value);
+  if (!prima) return false;
+  const nuovo = (String(paginaHtml || '').match(/const MODELLO_EMAIL_PRONTO = `([\s\S]*?)`;/) || [])[1];
+  if (!nuovo) return false;
+  bot.scrivi(base, 'bot_email_html', nuovo);
+  // La chiusura ritoccata («Grazie e presto!»): non le due di partenza, e non
+  // sopra una frase che il titolare ha già cambiato.
+  const frase = base.prepare("SELECT value FROM settings WHERE key = 'bot_t_posta_chiusura'").get();
+  const libera = !frase || !String(frase.value || '').trim() || frase.value === bot.PREDEFINITI.bot_t_posta_chiusura;
+  if (libera && prima.chiusura && !/^(\{chiusura\}|A presto!|Cordiali saluti,?)$/.test(prima.chiusura)) {
+    bot.scrivi(base, 'bot_t_posta_chiusura', prima.chiusura);
+  }
+  return true;
+}
+if (bot) {
+  try {
+    if (aggiornaIlModelloPronto(db, fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8'))) {
+      console.log('Email: il modello pronto di prima è passato a quello nuovo');
+    }
+  } catch (e) { console.error('Email: il modello pronto non si è aggiornato:', e.message); }
+}
+
 // ---------- I contatti di prima, arrivati da una prenotazione (24 novembre 2026) ----------
 // Il titolare: «tutti questi salvati in rubrica sono da mettere nel filtro
 // Dalle prenotazioni» — anche quelli messi col tasto PRIMA che la provenienza
@@ -6513,16 +6572,18 @@ function testoDelPagamentoViaEmail(cfg, p) {
 // chiave di prima (vedi `stripeCreaPagamento`), che ridà lo stesso pagamento —
 // due collegamenti per la stessa prenotazione sarebbero due modi di pagarla due
 // volte. Torna false se non c'è riuscito: chi chiama passa la mano a una persona.
-async function rimandaIlCollegamento(rispondi, id) {
+// `base`: il database dove sta la prenotazione — il vero, o il banco di prova
+// del simulatore (vedi `bancoDelSimulatore`).
+async function rimandaIlCollegamento(rispondi, id, base = db) {
   const cfg = bot.config(db);
-  const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(id);
+  const p = base.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(id);
   if (!p || !p.importo_dovuto || p.pagato_at) return false;
   const r = await stripeCreaPagamento(cfg, p);
   if (!r.ok || !r.link) {
     annota('errore', `ha scritto LINK ma non riesco a riavere il collegamento per la ${p.id}: ${r.errore || 'Stripe non l\'ha dato'}`);
     return false;
   }
-  if (r.id && r.id !== p.pagamento_id) db.prepare('UPDATE prenotazioni SET pagamento_id = ? WHERE id = ?').run(r.id, p.id);
+  if (r.id && r.id !== p.pagamento_id) base.prepare('UPDATE prenotazioni SET pagamento_id = ? WHERE id = ?').run(r.id, p.id);
   const resto = p.importo_totale - p.importo_dovuto;
   await rispondi(p.stato === 'attesa_pagamento'
     ? testoDelCollegamento(cfg, p, r.link)
@@ -6713,6 +6774,20 @@ function htmlSicuro(t) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// L'email intera, con la sua testa. «Solo chiaro»: Mail di Apple col tema
+// scuro la scuriva da sé, e lo sfondo diventava antracite e la riga in fondo
+// una fascia nera (25 novembre 2026, dal titolare: «brutta grafica!»). E la
+// larghezza del telefono, senza bloccare lo zoom con le dita.
+// Il fondo della pagina è quello dello sfondo del modello: sennò sotto la
+// cornice restava una fascia d'un altro colore, fino in fondo alla finestra.
+function documentoEmail(corpo) {
+  const fondo = (String(corpo).match(/^\s*(?:<!--[\s\S]*?-->\s*)?<div style="[^"]*background:(#[0-9a-fA-F]{3,8})/) || [])[1] || '#ffffff';
+  return '<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1">'
+    + '<meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only">'
+    + '</head><body style="margin:0;padding:0;background:' + fondo + '">' + corpo + '</body></html>';
+}
+
 // Da testo a HTML: scappato, a capo con <br>, e i collegamenti cliccabili.
 // ⚠️ Il collegamento si fa DOPO aver scappato: nell'indirizzo un «&» deve
 // diventare «&amp;» anche dentro href, ed è così che vuole l'HTML.
@@ -6893,13 +6968,23 @@ function composizioneEmail(cfg, p, link) {
   // `piedeDelleNovita`). ⚠️ «typeof»: le prove estraggono questa funzione da
   // sola, senza il resto del server.
   const piede = typeof piedeDelleNovita === 'function' ? piedeDelleNovita('prenotazione') : { html: '', testo: '' };
+  // ⚠️ Il piede DENTRO la cornice (25 novembre 2026, dal titolare: «brutta
+  // grafica!»). Attaccato in coda cadeva fuori dallo sfondo del modello, in
+  // una fascia sua d'un altro colore. Va prima dell'ultima chiusura — quella
+  // dello sfondo, nel modello pronto e in quello incorporato; un modello che
+  // non finisce con un «</div>» lo riceve in fondo, come prima.
+  const nellaCornice = (corpo, sotto) => {
+    if (!sotto) return corpo;
+    const fine = String(corpo).replace(/\s+$/, '');
+    return /<\/div>$/i.test(fine) ? fine.slice(0, -6) + sotto + '</div>' : corpo + sotto;
+  };
   return {
     oggetto, testo,
     testoSpedito: testo + piede.testo,
     piedeHtml: piede.html,
     // Il riquadro NON sta fra i valori del testo: è HTML, e nel testo semplice
     // (e nell'oggetto) non deve poterci finire.
-    html: corpoEmailRiepilogo(cfg, { ...valori, pagamento_html: riquadroPagamento() }, testo, !!logo) + piede.html,
+    html: nellaCornice(corpoEmailRiepilogo(cfg, { ...valori, pagamento_html: riquadroPagamento() }, testo, !!logo), piede.html),
     allegati: logo ? [{ filename: 'logo.png', content: Buffer.from(logo.base64, 'base64'), cid: 'logo-istudio' }] : undefined,
   };
 }
@@ -6942,7 +7027,7 @@ async function mandaEmailPrenotazione(p, link) {
       to: dove,
       subject: oggetto,
       text: testoSpedito || testo,
-      html,
+      html: typeof documentoEmail === 'function' ? documentoEmail(html) : html,
       attachments: allegati,
     });
     annota('email', `riepilogo mandato a ${dove}`);
@@ -9532,7 +9617,7 @@ app.post('/api/bot/email/prova', async (req, res) => {
   try {
     await transporter.sendMail({
       from: nomeMittente ? `"${nomeMittente}" <${getSetting('smtp_user')}>` : getSetting('smtp_user'),
-      to: a, subject: '[PROVA] ' + e.oggetto, text: e.testo, html: e.html, attachments: e.allegati,
+      to: a, subject: '[PROVA] ' + e.oggetto, text: e.testo, html: documentoEmail(e.html), attachments: e.allegati,
     });
     res.json({ ok: true, a });
   } catch (err) {
@@ -9834,19 +9919,61 @@ app.delete('/api/bot/esclusi/:id', (req, res) => {
 });
 
 // ---------- Il simulatore ----------
-//  Fa girare una conversazione VERA (stesso motore, stesso database) senza
-//  passare da WhatsApp. Serve a provare orari, coperti e testi prima di
+//  Fa girare una conversazione VERA (stesso motore, stesse impostazioni)
+//  senza passare da WhatsApp. Serve a provare orari, coperti e testi prima di
 //  collegare un numero, e a far vedere il bot al ristoratore in due minuti.
 //  Il numero finto comincia per 000 così non può mai coincidere con uno vero.
+//
+//  ⚠️ Il banco di prova (25 novembre 2026, dal titolare: «le simulazioni non
+//  devono essere segnate realmente nelle prenotazioni»). Fino a qui la prova
+//  scriveva nel database vero: le prenotazioni di prova finivano nel servizio
+//  del giorno, in sala, nei coperti contati. Adesso gira su un database a
+//  parte, in memoria, che a ogni messaggio riprende dal vero le impostazioni,
+//  le risposte pronte, le chiusure, i tavoli e le prenotazioni vere da ieri in
+//  poi — così i posti liberi sono quelli veri. Quello che la prova scrive
+//  (la prenotazione, la conversazione, la lista d'attesa, le non capite)
+//  resta lì dentro. Un riavvio lo svuota, e va bene così.
+const PROVE_DA = 1000000000;   // gli id delle prenotazioni di prova: mai come quelli veri
+const COPIATE_NEL_BANCO = ['settings', 'bot_faq', 'bot_chiusure', 'bot_tavoli'];
+let bancoDiProva = null;
+function bancoDelSimulatore(adesso = new Date()) {
+  if (!bancoDiProva) {
+    bancoDiProva = new Database(':memory:');
+    bancoDiProva.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)');
+    bot.preparaDatabase(bancoDiProva);
+    bancoDiProva.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('prenotazioni', ?)").run(PROVE_DA);
+  }
+  const b = bancoDiProva;
+  const colonne = (d, t) => d.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  // Solo le colonne che ci sono da tutte e due le parti: il vero può averne
+  // di più (aggiunte dal server), e il banco nasce dal solo motore.
+  const copia = (t, dove = '', ...valori) => {
+    const nelBanco = new Set(colonne(b, t));
+    const c = colonne(db, t).filter((x) => nelBanco.has(x)).map((x) => `"${x}"`);
+    if (!c.length) return;
+    const metti = b.prepare(`INSERT INTO ${t} (${c.join(', ')}) VALUES (${c.map(() => '?').join(', ')})`);
+    for (const r of db.prepare(`SELECT ${c.join(', ')} FROM ${t} ${dove}`).raw().all(...valori)) metti.run(...r);
+  };
+  const ieri = new Date(adesso.getTime() - 24 * 3600 * 1000);
+  const daIeri = `${ieri.getFullYear()}-${String(ieri.getMonth() + 1).padStart(2, '0')}-${String(ieri.getDate()).padStart(2, '0')}`;
+  b.transaction(() => {
+    for (const t of COPIATE_NEL_BANCO) { b.exec(`DELETE FROM ${t}`); copia(t); }
+    b.prepare('DELETE FROM prenotazioni WHERE id < ?').run(PROVE_DA);
+    copia('prenotazioni', "WHERE data >= ? AND telefono NOT LIKE '000%'", daIeri);
+  })();
+  return b;
+}
+
 app.post('/api/bot/simula', async (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const testo = String((req.body && req.body.testo) || '');
   const telefono = '000' + String((req.body && req.body.sessione) || '1');
+  const banco = bancoDelSimulatore();
   // Nel simulatore non c'è un telefono vero, ma serve comunque un numero
   // altrimenti la domanda «a quale numero possiamo richiamarti?» non si può
   // provare: rispondendo OK il bot direbbe di non aver capito, e sembrerebbe
   // rotto quando invece sta funzionando.
-  const esito = bot.elaboraMessaggio(db, telefono, testo, new Date(), { numero: '393000000000' });
+  const esito = bot.elaboraMessaggio(banco, telefono, testo, new Date(), { numero: '393000000000' });
   // ⚠️ Il simulatore è lo strumento con cui il ristoratore prova il bot PRIMA
   // dei clienti veri. Senza questo pezzo, con il pagamento acceso la
   // conversazione finiva nel vuoto dopo l'email: lui avrebbe visto un bot rotto
@@ -9854,10 +9981,10 @@ app.post('/api/bot/simula', async (req, res) => {
   // gli interessa di più.
   if (esito.daPagare) {
     const cfg = bot.config(db);
-    const p = db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(esito.daPagare.id);
+    const p = banco.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(esito.daPagare.id);
     const r = p ? await stripeCreaPagamento(cfg, p) : { ok: false, errore: 'prenotazione sparita' };
     if (r.ok) {
-      db.prepare('UPDATE prenotazioni SET pagamento_id = ? WHERE id = ?').run(r.id, p.id);
+      banco.prepare('UPDATE prenotazioni SET pagamento_id = ? WHERE id = ?').run(r.id, p.id);
       // Come nella chat vera: con l'indirizzo, prima l'email; se parte, in chat
       // il messaggio senza collegamento (vedi `mandaIlPagamento`).
       if (esito.daPagare.testoEmail) {
@@ -9877,7 +10004,7 @@ app.post('/api/bot/simula', async (req, res) => {
     }
     if (p && !esito.simulaEmail) esito.simulaEmail = await mandaEmailPrenotazione(p, r.ok ? r.link : '');
   } else if (esito.rimandaIlCollegamento) {
-    if (!(await rimandaIlCollegamento(async (t) => { esito.risposte.push(t); }, esito.rimandaIlCollegamento.id))) {
+    if (!(await rimandaIlCollegamento(async (t) => { esito.risposte.push(t); }, esito.rimandaIlCollegamento.id, banco))) {
       esito.risposte.push('⚠️ (solo nel simulatore) Stripe non ha ridato il collegamento: nella chat vera qui risponde una persona.');
     }
   } else if (esito.prenotazione) {
@@ -9888,7 +10015,7 @@ app.post('/api/bot/simula', async (req, res) => {
   // scrive in rubrica: è una prova, e il cliente non esiste.
   if (esito.consenso) esito.risposte.push(`⚠️ (solo nel simulatore) in rubrica NON si scrive niente: nella chat vera qui il contatto avrebbe ${esito.consenso.valore === 'si' ? 'il sì' : 'il no'} alle novità via email.`);
   if (esito.prenotazione && !(esito.daPagare && esito.daPagare.obbligatorio) && String(esito.prenotazione.email || '').trim()) {
-    const domanda = bot.domandaDelConsenso(db, telefono, esito.prenotazione, new Date());
+    const domanda = bot.domandaDelConsenso(banco, telefono, esito.prenotazione, new Date());
     if (domanda) esito.risposte.push(domanda);
   }
   // ⚠️ L'email parte DAVVERO, all'indirizzo scritto nella prova: è l'unico modo
@@ -9903,6 +10030,11 @@ app.post('/api/bot/simula', async (req, res) => {
   for (const a of [...(esito.allegati || [])].reverse()) {
     esito.risposte.unshift(`📎 (solo nel simulatore) allegato ${a.nome || a.file}\n${a.didascalia}`);
   }
+  // Che la prova non tocchi le prenotazioni vere si dice, una volta per
+  // prenotazione: sennò chi la cerca nel servizio del giorno crede a un guasto.
+  if (esito.prenotazione || esito.daPagare) {
+    esito.risposte.push('🧪 (solo nel simulatore) è una prenotazione di prova: non finisce fra quelle vere, né in sala, né nei coperti. Sparisce con «Ricomincia».');
+  }
   if (esito.simulaEmail) {
     esito.risposte.push(esito.simulaEmail.ok
       ? `📧 (solo nel simulatore) email di riepilogo mandata a ${esito.simulaEmail.a}`
@@ -9914,16 +10046,18 @@ app.post('/api/bot/simula', async (req, res) => {
     passaAUmano: esito.passaAUmano,
     prenotazione: esito.prenotazione,
     annullata: esito.annullata,
-    passo: bot.statoDi(db, telefono).passo,
+    passo: bot.statoDi(banco, telefono).passo,
   });
 });
 
 app.post('/api/bot/simula/azzera', (req, res) => {
   if (!botDisponibile()) return res.status(503).json({ error: 'Bot non disponibile' });
   const telefono = '000' + String((req.body && req.body.sessione) || '1');
-  bot.azzeraStato(db, telefono);
-  db.prepare('UPDATE bot_conversazioni SET muto_fino = NULL, risposte_oggi = 0 WHERE telefono = ?').run(telefono);
-  db.prepare("DELETE FROM prenotazioni WHERE telefono = ? ").run(telefono);
+  const banco = bancoDelSimulatore();
+  bot.azzeraStato(banco, telefono);
+  banco.prepare('UPDATE bot_conversazioni SET muto_fino = NULL, risposte_oggi = 0 WHERE telefono = ?').run(telefono);
+  banco.prepare('DELETE FROM prenotazioni WHERE telefono = ?').run(telefono);
+  banco.prepare('DELETE FROM bot_attese WHERE telefono = ?').run(telefono);
   res.json({ ok: true });
 });
 

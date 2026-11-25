@@ -3152,7 +3152,7 @@
         <h2 style="font-size:1rem;margin:0 0 4px">Prova il bot senza WhatsApp</h2>
         <p class="conteggio" style="margin:0 0 12px">
           Scrivi qui come farebbe un cliente: risponde lo stesso motore, sugli stessi orari e sugli stessi coperti.
-          Le prenotazioni di prova finiscono nel servizio del giorno e si cancellano con «Ricomincia».
+          Le prenotazioni di prova restano qui: non finiscono fra quelle vere, né in sala, né nei coperti. «Ricomincia» le toglie.
         </p>
         <div id="pren-sim" style="background:var(--chat-sfondo);border-radius:10px;padding:12px;height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:7px">
           <p class="vuoto" style="margin:auto">Scrivi il primo messaggio, per esempio «vorrei prenotare un tavolo».</p>
@@ -8787,13 +8787,9 @@ async function inviaSim() {
   })).json();
   for (const x of (r.risposte || [])) bollaSim(x, false);
   if (r.passaAUmano) bollaSim('— il bot si è fermato e passerebbe la conversazione a una persona —', false);
-  // Dopo una prova andata a buon fine mostro il giorno prenotato, non oggi:
-  // altrimenti sembra che non sia successo niente e non si capisce se ha funzionato.
-  const tocca = r.prenotazione || r.annullata;
-  if (tocca) {
-    if (tocca.data) $('#pren-data').value = tocca.data;
-    caricaSottoScheda(sottoSchedaAperta());
-  }
+  // Dal 25 novembre 2026 la prova non scrive fra le prenotazioni vere (vedi
+  // `bancoDelSimulatore`): niente da ricaricare, e il giorno aperto resta
+  // quello che si stava guardando. Che sia una prova lo dice il bot in chat.
 }
 
 $('#pren-attivo').addEventListener('change', async (e) => {
@@ -10445,76 +10441,83 @@ const MODELLO_EMAIL_PRONTO = `<!-- Modello dell'email della prenotazione. Tabell
      programmi di posta buttano via i fogli di stile e Outlook non conosce
      flex. I pezzi aperti con una graffa e un punto interrogativo compaiono
      solo quando quella cosa c'e (le note, il pagamento, il logo).
+     Pensato prima per il telefono, anche vecchio e stretto (320 punti): una
+     colonna sola, scritte grandi, niente che debba stare affiancato per forza.
      ⚠️ Qui non si scrive che la prenotazione e a posto: la stessa email parte
      anche quando il pagamento non e ancora arrivato, ed e il riquadro del
      pagamento a dire come stanno le cose. Quel riquadro (importi, scadenza,
      il pulsante per pagare) lo compone iStudio: qui c'e solo la cornice.
      L'intestazione, il saluto e la chiusura sono frasi: si cambiano in
      Frasi e domande, gruppo L'email della prenotazione. -->
-<div style="margin:0;padding:24px 12px;background:#f0f2f5;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e0e4e8;border-radius:12px">
+<div style="margin:0;padding:20px 10px;background:#eef2f1;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dde4e2;border-radius:14px;border-collapse:separate">
 
-  <tr><td style="padding:30px 26px 20px;text-align:center;border-bottom:2px solid #0f7a6d">
+  <tr><td style="height:6px;line-height:6px;font-size:0;background:#0f7a6d;border-radius:14px 14px 0 0">&nbsp;</td></tr>
+
+  <tr><td style="padding:26px 22px 4px;text-align:center">
     {?logo}{logo}{/logo}
-    {?locale}<div style="font-size:20px;font-weight:700;color:#111b21;letter-spacing:.3px">{locale}</div>{/locale}
-    {?intestazione}<div style="font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#667781;margin-top:8px">{intestazione}</div>{/intestazione}
+    {?locale}<div style="font-size:22px;line-height:1.3;font-weight:700;color:#111b21">{locale}</div>{/locale}
+    {?intestazione}<div style="margin-top:6px;font-size:12px;line-height:1.4;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#0f7a6d">{intestazione}</div>{/intestazione}
   </td></tr>
 
-  {?apertura}<tr><td style="padding:24px 26px 0;font-size:15px;color:#111b21;line-height:1.6">
+  {?apertura}<tr><td style="padding:20px 22px 0;font-size:16px;line-height:1.6;color:#111b21">
     {apertura}
   </td></tr>{/apertura}
 
-  <tr><td style="padding:14px 26px 0">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:15px;color:#111b21">
-      <tr>
-        <td style="padding:11px 0;border-bottom:1px solid #eef0f2;color:#667781;width:40%">Data</td>
-        <td style="padding:11px 0;border-bottom:1px solid #eef0f2;font-weight:700;text-align:right">{data}</td>
-      </tr>
-      {?scelta}<tr>
-        <td style="padding:11px 0;border-bottom:1px solid #eef0f2;color:#667781">{scelta_titolo}</td>
-        <td style="padding:11px 0;border-bottom:1px solid #eef0f2;font-weight:700;text-align:right">{scelta}</td>
-      </tr>{/scelta}
-      <tr>
-        <td style="padding:11px 0;border-bottom:1px solid #eef0f2;color:#667781">Orario</td>
-        <td style="padding:11px 0;border-bottom:1px solid #eef0f2;font-weight:700;text-align:right">{ora}</td>
-      </tr>
-      <tr>
-        <td style="padding:11px 0;border-bottom:1px solid #eef0f2;color:#667781">Persone</td>
-        <td style="padding:11px 0;border-bottom:1px solid #eef0f2;font-weight:700;text-align:right">{persone}</td>
-      </tr>
-      <tr>
-        <td style="padding:11px 0;color:#667781">A nome di</td>
-        <td style="padding:11px 0;font-weight:700;text-align:right">{nome} {cognome}</td>
-      </tr>
+  <tr><td style="padding:18px 22px 0">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f1f7f5;border:1px solid #d6e7e2;border-radius:12px;border-collapse:separate">
+      <tr><td style="padding:18px 18px 16px">
+        <div style="font-size:12px;line-height:1.4;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#667781">Quando</div>
+        <div style="margin-top:4px;font-size:20px;line-height:1.3;font-weight:700;color:#111b21">{data}</div>
+        <div style="margin-top:2px;font-size:20px;line-height:1.3;font-weight:700;color:#0f7a6d">ore {ora}</div>
+      </td></tr>
+      <tr><td style="padding:0 18px 18px">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border-top:1px solid #d6e7e2">
+          <tr>
+            <td width="38%" valign="top" style="padding:14px 8px 0 0">
+              <div style="font-size:12px;line-height:1.4;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#667781">Persone</div>
+              <div style="margin-top:4px;font-size:17px;line-height:1.35;font-weight:700;color:#111b21">{persone}</div>
+            </td>
+            <td valign="top" style="padding:14px 0 0 8px">
+              <div style="font-size:12px;line-height:1.4;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#667781">A nome di</div>
+              <div style="margin-top:4px;font-size:17px;line-height:1.35;font-weight:700;color:#111b21;word-break:break-word">{nome} {cognome}</div>
+            </td>
+          </tr>
+        </table>
+        {?scelta}<div style="margin-top:14px;padding-top:14px;border-top:1px solid #d6e7e2">
+          <div style="font-size:12px;line-height:1.4;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#667781">{scelta_titolo}</div>
+          <div style="margin-top:4px;font-size:17px;line-height:1.35;font-weight:700;color:#111b21">{scelta}</div>
+        </div>{/scelta}
+      </td></tr>
     </table>
   </td></tr>
 
-  {?note}<tr><td style="padding:18px 26px 0">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#fff4d6;border:1px solid #e6d3a3;border-radius:9px">
-      <tr><td style="padding:12px 14px;font-size:14px;color:#5a4212;line-height:1.5">
+  {?note}<tr><td style="padding:16px 22px 0">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#fff6dc;border:1px solid #ecd9a6;border-radius:12px;border-collapse:separate">
+      <tr><td style="padding:14px 16px;font-size:15px;color:#5a4212;line-height:1.5">
         <b>Le tue richieste</b><br>{note}
       </td></tr>
     </table>
   </td></tr>{/note}
 
-  {?pagamento}<tr><td style="padding:18px 26px 0">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f7f8fa;border:1px solid #e0e4e8;border-radius:9px">
-      <tr><td style="padding:16px;font-size:14px;color:#111b21;line-height:1.6">{pagamento}</td></tr>
+  {?pagamento}<tr><td style="padding:16px 22px 0">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f8f9fa;border:1px solid #dde4e2;border-radius:12px;border-collapse:separate">
+      <tr><td style="padding:16px;font-size:15px;color:#111b21;line-height:1.6">{pagamento}</td></tr>
     </table>
   </td></tr>{/pagamento}
 
-  {?telefono}<tr><td style="padding:18px 26px 0;font-size:13px;color:#667781;line-height:1.5">
+  {?telefono}<tr><td style="padding:16px 22px 0;font-size:14px;color:#667781;line-height:1.5">
     Per eventuali comunicazioni ti contatteremo al numero {telefono}.
   </td></tr>{/telefono}
 
-  <tr><td style="padding:22px 26px 26px">
-    <div style="border-top:1px solid #eef0f2;padding-top:16px;font-size:14px;color:#111b21;line-height:1.6">
+  <tr><td style="padding:22px 22px 26px">
+    <div style="font-size:16px;color:#111b21;line-height:1.6">
       {chiusura}{?locale}<br><b>{locale}</b>{/locale}
     </div>
   </td></tr>
 
 </table>
-<div style="max-width:600px;margin:12px auto 0;text-align:center;font-size:12px;color:#667781;line-height:1.5">
+<div style="max-width:560px;margin:14px auto 0;padding:0 8px;text-align:center;font-size:12px;color:#667781;line-height:1.5">
   Questa email riguarda la tua prenotazione{?locale} da {locale}{/locale}.
 </div>
 </div>`;
