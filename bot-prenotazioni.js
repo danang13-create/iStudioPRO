@@ -984,6 +984,9 @@ const PREDEFINITI = {
   bot_t_annulla_altro_locale: 'Sei sicuro di voler cancellare la prenotazione?\n\n🍝 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nScrivi SÌ per confermare',
   // Il giorno l'ha già detto: solo le esperienze che valgono quel giorno.
   bot_t_esperienze_giorno: '{data}{servizio} puoi scegliere:\n\n{esperienze}\n\nQuale preferisci? Scrivi il numero: {numeri}.',
+  // Sopra le esperienze delle festività ancora da prenotare, sotto quelle di
+  // tutti i giorni (dal titolare, 25 novembre 2026). Vuota: niente titolo.
+  bot_t_esperienze_feste: '✨ Per le festività:',
   bot_t_esperienza_no: 'Non ho capito quale preferisci 🙏 Scrivi il numero: {numeri}.\n\n{esperienze}',
   // Alla seconda risposta che non si capisce, al menu: si va avanti e il
   // menu si sceglie al tavolo (24 ottobre 2026). Sotto, la domanda dopo.
@@ -1419,6 +1422,20 @@ function dataItaliana(iso) {
   const [a, m, g] = String(iso).split('-').map(Number);
   const d = new Date(a, m - 1, g);
   return `${NOMI_GIORNI[d.getDay()]} ${g} ${NOMI_MESI[m - 1]}`;
+}
+// Più giorni in poco spazio: «giovedì 24 dicembre» se è uno, «24 e 25
+// dicembre», «31 dicembre e 1 gennaio» se sono di più.
+function giorniCorti(giorni) {
+  if (giorni.length === 1) return dataItaliana(giorni[0]);
+  const perMese = [];
+  for (const iso of giorni) {
+    const [, m, g] = String(iso).split('-').map(Number);
+    const ultimo = perMese[perMese.length - 1];
+    if (ultimo && ultimo.m === m) ultimo.g.push(g); else perMese.push({ m, g: [g] });
+  }
+  const insieme = (x) => (x.length === 1 ? String(x[0]) : `${x.slice(0, -1).join(', ')} e ${x[x.length - 1]}`);
+  const pezzi = perMese.map((x) => `${insieme(x.g)} ${NOMI_MESI[x.m - 1]}`);
+  return pezzi.length === 1 ? pezzi[0] : `${pezzi.slice(0, -1).join(', ')} e ${pezzi[pezzi.length - 1]}`;
 }
 
 // ⚠️ IL NUMERO DI UNA DATA NON È UN NUMERO DI PERSONE (22 novembre 2026).
@@ -4350,7 +4367,8 @@ function elencoEsperienze(esperienze, opzioni = {}) {
   }
   return esperienze.map((e, i) => {
     const distingue = opzioni.conQuando || quandiPerNome.get(normalizza(e.nome)).size > 1;
-    const quando = distingue ? quandoDetto(e) : '';
+    // `opzioni.giorni`: il giorno di ognuna, già detto (le esperienze delle feste).
+    const quando = opzioni.giorni ? opzioni.giorni[i] : (distingue ? quandoDetto(e) : '');
     const n = opzioni.numeri ? opzioni.numeri[i] : i + 1;
     return `${NUMERI_IN_CERCHIO[n - 1] || `${n}.`} *${e.nome}*${quando ? ` · ${quando}` : ''}${e.riga ? `\n${e.riga}` : ''}`;
   }).join('\n\n');
@@ -7662,8 +7680,9 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
         return diLocali('bot_t_locali');
       }
       if (conEsperienze && stato.passo === 'inizio') {
-        salvaStato(db, telefono, 'esperienza', {});
-        return diConElenco('bot_t_esperienze', elencoEsperienze(esperienze), { numeri: numeriDetti(daUnoA(esperienze.length)) });
+        const elenco = elencoDiSempre('bot_t_esperienze');
+        salvaStato(db, telefono, 'esperienza', sceltePer(elenco));
+        return elenco.testo;
       }
       return di('bot_t_menu_prenota');
     };
@@ -8013,15 +8032,46 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // L'elenco da proporre: tutte, oppure — se il giorno l'ha già detto — solo
   // quelle che valgono quel giorno («sabato sera» non ha il business lunch).
   // I numeri dell'elenco ristretto si ricordano in `scelte`.
-  function elencoDaProporre(d) {
-    // ⚠️ Senza un giorno si propongono quelle di tutti i giorni: il «Menu di
-    // Natale» compare a chi chiede Natale, non a chi scrive «ciao» ad agosto.
+  // L'elenco senza un giorno detto: quelle di tutti i giorni e, sotto, quelle
+  // delle festività che si possono ancora prenotare, coi loro giorni e i numeri
+  // che continuano (dal titolare, 25 novembre 2026: le scriveva a mano nella
+  // frase, e il prezzo mancava). Una festa passata, piena o oltre i giorni
+  // prenotabili non c'è: il «Menu di Natale» non compare ad agosto, né dopo
+  // Natale. Senza esperienze di tutti i giorni resta com'era (nessuna scelta
+  // da fare a chi scrive «ciao»).
+  function festeInArrivo() {
+    return esperienze.filter((e) => !diTuttiIGiorni(e))
+      .map((e) => ({ e, giorni: giorniDisponibili(db, cfg, 1, adesso, 3, { esperienza: e }) }))
+      .filter((x) => x.giorni.length)
+      .sort((x, y) => x.giorni[0].localeCompare(y.giorni[0]));
+  }
+  function elencoDiSempre(chiave) {
     const solite = esperienze.filter(diTuttiIGiorni);
-    const tutte = solite.length === esperienze.length
-      ? { valide: esperienze, ristrette: false,
-        testo: diConElenco('bot_t_esperienze', elencoEsperienze(esperienze), { numeri: numeriDetti(daUnoA(esperienze.length)) }) }
-      : { valide: solite, ristrette: true,
-        testo: diConElenco('bot_t_esperienze', elencoEsperienze(solite), { numeri: numeriDetti(daUnoA(solite.length)) }) };
+    if (solite.length === esperienze.length) {
+      return { valide: esperienze, ristrette: false,
+        testo: diConElenco(chiave, elencoEsperienze(esperienze), { numeri: numeriDetti(daUnoA(esperienze.length)) }) };
+    }
+    // ⚠️ Se le feste il titolare le ha già scritte a mano nella frase (fuori da
+    // {esperienze}), il bot non ne aggiunge un'altra copia: il 23 novembre
+    // ne arrivavano due, e lui ha chiesto di togliere quella del bot.
+    const scritta = normalizza(String(cfg[chiave] || '').replace('{esperienze}', ' '));
+    const giaScritte = (e) => normalizza(e.nome).length > 3 && scritta.includes(normalizza(e.nome));
+    const feste = solite.length && !esperienze.some((e) => !diTuttiIGiorni(e) && giaScritte(e)) ? festeInArrivo() : [];
+    const valide = [...solite, ...feste.map((x) => x.e)];
+    const righe = [elencoEsperienze(solite)];
+    if (feste.length) {
+      righe.push(di('bot_t_esperienze_feste').trim(), elencoEsperienze(feste.map((x) => x.e),
+        { numeri: feste.map((x, i) => solite.length + i + 1), giorni: feste.map((x) => giorniCorti(x.giorni)) }));
+    }
+    return { valide, ristrette: true,
+      testo: diConElenco(chiave, righe.filter(Boolean).join('\n\n'), { numeri: numeriDetti(daUnoA(valide.length)) }) };
+  }
+  // I nomi dell'elenco, da ricordare per i numeri (vedi il passo «esperienza»).
+  function sceltePer(elenco) { return elenco.ristrette ? { scelte: elenco.valide.map((e) => e.nome) } : {}; }
+  function elencoDaProporre(d) {
+    // ⚠️ Senza un giorno si propongono quelle di tutti i giorni (più le feste
+    // in arrivo, vedi `elencoDiSempre`).
+    const tutte = elencoDiSempre('bot_t_esperienze');
     // Il servizio senza il giorno («a cena»): quelle che a cena ci sono, in
     // qualche giorno (24 ottobre 2026: «A cena» non si capiva).
     if (!d.giornoDetto && d.servizio) {
@@ -8103,8 +8153,9 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // «No» a «Perfetto, business lunch 👍»: l'elenco di nuovo, tutte.
   function sceltaDaCapo(d) {
     const { scelte, esperienza, tentativi, ...resto } = d;
-    salvaStato(db, telefono, 'esperienza', resto);
-    risposte.push(diConElenco('bot_t_esperienza_altra', elencoEsperienze(esperienze), { numeri: numeriDetti(daUnoA(esperienze.length)) }));
+    const elenco = elencoDiSempre('bot_t_esperienza_altra');
+    salvaStato(db, telefono, 'esperienza', { ...resto, ...sceltePer(elenco) });
+    risposte.push(elenco.testo);
     return esito;
   }
   // ⚠️ L'esperienza si corregge anche DOPO averla scelta. Visto in una chat
@@ -8310,7 +8361,16 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   if (stato.passo === 'esperienza') {
     // Prima fra quelle proposte (i numeri sono quelli), poi fra tutte: chi
     // di sabato scrive «business lunch» ha scelto, e il giorno glielo dice.
-    const proposte = dati.scelte ? esperienze.filter((e) => dati.scelte.includes(e.nome)) : esperienze;
+    // ⚠️ Nell'ORDINE delle scelte, non della scheda: le feste stanno in fondo
+    // all'elenco (vedi `elencoDiSempre`) anche se nella scheda vengono prima.
+    const proposte = dati.scelte ? (() => {
+      const prese = new Set();
+      return dati.scelte.map((n) => {
+        const i = esperienze.findIndex((e, k) => e.nome === n && !prese.has(k));
+        if (i >= 0) prese.add(i);
+        return esperienze[i];
+      }).filter(Boolean);
+    })() : esperienze;
     let fra = proposte;
     let scelta = interpretaEsperienza(testo, proposte);
     if (scelta === null) {
@@ -8353,6 +8413,11 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       if ((dati.tentativi || 0) >= 1) {
         const { scelte, ...resto } = avanzato(dati);
         return dopoLEsperienza({ ...resto, ...conServizio(), esperienza: MENU_AL_TAVOLO }, di('bot_t_esperienza_al_tavolo'));
+      }
+      // L'elenco di sempre, se è quello proposto: con le feste e i loro giorni.
+      const diSempre = !dati.giornoDetto ? elencoDiSempre('bot_t_esperienza_no') : null;
+      if (diSempre && diSempre.valide.map((e) => e.nome).join('|') === proposte.map((e) => e.nome).join('|')) {
+        return nonCapito('esperienza', dati, diSempre.testo);
       }
       return nonCapito('esperienza', dati, diConElenco('bot_t_esperienza_no', elencoEsperienze(proposte),
         { numeri: numeriDetti(daUnoA(proposte.length)) }));
@@ -9386,7 +9451,7 @@ module.exports = {
   dividiNome,
   comeData,
   piuGiorni,
-  dataItaliana,
+  dataItaliana, giorniCorti,
   dataBreve,
   turniDelGiorno,
   turniValidi,
