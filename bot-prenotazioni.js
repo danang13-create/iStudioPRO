@@ -486,6 +486,16 @@ function preparaDatabase(db) {
 // dalla storia del progetto — ogni frase che è stata riscritta lascia qui
 // dietro quella di prima.
 const TESTI_SUPERATI = {
+  // «Le parole del bot» (25 novembre 2026): le frasi di partenza riscritte
+  // fase per fase, approvate dal titolare. Quelle riscritte da lui restano sue.
+  bot_t_ora_orari: [
+    'Per {data}{servizio} ho questi orari:\n\n{orari}\n\nScrivimi l’orario che preferisci.',  ],
+  bot_t_ora_turno: [
+    'Per {data} c’è disponibilità nei seguenti orari:\n\n{turni}\n\nScrivimi il turno che preferisci (per esempio «il primo») oppure l’orario.',  ],
+  bot_t_quante: [
+    'Per quante persone desideri prenotare? (esempio: 2)',  ],
+  bot_t_bentornato: [
+    'Che bello rivederti, {nome}! ✨\n\nPer quante persone desideri prenotare? (esempio: 2)\n',  ],
   // Le voci della prima scelta scritte a mano → {opzioni} (25 novembre 2026):
   // con le feste le voci possono essere tre, e senza gli eventi due diverse.
   bot_t_scelta_benvenuto: [
@@ -503,6 +513,7 @@ const TESTI_SUPERATI = {
     'Vuoi prenotare per {nomi}?\n\n{scelte}',  ],
   // «Scrivimi il nome o il numero» → «Scrivi il numero: 1, 2 o 3» (19 ottobre 2026).
   bot_t_esperienze: [
+    'Ecco cosa puoi prenotare da noi:\n\n{esperienze}\n\nA quale sei interessato? Scrivi il numero: {numeri}.',
     'Ecco cosa puoi prenotare da noi:\n\n{esperienze}\n\nA quale sei interessato? Scrivimi il nome o il numero.',  ],
   bot_t_esperienze_giorno: [
     '{data}{servizio} puoi scegliere:\n\n{esperienze}\n\nQuale preferisci? Scrivimi il nome o il numero.',  ],
@@ -514,12 +525,14 @@ const TESTI_SUPERATI = {
   bot_t_annulla_altro_locale: [
     'Sei sicuro di voler cancellare la prenotazione?\n\n📍 {scelto}\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nScrivi SÌ per confermare',  ],
   bot_t_turno_unico: [
+    'Per {data} a {servizio} ti aspettiamo {arrivo}. ✨\n\nTi va bene? Scrivi SÌ per continuare.',
     'Per {data} a {servizio} c’è un solo turno disponibile, {fascia}. ✨\n\nTi va bene? Scrivi SÌ per continuare.',  ],
   bot_t_menu_invito: [
     '📖 Se vuoi dare prima un’occhiata, scrivi {scelte}.',  ],
   bot_t_menu: [
     'Ecco il nostro menu 🍽️\n👉 {link}\n\nSe vuoi prenotare, dimmi pure per quante persone.',  ],
   bot_t_nota_domanda: [
+    'Me la sono segnata 📝\n\nLa trovano scritta sulla prenotazione. Se c’è qualcosa da confermare te lo dicono loro: io non posso farlo al posto del ristorante.',
     // ⚠️ Partiva dal presupposto di aver riconosciuto una DOMANDA, e prometteva
     // una risposta. Su «allergia alle noci» sarebbe stata una risposta attesa e
     // mai arrivata; e «ho bisogno di una torta» non veniva riconosciuto affatto.
@@ -535,23 +548,28 @@ const TESTI_SUPERATI = {
     'Perfetto {nome}, ci siamo quasi ✨\nTi collego al pagamento per confermare il tavolo.\n\n📅 {data}  🕘 {ora}  👥 {persone}\n💳 Da pagare adesso: {importo}\n\n👉 Paga qui: {link}\n{resto}\n⚠️ Il tavolo NON è ancora prenotato: lo diventa appena ricevo il pagamento.\nHo tenuto il tuo posto fino alle {scadenza}.\n\nDopo aver pagato torna pure qui: appena ricevo il pagamento ti scrivo io la conferma.',
   ],
   bot_t_benvenuto: [
+    '{saluto} ✨ \n\nSono {assistente} l\'assistente virtuale di {locale}\nSarà un piacere aiutarti con la tua prenotazione.\n\nPer quante persone desideri prenotare? (esempio: 2)\n',
     'Buonasera! Sono l\'assistente di {locale} 🍽️\nPer quante persone devo prenotare?\n(rispondi con un numero, es. 4)',
     '{saluto}! Sono l\'assistente di {locale} 🍽️\nPer quante persone devo prenotare?\n(rispondi con un numero, es. 4)',
 
     '{saluto}! Sono {assistente} l\'assistente virtuale di {locale} 🍽️\nPer quante persone devo prenotare?\n(rispondi con un numero, es. 4)',  ],
   bot_t_giorno_no: [
+    'Non sono riuscita a capire la data! \n\nPuoi indicarmi il giorno della prenotazione:\n',
     'Non ho capito il giorno. Puoi scrivere «oggi», «domani», il giorno della settimana oppure la data (es. 22/08).',
 
     'Non ho capito il giorno. Puoi indicarmi la data:',  ],
   bot_t_ora_no: [
+    'Non sono riuscita a capire quale orario preferisci!\n\nPuoi indicarmi direttamente l’orario (esempio: 21:30)\n',
     'Non ho capito l\'orario. Rispondi col numero della riga oppure con l\'ora (es. 21:30).',
 
     'Non ho capito l\'orario. Puoi indicarmi l\'ora:',  ],
   bot_t_nome: [
+    'A che nome e cognome segno la prenotazione?\n',
     'A che nome metto la prenotazione?',
 
     'A che nome metto la prenotazione?\n(nome e cognome)',  ],
   bot_t_riepilogo: [
+    'Perfetto! ✨ \nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n🍽️ {esperienza}\n👤 Nome: {nome}\n📝 Note: {note}\n\nConfermi la prenotazione?\n\nScrivi SÌ per confermare',
     'Ricapitolando:\n📅 {data}  🕘 {ora}  👥 {persone}  👤 {nome}\n\nConfermi? Scrivi SÌ per confermare o NO per annullare.',
 
     'Perfetto! ✨\nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n📞 {telefono}\n\nConfermi la prenotazione?\n\nScrivi SÌ per confermare\noppure NO per annullare.',
@@ -563,6 +581,7 @@ const TESTI_SUPERATI = {
     // Senza la riga dell'esperienza.
     'Perfetto! ✨ \nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n📝 Note: {note}\n\nConfermi la prenotazione?\n\nScrivi SÌ per confermare',  ],
   bot_t_benvenuto_esperienze: [
+    '{saluto} ✨ \n\nSono {assistente} l\'assistente virtuale di {locale}\nSarà un piacere aiutarti con la tua prenotazione.\n',
     // La riga degli orari in un pezzo solo (fino al 20 ottobre 2026), poi a
     // righe (fino al 22): ora gli orari vengono dopo la scelta dell'esperienza.
     '{saluto} ✨ \n\nSono {assistente} l\'assistente virtuale di {locale}\nSarà un piacere aiutarti con la tua prenotazione.\n\n🕒 Siamo aperti {orari}.\n',
@@ -576,6 +595,7 @@ const TESTI_SUPERATI = {
   bot_t_esperienza_menu: [
     'Vuoi dare un\'occhiata al menu? Scrivi SÌ e te lo mando, oppure NO per andare avanti.',  ],
   bot_t_email: [
+    'Perfetto! ✨\nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n🍽️ {esperienza}\n👤 Nome: {nome}\n📝 Note: {note}\n\nPer confermare, scrivimi la tua email: la useremo per mandarti la conferma.\n\n(se hai cambiato idea, scrivi NO)',
     'Perfetto! ✨\nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n\nPer confermare, scrivimi la tua email: la useremo per mandarti la conferma.\n\n(se hai cambiato idea, scrivi NO)',
     // Senza la riga dell'esperienza (business lunch, degustazione…).
     'Perfetto! ✨\nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n👤 Nome: {nome}\n📝 Note: {note}\n\nPer confermare, scrivimi la tua email: la useremo per mandarti la conferma.\n\n(se hai cambiato idea, scrivi NO)',  ],
@@ -597,6 +617,7 @@ const TESTI_SUPERATI = {
 
     '{saluto} {nome}! \nHai già una prenotazione confermata:\n\n📅 {data}\n🕘 {ora}\n👥 {persone} persone\n\nVuoi modificare la tua prenotazione?\n\n• Per spostarla a un altro giorno, scrivi CAMBIA.\n• Per annullarla, scrivi CANCELLA.\n\nPer effettuare una NUOVA PRENOTAZIONE, dimmi semplicemente per quante persone.\n\n',  ],
   bot_t_conferma: [
+    '✅ Prenotazione confermata!\n\nGrazie, {nome}. ✨\nTi aspettiamo da {locale} per una nuova esperienza.\n\nSe dovessi avere un imprevisto, contattami in questa chat.\n\nA presto!',
     '✅ Prenotazione confermata! Ti aspettiamo.\nSe hai un imprevisto scrivi ANNULLA e ci pensiamo noi.',
 
     '✅ Prenotazione confermata! Ti aspettiamo.\nSe hai un imprevisto scrivi CANCELLA e ci pensiamo noi.',  ],
@@ -609,9 +630,11 @@ const TESTI_SUPERATI = {
 
     '✅ Spostata! Ti aspettiamo {data} alle {ora}.\nSe hai un imprevisto scrivi CANCELLA.',  ],
   bot_t_persone_no: [
+    'Non sono riuscita a capire il numero di persone!\n\nPuoi indicarmi solo il numero?\n(esempio: 2)',
     'Non ho capito il numero di persone. Scrivimi solo la cifra, per esempio 4.',
   ],
   bot_t_giorno: [
+    'Quale giorno desideri prenotare?\n',
     'Per che giorno?',
   ],
   bot_t_chiuso: [
@@ -630,6 +653,7 @@ const TESTI_SUPERATI = {
     'Mi dispiace, per {data} siamo al completo.\nVuoi provare un altro giorno?',
   ],
   bot_t_note: [
+    'Prima di completare la prenotazione, c’è qualche allergia, intolleranza o esigenza particolare che dovremmo conoscere?\n\nSe non c’è nulla, scrivi NESSUNA.',
     'Ci sono allergie o richieste particolari? Se no, scrivi NO.',
     // ⚠️ «scrivi NO» invitava a cominciare la frase con un no, che è esattamente
     // la forma che veniva buttata via: «no, ma abbiamo un passeggino».
@@ -642,9 +666,11 @@ const TESTI_SUPERATI = {
     'Non ho capito il numero. Scrivilo tutto (es. 333 1234567), oppure OK per usare questo.',
   ],
   bot_t_rinuncia: [
+    'OK! Non ho prenotato niente.\n\nSperiamo di poterti accogliere presto da {locale}. ✨',
     'Va bene, non ho prenotato niente. Se cambi idea scrivimi pure!',
   ],
   bot_t_ricominciamo: [
+    'Se preferisci, scrivi RICOMINCIA per ripartire da capo con la prenotazione, oppure OPERATORE per parlare con una persona.',
     '🙂 Se preferisci, scrivi RICOMINCIA per ripartire da capo con la prenotazione, oppure OPERATORE per parlare con una persona.',
   ],
   bot_t_ricominciato: [
@@ -666,6 +692,7 @@ const TESTI_SUPERATI = {
     'Ciao {nome}, \nti avvisiamo che la tua prenotazione di {data} alle {ora} è stata cancellata.\n\n{locale}',
   ],
   bot_t_annulla_niente: [
+    '⚠️ Non trovo alcuna prenotazione associata al tuo nome.\n\nSe pensi che ci sia un errore o hai bisogno di supporto, scrivi OPERATORE e ti metterò in contatto con una persona del nostro team.',
     'Non trovo prenotazioni future a tuo nome.',
   ],
   bot_t_sposta_quale: [
@@ -950,22 +977,22 @@ const PREDEFINITI = {
 
   // I testi. Vengono scritti già pronti: un ristoratore che deve inventarsi
   // tredici messaggi da zero non accende mai il bot.
-  bot_t_benvenuto: '{saluto} ✨ \n\nSono {assistente} l\'assistente virtuale di {locale}\nSarà un piacere aiutarti con la tua prenotazione.\n\nPer quante persone desideri prenotare? (esempio: 2)\n',
+  bot_t_benvenuto: '{saluto} e benvenuto ✨\nSono {assistente} l\'assistente virtuale di {locale}: prenotiamo insieme in un attimo.\n\nPer quante persone?',
   // ⚠️ La domanda secca, per chi la conversazione l'ha già aperta. Il
   // benvenuto si presenta — «sono l'assistente di…» — e a chi ha appena letto
   // un nostro messaggio quella presentazione dice una cosa sola: che non ci
   // ricordiamo di lui. Chi scrive NUOVA sta rispondendo a noi.
-  bot_t_quante: 'Per quante persone desideri prenotare? (esempio: 2)',
+  bot_t_quante: 'Per quante persone?',
   // Con le esperienze (scheda «Esperienze», almeno due) la prima domanda non
   // è «per quante persone» ma «cosa vuoi mangiare»: il benvenuto si ferma
   // prima della domanda, e sotto arriva l'elenco. Deciso dal titolare.
   // Senza gli orari: con le esperienze arrivano dopo la scelta (22 ottobre 2026).
-  bot_t_benvenuto_esperienze: '{saluto} ✨ \n\nSono {assistente} l\'assistente virtuale di {locale}\nSarà un piacere aiutarti con la tua prenotazione.\n',
+  bot_t_benvenuto_esperienze: '{saluto} e benvenuto ✨\nSono {assistente} l\'assistente virtuale di {locale}: prenotiamo insieme in un attimo.',
   bot_t_bentornato_esperienze: 'Che bello rivederti, {nome}! ✨\n',
   // {numeri} è «1, 2 o 3»: si sceglie col numero (chiesto dal titolare, 19
   // ottobre 2026). Il nome lo capisce lo stesso, ma «business lunch» può
   // valere per due — vedi `bot_t_esperienza_quale`.
-  bot_t_esperienze: 'Ecco cosa puoi prenotare da noi:\n\n{esperienze}\n\nA quale sei interessato? Scrivi il numero: {numeri}.',
+  bot_t_esperienze: 'Ecco cosa puoi prenotare da noi:\n\n{esperienze}\n\nQuale ti piacerebbe? Scrivi il numero: {numeri}.',
   // ---- I locali: la prima domanda, prima di tutto (vedi «I locali») ----
   // {nomi} è «RO bistrot o per REAR Restaurant», {scelte} è «Scrivi *bistrot*
   // per RO bistrot e *ristorante* per REAR Restaurant.»; {scelto} è il locale
@@ -1115,9 +1142,9 @@ const PREDEFINITI = {
   bot_t_newsletter_no: 'Fatto ✅ Non riceverai più le nostre novità, né via email né su WhatsApp.\nLe prenotazioni funzionano come sempre.',
   bot_t_caparra_ricevuta: '💳 Ricevuto il tuo acconto di {importo}, {nome}. Grazie!\n\n📅 {data}  🕘 {ora}  👥 {persone}\n{resto}\nTi aspettiamo!',
   bot_t_pagamento_scaduto: '⏰ Il tempo per pagare è scaduto e ho liberato il tavolo.\n\nNon ti è stato addebitato niente.\nSe vuoi ancora venire scrivi NUOVA e ricominciamo.',
-  bot_t_persone_no: 'Non sono riuscita a capire il numero di persone!\n\nPuoi indicarmi solo il numero?\n(esempio: 2)',
-  bot_t_giorno: 'Quale giorno desideri prenotare?\n',
-  bot_t_giorno_no: 'Non sono riuscita a capire la data! \n\nPuoi indicarmi il giorno della prenotazione:\n',
+  bot_t_persone_no: 'Scusami, non ho capito per quante persone 🙏 Scrivimi solo il numero, per esempio: 4',
+  bot_t_giorno: 'Quale giorno preferisci? Questi hanno ancora posto:\n',
+  bot_t_giorno_no: 'Scusami, non ho capito il giorno 🙏 Scegline uno di questi, o scrivimelo (per esempio «sabato»):\n',
   bot_t_troppo_lontano: 'Per {data} siamo troppo in l\u00e0 nel tempo: ti faccio rispondere da una persona del locale.',
   bot_t_chiuso: 'Purtroppo quel giorno {locale} è chiuso. \n\nTi va di scegliere un altro giorno?',
   bot_t_ora: 'Per {data} abbiamo disponibilità nei seguenti orari:\n',
@@ -1149,15 +1176,15 @@ const PREDEFINITI = {
   // dei testi vedeva solo la riga sopra e quella sotto, e non l'elenco. Il
   // bot mette l'elenco al posto di {turni}, un turno per riga. Senza turni
   // (orari di prima) vale ancora `bot_t_ora`, con gli orari sotto.
-  bot_t_ora_turno: 'Per {data} c’è disponibilità nei seguenti orari:\n\n{turni}\n\nScrivimi il turno che preferisci (per esempio «il primo») oppure l’orario.',
+  bot_t_ora_turno: 'Per {data} abbiamo posto in questi turni:\n\n{turni}\n\nQuale preferisci?',
   // Con gli orari scelti dal locale (vedi `slotDelGiorno`), al posto dei turni.
-  bot_t_ora_orari: 'Per {data}{servizio} ho questi orari:\n\n{orari}\n\nScrivimi l’orario che preferisci.',
+  bot_t_ora_orari: 'Per {data}{servizio} ho questi orari:\n\n{orari}\n\nQuale preferisci?',
   // Un servizio con un turno solo: invece di un elenco di una riga, si chiede
   // se va bene. {arrivo} è «alle 12:30, e il tavolo è tuo fino alle 15:30»
   // (o «alle 12:30» se la fine non è scritta); {fascia} è «dalle 12:30 alle
   // 15:30». Senza la parola «turno»: deciso dal titolare (19 ottobre 2026).
   // Anche {persone} (il numero) ed {esperienza} (vuota se non scelta).
-  bot_t_turno_unico: 'Per {data} a {servizio} ti aspettiamo {arrivo}. ✨\n\nTi va bene? Scrivi SÌ per continuare.',
+  bot_t_turno_unico: '{riassunto}: ti aspettiamo {data} alle {ora} ✨\n\nTi va bene? Rispondi SÌ e andiamo avanti.',
   // Il servizio chiesto è chiuso (o pieno) e dell'altro resta un turno solo:
   // sotto quel turno, la domanda.
   bot_t_unico_va_bene: 'Ti va bene? Scrivi SÌ per continuare.',
@@ -1180,7 +1207,7 @@ const PREDEFINITI = {
   bot_t_ora_cambiata: '👍 Ho segnato le {ora}.',
   // Alla domanda dell'orario, un altro giorno con un orario che quel giorno c'è.
   bot_t_giorno_cambiato: '👍 Ho segnato {data} alle {ora}.',
-  bot_t_ora_no: 'Non sono riuscita a capire quale orario preferisci!\n\nPuoi indicarmi direttamente l’orario (esempio: 21:30)\n',
+  bot_t_ora_no: 'Scusami, non ho capito quale orario 🙏 Scrivimelo così, per esempio: 21:30\n',
   // Un orario che il locale fa davvero, ma pieno (o troppo vicino), non è una
   // risposta incomprensibile: è un no, e va detto per quello che è.
   bot_t_ora_piena: 'Mi dispiace, alle {ora} siamo già al completo.\n\nEcco gli orari ancora liberi:\n',
@@ -1200,17 +1227,17 @@ const PREDEFINITI = {
   bot_t_attesa_scaduta: 'Non ho ricevuto la tua risposta in tempo, così il posto {quando} è tornato libero per gli altri in lista. 😔\n\nResti in lista: se se ne libera un altro ti riscrivo qui.',
   bot_t_attesa_rimossa: 'Ti ho tolto dalla lista d\'attesa {quando}: non ti scriverò più se si libera un posto.\n\nSe ti serve un tavolo, scrivimi pure quando vuoi.',
   bot_t_attesa_tolta: 'Ti ho tolto dalla lista d\'attesa. Se vuoi prenotare, dimmi per quante persone.',
-  bot_t_nome: 'A che nome e cognome segno la prenotazione?\n',
-  bot_t_note: 'Prima di completare la prenotazione, c’è qualche allergia, intolleranza o esigenza particolare che dovremmo conoscere?\n\nSe non c’è nulla, scrivi NESSUNA.',
+  bot_t_nome: 'A che nome segno il tavolo? Nome e cognome, per favore.',
+  bot_t_note: 'Quasi fatto! C’è qualche allergia, intolleranza o richiesta particolare (un compleanno, un seggiolone…)?\n\nSe non c’è niente, scrivi NESSUNA.',
   bot_t_telefono: 'A quale numero possiamo richiamarti se serve?\n\nScrivi OK per usare questo, oppure scrivimi il numero giusto.',
   bot_t_telefono_no: 'Non ho capito il numero. \nScrivilo intero (esempio 3331234567)',
-  bot_t_email: 'Perfetto! ✨\nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n🍽️ {esperienza}\n👤 Nome: {nome}\n📝 Note: {note}\n\nPer confermare, scrivimi la tua email: la useremo per mandarti la conferma.\n\n(se hai cambiato idea, scrivi NO)',
+  bot_t_email: 'Ecco la tua prenotazione:\n\n📅 {data}\n🕘 {ora}\n👥 {quanti}\n🍽️ {esperienza}\n👤 {nome}\n📝 {note}\n\nPer confermarla mi basta la tua email: ti mando lì il riepilogo.\n(Se hai cambiato idea, scrivi NO.)',
   bot_t_daccordo: 'Va bene! 😊\n\nResto qui: se ti serve altro, scrivimi pure.',
   bot_t_email_no: 'Mi serve la tua email per confermare la prenotazione.\nScrivimela per intero, per esempio: nome@esempio.it\n\n(se hai cambiato idea, scrivi NO)',
-  bot_t_riepilogo: 'Perfetto! ✨ \nEcco il riepilogo della tua prenotazione:\n\n📅 Data: {data}\n🕘 Orario: {ora}\n👥 Persone: {persone}\n🍽️ {esperienza}\n👤 Nome: {nome}\n📝 Note: {note}\n\nConfermi la prenotazione?\n\nScrivi SÌ per confermare',
+  bot_t_riepilogo: 'Ecco la tua prenotazione:\n\n📅 {data}\n🕘 {ora}\n👥 {quanti}\n🍽️ {esperienza}\n👤 {nome}\n📝 {note}\n\nConfermi? Scrivi SÌ per confermare.',
   // Esce SOLO quando il nome l'abbiamo messo noi, riconoscendo il numero. A
   // chi il nome l'ha appena scritto questa riga non serve, ed è solo rumore.
-  bot_t_bentornato: 'Che bello rivederti, {nome}! ✨\n\nPer quante persone desideri prenotare? (esempio: 2)\n',
+  bot_t_bentornato: 'Che bello rivederti, {nome}! ✨\n\nPer quante persone?',
   bot_t_nome_altro: 'Per {nome}, come l\'altra volta?\n\nScrivi SÌ, oppure scrivimi il nome giusto.',
   bot_t_telefono_altro: 'A quale numero possiamo contattare {nome}, se serve?\n\nScrivi NO se preferisci che chiamiamo te.',
   bot_t_nome_nostro: '\n\n(Ho usato il nome dell\'ultima volta. Se prenoti per un\'altra persona, scrivimi il nome giusto.)',
@@ -1219,17 +1246,19 @@ const PREDEFINITI = {
   // cliente si presenta aspettandosi la torta.
   // ⚠️ Il nome della chiave è storico: vale per QUALUNQUE nota, non solo per le
   // domande. Non si rinomina perché chi l'ha già riscritta perderebbe il testo.
+  // Scelto l'orario, prima della domanda dopo (25 novembre 2026). Vuota: niente.
+  bot_t_ora_presa: 'Perfetto, alle {ora} 👍',
   // «Cena» davanti agli orari che sono già quelli della cena (25 novembre 2026).
   bot_t_ora_gia_servizio: 'Sì, a {servizio} 😊 Quale di questi orari preferisci?\n',
   // L'orario scritto nel primo messaggio, preso senza chiederlo (25 novembre 2026).
   bot_t_ora_gia_detta: 'C’è posto {data} alle {ora} ✨',
   // Ha risposto «sì» alla domanda delle allergie, senza dire quale (25 novembre 2026).
   bot_t_note_quale: 'Dimmi pure 😊 Cosa dobbiamo sapere?',
-  bot_t_nota_domanda: 'Me la sono segnata 📝\n\nLa trovano scritta sulla prenotazione. Se c’è qualcosa da confermare te lo dicono loro: io non posso farlo al posto del ristorante.',
-  bot_t_conferma: '✅ Prenotazione confermata!\n\nGrazie, {nome}. ✨\nTi aspettiamo da {locale} per una nuova esperienza.\n\nSe dovessi avere un imprevisto, contattami in questa chat.\n\nA presto!',
-  bot_t_rinuncia: 'OK! Non ho prenotato niente.\n\nSperiamo di poterti accogliere presto da {locale}. ✨',
+  bot_t_nota_domanda: 'Segnato 📝 La sala lo troverà sulla prenotazione. Se c’è qualcosa da confermare, ti scrive direttamente il ristorante.',
+  bot_t_conferma: '✅ Fatto, {nome}: il tavolo è tuo!\n\nPer qualsiasi imprevisto scrivimi pure qui, anche per spostarlo o annullarlo.\n\nA presto da {locale} ✨',
+  bot_t_rinuncia: 'Nessun problema, non ho prenotato niente 👍\n\nQuando vuoi, sono qui. Speriamo di vederti presto da {locale} ✨',
   bot_t_lasciato: 'Va bene, non ho toccato niente: la tua prenotazione resta com\'era. ✨',
-  bot_t_ricominciamo: 'Se preferisci, scrivi RICOMINCIA per ripartire da capo con la prenotazione, oppure OPERATORE per parlare con una persona.',
+  bot_t_ricominciamo: 'Se preferisci, scrivi OPERATORE e ti passo una persona del ristorante, oppure RICOMINCIA per ripartire da capo.',
   // Dal secondo «non ho capito» di fila: non la stessa domanda una terza
   // volta, ma «riscrivilo», con un esempio adatto alla domanda ({esempio}).
   bot_t_riscrivi: 'Scusami, non ho capito bene 🙏 Me lo riscrivi in un altro modo?\n{esempio}',
@@ -1266,7 +1295,7 @@ const PREDEFINITI = {
   bot_t_annullata: '✅ Prenotazione cancellata.\n\nGrazie per averci avvisato.\nSperiamo di poterti accogliere presto da {locale}. ✨',
   // {scelto}: il locale della prenotazione («RO bistrot»); {locale} firma.
   bot_t_annullata_locale: 'Ciao {nome}, \nti avvisiamo che la tua prenotazione da {scelto} di {data} alle {ora} è stata cancellata.\n\n{locale}',
-  bot_t_annulla_niente: '⚠️ Non trovo alcuna prenotazione associata al tuo nome.\n\nSe pensi che ci sia un errore o hai bisogno di supporto, scrivi OPERATORE e ti metterò in contatto con una persona del nostro team.',
+  bot_t_annulla_niente: 'Non trovo prenotazioni a questo numero 🤔\n\nSe hai prenotato con un altro numero, o pensi ci sia un errore, scrivi OPERATORE e ti passo una persona del ristorante.',
   bot_t_sposta_quale: 'La tua prenotazione è:\n\n📅 {data}\n🕘 {ora}\n👥 {persone}\n\nChe giorno vuoi spostarla?\n',
   bot_t_sposta_conferma: 'Sposto la tua prenotazione a:\n\n📅 {data}\n🕘 {ora}\n👥 {persone}\n\nScrivi SÌ per confermare',
   bot_t_spostata: '✅ Spostata! \nTi aspettiamo {data} alle {ora}.\n\nSe hai un imprevisto scrivi in questa chat.',
@@ -6798,6 +6827,10 @@ function ricordaLaDomanda(db, telefono, prima, esito, adesso) {
   const testa = DA_CAPO.get(esito);
   const pulita = senzaRigheDiTroppo({ risposte: [testa || ''] }).risposte[0];
   if (pulita && detta.startsWith(pulita)) detta = detta.slice(pulita.length).trim();
+  // «Perfetto, alle 20:00 👍», detto appena scelto l'orario, non fa parte della
+  // domanda: chi la ritrova (ripresa, «torna indietro») la rilegge senza.
+  const oraPresa = (dopo.dati || {}).ora && riempi(String(config(db).bot_t_ora_presa || ''), { ora: dopo.dati.ora }).trim();
+  if (oraPresa && detta.startsWith(oraPresa)) detta = detta.slice(oraPresa.length).trim();
   let storia; let domanda;
   const { tentativi: t1, ...datiPrima } = senzaStoria(pd);
   const { tentativi: t2, ...datiDopo } = senzaStoria(dopo.dati);
@@ -7087,7 +7120,7 @@ function conLOraGiaDetta(db, telefono, testo, adesso, contesto, prima, esito) {
     // Si risponde da soli, e la domanda appena scritta non parte.
     const risposta = ora.passo === 'servizio' ? servizioDellOra(config(db), d.data, scelto) : scelto;
     const resto = ultima.slice(0, ultima.length - domanda.length).trim();
-    const seguito = elaboraDaSolo(db, telefono, risposta, adesso, contesto);
+    const seguito = elaboraDaSolo(db, telefono, risposta, adesso, { ...contesto, oraGiaDetta: true });
     const nuove = [...seguito.risposte];
     // Preso l'orario, lo si dice: il cliente deve sapere cosa abbiamo capito.
     const cfg = config(db);
@@ -7271,7 +7304,11 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   const tentativiMassimi = Math.min(Math.max(num(cfg.bot_tentativi, 3), 2), 5);
   // «Me lo riscrivi?» con l'esempio adatto alla domanda. '' se la frase è vuota.
   const riscrivi = (passo, d = {}) => {
-    const esempio = esempioPer(passo, d, adesso);
+    // Alla prima domanda l'esempio segue le voci vere: con gli eventi spenti
+    // il «2» sono le feste, non un evento (25 novembre 2026).
+    const voci = passo === 'scelta' ? vociDellaScelta() : null;
+    const esempio = voci ? `Per esempio ${voci.slice(0, 2).map(([k], i) => `«${i + 1}» ${k === 'tavolo' ? 'per un tavolo' : k === 'evento' ? 'per un evento' : 'per le feste'}`).join(', ')}.`
+      : esempioPer(passo, d, adesso);
     return riempi(senzaRigheVuote(cfg.bot_t_riscrivi, { esempio }), { ...valori, esempio }).trim();
   };
   // Erano due, fisse: ora sono `tentativiMassimi` (tre di partenza), su
@@ -7304,7 +7341,11 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // Dal secondo sbaglio di fila non si ripete la stessa domanda: si chiede
     // di riscriverla, con un esempio. Svuotata la frase, torna la domanda.
     const corpo = (tentativi >= 2 && riscrivi(passo, d)) || testoDaRipetere;
-    const guida = di('bot_t_ricominciamo');
+    // ⚠️ La via d'uscita (RICOMINCIA, OPERATORE) dalla SECONDA volta («Le parole
+    // del bot», 25 novembre 2026): alla prima basta richiedere, e il paragrafo
+    // in fondo a ogni equivoco lo faceva sembrare un guasto. Con due soli
+    // tentativi la seconda non c'è: allora già alla prima.
+    const guida = tentativi >= Math.min(2, tentativiMassimi - 1) ? di('bot_t_ricominciamo') : '';
     risposte.push(guida ? `${corpo}\n\n${guida}` : corpo);
     return esito;
   };
@@ -8686,6 +8727,12 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // Propone gli orari di quel giorno — solo quelli del servizio chiesto, se
   // ne ha chiesto uno. Si salvano comunque TUTTI: chi ha chiesto il pranzo e
   // poi scrive «20:00» ha cambiato idea, non sbagliato.
+  function riassuntoDellaScelta(d) {
+    const quanti = d.persone ? (Number(d.persone) === 1 ? '1 persona' : `${d.persone} persone`) : '';
+    const nome = (esperienzaScelta(d) || {}).nome || '';
+    const t = nome && quanti ? `${nome} per ${quanti}` : (nome || quanti);
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+  }
   function proponiOrari(passo, d, iso, turni, servizio) {
     let suoi = servizio ? turni.filter((o) => servizioDellOra(cfg, iso, o) === servizio) : turni;
     let prima = di('bot_t_ora', { data: dataItaliana(iso) });
@@ -8717,6 +8764,9 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
         // delle persone e dell'esperienza, e le può riassumere. {esperienza}
         // è vuota senza un'esperienza scelta.
         persone: d.persone || '', esperienza: (esperienzaScelta(d) || {}).nome || '',
+        // «Cenone della Vigilia per 4 persone», o «4 persone» senza esperienza
+        // («Le parole del bot», 25 novembre 2026).
+        riassunto: riassuntoDellaScelta(d),
       }));
       return esito;
     }
@@ -8848,6 +8898,10 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       // Ha risposto alla nota con un altro orario, preso com'è: lo si conferma
       // in una riga, sennò la domanda del nome ripetuta sembra un «non ho capito».
       risposte[prima] = `${di('bot_t_ora_cambiata', { ora: oraColTurno(cfg, dati.data, ora) })}\n\n${risposte[prima]}`;
+    } else if (passo === 'ora' && risposte.length > prima && !contesto.oraGiaDetta && String(cfg.bot_t_ora_presa || '').trim()) {
+      // Scelto l'orario, lo si dice prima della domanda dopo («Le parole del
+      // bot», 25 novembre 2026): il cliente sa cosa abbiamo capito.
+      risposte[prima] = `${di('bot_t_ora_presa', { ora })}\n\n${risposte[prima]}`;
     }
     return r;
   }
@@ -9397,6 +9451,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       ...valori,
       // L'orario col suo turno e la fine: «19:30 (1° turno, fino alle 21:00)».
       data: dataItaliana(d.data), ora: oraDellaPrenotazione(cfg, d), persone: d.persone,
+      quanti: Number(d.persone) === 1 ? '1 persona' : `${d.persone} persone`,
       nome: [d.nome, d.cognome].filter(Boolean).join(' ') || '—',
       cognome: d.cognome || '',
       telefono: d.telefono || '',
