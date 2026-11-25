@@ -729,6 +729,10 @@ const TESTI_SUPERATI = {
 
 const PREDEFINITI = {
   bot_attivo: 'false',
+  // Il numero WhatsApp del locale, scritto dal server ogni volta che WhatsApp
+  // si collega (25 novembre 2026): serve al collegamento «NO NEWSLETTER» in
+  // fondo alle email, che apre la chat del locale. Non si scrive a mano.
+  bot_numero_locale: '',
   bot_locale: '',
   bot_assistente: '',      // il nome dell'assistente virtuale, es. «Aurora»
 
@@ -1076,6 +1080,28 @@ const PREDEFINITI = {
   bot_t_posta_acconto_avviso: 'Non è richiesta alcuna azione. Se lo desideri, puoi versare fin d\'ora un acconto.',
   bot_t_posta_acconto_riga: 'Acconto facoltativo',
   bot_t_posta_acconto_pulsante: 'Versa l\'acconto',
+  // In fondo a OGNI email — la conferma della prenotazione e le newsletter —
+  // la strada per uscire dalle novità (25 novembre 2026, vedi «Il consenso
+  // alle novità»). La seconda frase diventa un collegamento che apre la chat
+  // del locale con «NO NEWSLETTER» già scritto; senza il numero del locale,
+  // si dice di rispondere all'email.
+  bot_t_posta_novita: 'Le nostre novità via email arrivano solo a chi ci ha detto sì.',
+  bot_t_posta_newsletter: 'Ricevi questa email perché hai scelto di ricevere le novità di {locale}.',
+  bot_t_posta_uscita: 'Per non riceverle più, scrivici NO NEWSLETTER su WhatsApp.',
+
+  // ---- IL CONSENSO ALLE NOVITÀ (25 novembre 2026, dal titolare: «dobbiamo
+  // far accettare l'uso dei dati come email e numero di telefono per il
+  // marketing») ---- Deciso con lui: un SÌ esplicito, chiesto in chat UNA
+  // volta, dopo che la prenotazione è fatta (o pagata). ⚠️ Per legge il
+  // consenso al marketing è un gesto: prenotare non lo è, e chi non risponde
+  // non ha detto sì. Vale per le EMAIL: su WhatsApp le offerte partono solo
+  // a chi il locale ha segnato a mano.
+  bot_t_consenso_domanda: '📬 Un\'ultima cosa, {nome}: vuoi ricevere ogni tanto via email le novità di {locale} — eventi, menu delle feste, offerte?\n\nRispondi SÌ o NO.',
+  bot_t_consenso_si: 'Grazie! ✨ Ti scriveremo a {email} solo quando c\'è qualcosa di bello.\nSe un giorno non vuoi più le nostre novità, scrivi NO NEWSLETTER.',
+  bot_t_consenso_no: 'Va benissimo 👍 Non ti manderemo email promozionali.',
+  // «NO NEWSLETTER»: la parola del collegamento in fondo alle email. Non è
+  // STOP: il bot continua a rispondere e le prenotazioni restano com'erano.
+  bot_t_newsletter_no: 'Fatto ✅ Non riceverai più le nostre novità, né via email né su WhatsApp.\nLe prenotazioni funzionano come sempre.',
   bot_t_caparra_ricevuta: '💳 Ricevuto il tuo acconto di {importo}, {nome}. Grazie!\n\n📅 {data}  🕘 {ora}  👥 {persone}\n{resto}\nTi aspettiamo!',
   bot_t_pagamento_scaduto: '⏰ Il tempo per pagare è scaduto e ho liberato il tavolo.\n\nNon ti è stato addebitato niente.\nSe vuoi ancora venire scrivi NUOVA e ricominciamo.',
   bot_t_persone_no: 'Non sono riuscita a capire il numero di persone!\n\nPuoi indicarmi solo il numero?\n(esempio: 2)',
@@ -6908,7 +6934,58 @@ function gestisciLaLasciata(db, telefono, testo, adesso, contesto) {
   return { esito };
 }
 
+// ---- Il consenso alle novità (25 novembre 2026) ----
+// La risposta alla domanda «vuoi ricevere le nostre novità via email?».
+// ⚠️ Per legge il consenso dev'essere INEQUIVOCABILE. Per questo non vale
+// `interpretaSiNo`, che prende per sì anche «ok», «perfetto» e 👍: dopo
+// «Prenotazione confermata!» quelle parole rispondono alla conferma, non alla
+// domanda. Sì è solo un sì; tutto il resto — tranne un no — è «non ha
+// risposto», cioè nessun consenso.
+function consensoDetto(testo) {
+  const t = normalizza(testo).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  // ⚠️ Solo una risposta corta: «no, voglio annullare la prenotazione» è una
+  // richiesta, non un no alle novità, e non deve sparire qui.
+  if (!t || t.split(' ').length > 4) return null;
+  if (/^(no|nn|no grazie|non mi interessa|non mi interessano|non le voglio|non voglio|niente|nessuna)\b/.test(t)) return false;
+  if (/^(si+|s|yes|certo|certamente|volentieri|ok si|si si|si grazie|si certo|va bene si)\b/.test(t) && !/\bno\b/.test(t)) return true;
+  return null;
+}
+// La domanda, dopo una prenotazione fatta (o pagata). La chiama il server, che
+// sa se quel cliente ha già risposto (lo dice la rubrica). Si fa solo a chi
+// non è in mezzo a un'altra conversazione: una domanda di troppo non deve
+// rubare la risposta a quella che il cliente sta facendo. Torna il testo da
+// mandare, o '' se non è il momento.
+function domandaDelConsenso(db, telefono, p, adesso = new Date()) {
+  const stato = statoDi(db, telefono, adesso);
+  if (stato.passo !== 'inizio') return '';
+  const cfg = config(db);
+  const testo = riempi(cfg.bot_t_consenso_domanda, { nome: (p && p.nome) || '', locale: cfg.bot_locale || 'noi' }).trim();
+  if (!testo) return '';
+  scriviStato(db, telefono, 'consenso', { email: String((p && p.email) || '').trim(), id: (p && p.id) || null }, adesso);
+  return testo;
+}
+// Chi risponde alla domanda. ⚠️ La domanda si chiude in ogni caso: chi scrive
+// altro («grazie», «a che ora aprite?») non ha detto sì, e il suo messaggio
+// segue la strada di sempre, come se la domanda non ci fosse stata.
+function rispostaAlConsenso(db, telefono, testo, adesso) {
+  const stato = statoDi(db, telefono, adesso);
+  if (stato.passo !== 'consenso') return null;
+  const d = stato.dati || {};
+  scriviStato(db, telefono, 'inizio', {}, adesso);
+  const detto = consensoDetto(testo);
+  if (detto === null) return null;
+  const cfg = config(db);
+  const testoRisposta = riempi(detto ? cfg.bot_t_consenso_si : cfg.bot_t_consenso_no, { email: d.email || '', locale: cfg.bot_locale || 'noi' }).trim();
+  return {
+    risposte: testoRisposta ? [testoRisposta] : [], passaAUmano: false, prenotazione: null, annullata: null, spostata: null, attesa: null,
+    // Lo scrive il server, in rubrica: il motore non tocca i contatti.
+    consenso: { valore: detto ? 'si' : 'no', email: d.email || '', prenotazione: d.id || null },
+  };
+}
+
 function elaboraMessaggio(db, telefono, testo, adesso = new Date(), contesto = {}) {
+  const alConsenso = rispostaAlConsenso(db, telefono, testo, adesso);
+  if (alConsenso) return alConsenso;
   const ripresa = gestisciLaLasciata(db, telefono, testo, adesso, contesto);
   if (ripresa && ripresa.esito) return senzaRigheDiTroppo(ripresa.esito);
   const esito = elaboraComeSempre(db, telefono, ripresa ? ripresa.testo : testo, adesso, contesto);
@@ -9334,6 +9411,8 @@ module.exports = {
   comeOrario,
   bloccoPagamento,
   fattiDelPagamento,
+  consensoDetto,
+  domandaDelConsenso,
   comeNome,
   chiedeIlCollegamento,
   STATI_VIVI,

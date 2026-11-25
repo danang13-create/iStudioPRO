@@ -192,6 +192,25 @@ al nome, così lo riconosci a colpo d'occhio senza aprire la scheda. La Dashboar
 > importazione CSV rientra e ricomincia a ricevere messaggi. Il «No» invece resta, e viaggia
 > nell'esportazione CSV (colonna `non_contattare`), così un backup non fa rientrare chi non va contattato.
 
+### Le novità: chi le vuole ricevere
+
+Oltre al Consenso Sì / No, ogni contatto ha **«Novità e offerte»**, separato per **email** e
+**WhatsApp**: *Non chiesto*, *Sì, le vuole*, *No, non le vuole*. Sotto c'è scritto da dove viene
+(«Ha detto SÌ in chat dopo la prenotazione», «Segnato a mano»…) e quando.
+
+- **Chi è arrivato da una prenotazione** riceve le newsletter **solo con il Sì** di quel canale.
+  Per l'email lo chiede il bot, una volta, dopo la prenotazione: vale solo un «sì» detto, non un
+  «ok». Per WhatsApp lo segni tu, quando il cliente te lo dice.
+- **I contatti che hai messo tu** in rubrica ricevono come sempre; un **No** li toglie da quel canale.
+- In Rubrica, accanto al nome: ✉️ e 💬 se riceve via email / su WhatsApp, con ✕ se no.
+- Negli elenchi dei destinatari chi non può ricevere **non compare**, e sotto c'è scritto quanti sono.
+- In fondo a ogni email c'è un collegamento per uscire: apre WhatsApp con **NO NEWSLETTER** già
+  scritto, e il bot lo toglie dalle novità da solo. Le prenotazioni continuano: per fermare
+  tutto c'è STOP.
+
+> **La privacy policy** del locale deve dire cosa fai con l'email e il numero dei clienti: falla
+> guardare al tuo consulente.
+
 ### Le richieste di cancellazione riconosciute da sole
 
 Ogni 10 minuti iStudio legge le conversazioni e riconosce chi ha risposto con una richiesta

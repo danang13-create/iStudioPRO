@@ -560,6 +560,14 @@
   /* «Prenotazione»: il contatto è entrato in rubrica da solo, prenotando dal bot. */
   .segno-prov { display: inline-block; margin-left: 6px; padding: 1px 7px; border: 1px solid var(--bordo);
     border-radius: 999px; font-size: .74rem; color: var(--grigio); white-space: nowrap; cursor: help; }
+  /* Le novità per canale (25 novembre 2026): ✉️ e 💬 accanto al nome; barrati
+     con ✕ dove il contatto non riceve. */
+  .segni-cons { white-space: nowrap; }
+  .segno-cons { display: inline-block; margin-left: 4px; font-size: .78rem; cursor: help; }
+  .segno-cons.no { opacity: .55; }
+  .consensi-novita { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .consensi-novita select { width: 100%; }
+  .consenso-fonte { display: block; margin-top: 4px; font-size: .78rem; color: var(--grigio); }
   /* stima del tempo di invio sotto il menu "Limite messaggi" */
   .stima-tempo {
     margin: 8px 0; padding: 9px 13px; border-radius: 9px; font-size: .9rem;
@@ -1784,6 +1792,9 @@
         </table>
       </div>
       <p id="contatti-vuoto" class="vuoto" style="display:none">La rubrica è vuota: usa «➕ Aggiungi contatto» o importa un CSV.</p>
+      <!-- La legenda dei segni accanto al nome (25 novembre 2026): sul telefono
+           il suggerimento al passaggio del mouse non c'è. -->
+      <p class="conteggio" id="rubrica-legenda">✉️ 💬 riceve le novità via email / su WhatsApp · con ✕ non le riceve (ha detto no, o è arrivato da una prenotazione e non ha ancora detto sì) · 🚫 non riceve nessun messaggio.</p>
       <div id="paginazione" class="pagine" style="display:none">
         <span class="conteggio" id="pagina-info" style="margin:0"></span>
         <span class="pagine-tasti">
@@ -1920,6 +1931,7 @@
       </div>
       <div id="lista-destinatari" style="max-height:340px;overflow-y:auto"></div>
       <p class="conteggio" id="dest-prov-nota" hidden></p>
+      <p class="conteggio" id="dest-cons-nota" hidden></p>
       <p class="conteggio"><span id="n-selezionati">0</span> destinatari selezionati</p>
       <button class="btn" id="btn-invia">Invia il messaggio</button>
       <div id="progresso" style="display:none; margin-top:14px">
@@ -3316,6 +3328,7 @@
       </div>
       <div id="lista-email-destinatari" style="max-height:340px;overflow-y:auto"></div>
       <p class="conteggio" id="email-dest-prov-nota" hidden></p>
+      <p class="conteggio" id="email-dest-cons-nota" hidden></p>
       <p class="conteggio"><span id="n-email-selezionati">0</span> destinatari selezionati</p>
       <button class="btn" id="btn-invia-email">Invia newsletter</button>
       <div id="email-progresso" style="display:none; margin-top:14px">
@@ -3370,6 +3383,35 @@
             Con <b>No</b> il contatto resta in rubrica ma non riceve più nessun messaggio né newsletter.
           </small>
           <div id="c-consenso-motivo" style="display:none;margin-top:6px;font-size:.82rem;color:var(--saltato-testo)"></div>
+        </div>
+        <!-- Le novità per canale (25 novembre 2026). «Non chiesto» vale come
+             sì per i contatti del locale e come no per chi è arrivato da una
+             prenotazione: vedi `puoRicevereUI`. -->
+        <div style="grid-column:1/-1">
+          <label>Novità e offerte</label>
+          <div class="consensi-novita">
+            <div>
+              <label for="c-novita-email" style="font-weight:400">✉️ Via email</label>
+              <select id="c-novita-email" autocomplete="off">
+                <option value="">Non chiesto</option>
+                <option value="si">Sì, le vuole</option>
+                <option value="no">No, non le vuole</option>
+              </select>
+              <small class="consenso-fonte" id="c-novita-email-fonte" hidden></small>
+            </div>
+            <div>
+              <label for="c-novita-whatsapp" style="font-weight:400">💬 Su WhatsApp</label>
+              <select id="c-novita-whatsapp" autocomplete="off">
+                <option value="">Non chiesto</option>
+                <option value="si">Sì, le vuole</option>
+                <option value="no">No, non le vuole</option>
+              </select>
+              <small class="consenso-fonte" id="c-novita-whatsapp-fonte" hidden></small>
+            </div>
+          </div>
+          <small style="display:block;margin-top:6px;color:var(--grigio)">
+            Chi è arrivato da una prenotazione riceve le newsletter solo con il <b>Sì</b>: per le email lo chiede il bot dopo la prenotazione, su WhatsApp lo segni tu quando il cliente te lo dice. Con <b>No</b> non le riceve, da dovunque arrivi.
+          </small>
         </div>
         <!-- La provenienza si corregge a mano (24 novembre 2026): un contatto
              segnato «Prenotazione» per sbaglio, o non segnato. -->
@@ -4241,6 +4283,50 @@ function notaProvenienza(dove, disponibili, quale) {
     : '';
 }
 
+// ---- Chi può ricevere le novità (25 novembre 2026) ----
+// La STESSA regola di `puoRicevere` nel server, che comunque ricontrolla
+// ogni destinatario prima di spedire: questa serve a non farlo nemmeno
+// comparire nell'elenco. Chi è arrivato da una prenotazione riceve su un
+// canale solo col «sì» di quel canale (prenotare un tavolo non è un consenso
+// al marketing); un «no» su un canale vale per tutti; il «Consenso: No» di
+// sempre e lo STOP chiudono tutto.
+function puoRicevereUI(c, canale) {
+  if (!c || c.opt_out) return false;
+  const detto = String((canale === 'email' ? c.consenso_email : c.consenso_whatsapp) || '');
+  if (detto === 'no') return false;
+  if (ePrenotazione(c)) return detto === 'si';
+  return true;
+}
+// Sotto l'elenco dei destinatari: quanti restano fuori perché non hanno detto
+// sì alle novità su quel canale (chi ha il «Consenso: No» lo sa già il locale).
+function notaConsenso(dove, lista, canale, quale) {
+  const nota = $(dove);
+  if (!nota) return;
+  const fuori = perProvenienza(lista.filter((c) => !c.opt_out && !puoRicevereUI(c, canale)), quale).length;
+  nota.hidden = !fuori;
+  nota.textContent = fuori
+    ? `${fuori === 1 ? 'Un contatto non è' : fuori + ' contatti non sono'} in questo elenco perché non ${fuori === 1 ? 'ha' : 'hanno'} detto sì alle novità ${canale === 'email' ? 'via email' : 'su WhatsApp'}: si cambia aprendo il contatto in Rubrica.`
+    : '';
+}
+// Il consenso in parole, per la rubrica e per la scheda del cliente.
+function consensoInParole(valore) {
+  return valore === 'si' ? 'Sì' : valore === 'no' ? 'No' : 'Non chiesto';
+}
+function segniConsenso(c) {
+  if (c.opt_out) return '';
+  const segno = (canale, icona) => {
+    const v = canale === 'email' ? c.consenso_email : c.consenso_whatsapp;
+    if (canale === 'email' && !c.email) return '';
+    const vale = puoRicevereUI(c, canale);
+    const quando = canale === 'email' ? 'via email' : 'su WhatsApp';
+    const titolo = vale
+      ? (v === 'si' ? `Novità ${quando}: ha detto sì` : `Novità ${quando}: riceve (contatto del locale)`)
+      : (v === 'no' ? `Novità ${quando}: ha detto no` : `Novità ${quando}: non ha ancora detto sì`);
+    return `<span class="segno-cons ${vale ? 'si' : 'no'}" title="${titolo}">${icona}${vale ? '' : '✕'}</span>`;
+  };
+  return segno('email', '✉️') + segno('whatsapp', '💬');
+}
+
 const PER_PAGINA = 100;
 let paginaRubrica = 1;
 let ordinaPer = 'nome';        // nome | cognome | email | telefono
@@ -4276,7 +4362,7 @@ function disegnaContatti() {
 
   $('#tabella-contatti').innerHTML = visibili.map((c) => `
     <tr${c.opt_out ? ' class="riga-no-consenso"' : ''}>
-      <td>${c.opt_out ? '<span class="segno-no" title="Consenso: No — non riceve messaggi">🚫</span> ' : ''}${esc(c.nome)}${ePrenotazione(c) ? SEGNO_PROV : ''}</td>
+      <td>${c.opt_out ? '<span class="segno-no" title="Consenso: No — non riceve messaggi">🚫</span> ' : ''}${esc(c.nome)}<span class="segni-cons">${segniConsenso(c)}</span>${ePrenotazione(c) ? SEGNO_PROV : ''}</td>
       <td>${esc(c.cognome)}</td>
       <td style="word-break:break-all">${esc(c.email)}</td>
       <td class="rub-tel">${esc(c.telefono)}</td>
@@ -4559,6 +4645,8 @@ $('#form-contatto').addEventListener('submit', async (e) => {
     email: $('#c-email').value, telefono: $('#c-telefono').value,
     consenso: $('#c-consenso').value,
     daPrenotazione: $('#c-prenotazione').checked,
+    consenso_email: $('#c-novita-email').value,
+    consenso_whatsapp: $('#c-novita-whatsapp').value,
   };
   mostraErroreContatto('');
   const res = await fetch(id ? '/api/contacts/' + id : '/api/contacts', {
@@ -4606,10 +4694,26 @@ $('#toggle-consenso').addEventListener('click', (e) => {
   if (b) impostaConsenso(b.dataset.val);
 });
 
+// Le novità per canale, nella finestrella (25 novembre 2026): il valore, e
+// sotto da dove viene e quando — «ha detto sì in chat il …», «segnato a mano».
+function mostraConsensiNovita(c) {
+  for (const canale of ['email', 'whatsapp']) {
+    const v = String(c[`consenso_${canale}`] || '');
+    $(`#c-novita-${canale}`).value = v === 'si' || v === 'no' ? v : '';
+    const fonte = String(c[`consenso_${canale}_fonte`] || '');
+    const at = c[`consenso_${canale}_at`] ? new Date(c[`consenso_${canale}_at`]) : null;
+    const quando = at && !isNaN(at) ? at.toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+    const box = $(`#c-novita-${canale}-fonte`);
+    box.textContent = fonte ? `${fonte}${quando ? ` · ${quando}` : ''}` : '';
+    box.hidden = !fonte;
+  }
+}
+
 // Apre la finestrella per un NUOVO contatto (campi vuoti, consenso su "Sì" di default)
 function apriNuovoContatto() {
   $('#form-contatto').reset(); $('#c-id').value = '';
   impostaConsenso('si');
+  mostraConsensiNovita({});
   $('#form-titolo').textContent = 'Nuovo contatto';
   $('#btn-salva').textContent = 'Aggiungi contatto';
   mostraErroreContatto('');
@@ -4626,6 +4730,7 @@ window.modifica = (id) => {
   // consenso "No" = il contatto è escluso (opt_out); mostro anche il motivo se c'è
   impostaConsenso(c.opt_out ? 'no' : 'si', c.opt_out_motivo);
   $('#c-prenotazione').checked = ePrenotazione(c);
+  mostraConsensiNovita(c);
   $('#form-titolo').textContent = 'Modifica contatto';
   $('#btn-salva').textContent = 'Salva modifiche';
   mostraErroreContatto('');
@@ -4748,7 +4853,8 @@ function destinatariFiltrati() {
   // non deve essere nemmeno possibile selezionarlo per sbaglio
   // …e chi è in rubrica solo perché ha prenotato resta fuori finché non lo si
   // sceglie (vedi `perProvenienza`).
-  const disponibili = perProvenienza(contatti.filter((c) => !c.opt_out), $('#dest-provenienza').value);
+  // …e chi non ha detto sì alle novità su WhatsApp, dove serve (vedi `puoRicevereUI`).
+  const disponibili = perProvenienza(contatti.filter((c) => puoRicevereUI(c, 'whatsapp')), $('#dest-provenienza').value);
   if (!q) return disponibili;
   return disponibili.filter((c) =>
     (c.nome + ' ' + c.cognome + ' ' + c.telefono + ' ' + c.email).toLowerCase().includes(q));
@@ -4827,7 +4933,8 @@ function disegnaDestinatari() {
     });
   }
   $('#n-selezionati').textContent = selezionati.size;
-  notaProvenienza('#dest-prov-nota', contatti.filter((c) => !c.opt_out), $('#dest-provenienza').value);
+  notaProvenienza('#dest-prov-nota', contatti.filter((c) => puoRicevereUI(c, 'whatsapp')), $('#dest-provenienza').value);
+  notaConsenso('#dest-cons-nota', contatti, 'whatsapp', $('#dest-provenienza').value);
   aggiornaStima('whatsapp');
 }
 
@@ -5310,7 +5417,7 @@ $('#btn-test-smtp').addEventListener('click', async () => {
 // Contatti con email visibili nell'elenco, in base alla ricerca
 function emailDestinatariFiltrati() {
   const q = ($('#cerca-email-destinatari').value || '').toLowerCase().trim();
-  const conEmail = perProvenienza(contatti.filter((c) => c.email && !c.opt_out), $('#email-dest-provenienza').value);
+  const conEmail = perProvenienza(contatti.filter((c) => c.email && puoRicevereUI(c, 'email')), $('#email-dest-provenienza').value);
   if (!q) return conEmail;
   return conEmail.filter((c) =>
     (c.nome + ' ' + c.cognome + ' ' + c.email).toLowerCase().includes(q));
@@ -5318,10 +5425,12 @@ function emailDestinatariFiltrati() {
 
 function disegnaEmailDestinatari() {
   const box = $('#lista-email-destinatari');
-  const tuttiConEmail = contatti.filter((c) => c.email && !c.opt_out);
+  const tuttiConEmail = contatti.filter((c) => c.email && puoRicevereUI(c, 'email'));
   const conEmail = emailDestinatariFiltrati();
   if (!tuttiConEmail.length) {
-    box.innerHTML = '<p class="vuoto">Nessun contatto con indirizzo email in rubrica.</p>';
+    box.innerHTML = contatti.some((c) => c.email)
+      ? '<p class="vuoto">Nessun contatto con l\'email può ricevere le novità: chi è arrivato da una prenotazione le riceve solo dopo aver detto sì.</p>'
+      : '<p class="vuoto">Nessun contatto con indirizzo email in rubrica.</p>';
   } else if (!conEmail.length) {
     box.innerHTML = '<p class="vuoto">Nessun contatto trovato con questa ricerca.</p>';
   } else {
@@ -5341,6 +5450,7 @@ function disegnaEmailDestinatari() {
   }
   $('#n-email-selezionati').textContent = emailSelezionati.size;
   notaProvenienza('#email-dest-prov-nota', tuttiConEmail, $('#email-dest-provenienza').value);
+  notaConsenso('#email-dest-cons-nota', contatti.filter((c) => c.email), 'email', $('#email-dest-provenienza').value);
   aggiornaStima('email');
 }
 
@@ -6057,6 +6167,14 @@ const TESTI_BOT = [
   ['bot_t_posta_acconto_avviso', 'Email, acconto facoltativo: l\'invito', 'Sotto il titolo. La prima frase (fino al punto) esce da sola quando il collegamento non c\'è.'],
   ['bot_t_posta_acconto_riga', 'Email, acconto facoltativo: la riga dell\'importo', 'Accanto c\'è la cifra dell\'acconto.'],
   ['bot_t_posta_acconto_pulsante', 'Email, acconto facoltativo: il pulsante', 'La scritta sul pulsante. Volendo, <b>{importo}</b> è la cifra.'],
+  [null, 'Le novità: il consenso'],
+  ['bot_t_consenso_domanda', 'La domanda sulle novità via email', 'Parte UNA volta, dopo la prenotazione (o dopo il pagamento), solo a chi ha dato l\'email e non ha ancora risposto. Vale solo un SÌ esplicito: «ok» o «perfetto» non bastano, e il bot lascia stare. Segnaposto: {nome} {locale}. ⚠️ Lasciata vuota, la domanda non parte e chi arriva dalle prenotazioni non riceve le newsletter.'],
+  ['bot_t_consenso_si', 'Ha detto sì', 'La risposta al SÌ. <b>{email}</b> è l\'indirizzo a cui arriveranno le novità.'],
+  ['bot_t_consenso_no', 'Ha detto no', 'La risposta al NO. Le prenotazioni restano come sono: le novità sono un\'altra cosa.'],
+  ['bot_t_newsletter_no', 'Ha scritto NO NEWSLETTER', 'Quando scrive NO NEWSLETTER (col collegamento in fondo alle email, o a mano): esce dalle novità via email e su WhatsApp. Le prenotazioni e i promemoria continuano: per fermare tutto c\'è STOP.'],
+  ['bot_t_posta_novita', 'Email della prenotazione: la riga in fondo', 'In piccolo in fondo all\'email della prenotazione, prima di «per non riceverle più».'],
+  ['bot_t_posta_newsletter', 'Newsletter: la riga in fondo', 'In piccolo in fondo a ogni newsletter email: perché la riceve. Segnaposto: {locale}.'],
+  ['bot_t_posta_uscita', 'Email: il collegamento per uscire', 'Dopo le due righe qui sopra. È un collegamento che apre WhatsApp col messaggio NO NEWSLETTER già scritto, e il bot fa il resto. Senza WhatsApp collegato si dice di rispondere all\'email.'],
   [null, 'Confermata — o lasciata a metà'],
   ['bot_t_conferma', 'Prenotazione confermata', ''],
   ['bot_t_rinuncia', 'Il cliente ha rinunciato mentre prenotava', 'Quando dice NO al riepilogo, o a metà scrive che non vuole più prenotare («non voglio più prenotare», «lascia stare», «ho cambiato idea»): non è stata segnata nessuna prenotazione, e il bot non torna a cercarlo con «Sei ancora lì?».'],
@@ -7759,6 +7877,22 @@ async function apriScheda(id) {
 // nella fila dei tasti, gli stati lunghi andavano a capo fra un tasto e
 // l'altro. Lo STOP scritto al bot è un'altra cosa dal «no» della rubrica, e
 // «Elimina» non lo toglie.
+// Le novità per canale, nella scheda del cliente (25 novembre 2026): se le
+// riceve, e perché — la stessa regola della rubrica (`puoRicevereUI`).
+function statiNovita(r) {
+  const c = { opt_out: r.optOut, provenienza: r.provenienza, consenso_email: r.consensoEmail, consenso_whatsapp: r.consensoWhatsapp };
+  const uno = (canale, icona, nomeCanale) => {
+    const v = canale === 'email' ? r.consensoEmail : r.consensoWhatsapp;
+    const fonte = canale === 'email' ? r.consensoEmailFonte : r.consensoWhatsappFonte;
+    const vale = puoRicevereUI(c, canale);
+    const detto = vale
+      ? (v === 'si' ? 'sì' : 'sì, contatto del locale')
+      : (v === 'no' ? 'ha detto no' : 'non ha detto sì');
+    return `<span class="cli-stato${vale ? '' : ' nessuno'}" title="${testoSicuro(fonte || (vale ? 'Contatto messo in rubrica dal locale' : 'Chi arriva da una prenotazione riceve le novità solo dopo un sì'))}">${icona} Novità ${nomeCanale}: ${detto}</span>`;
+  };
+  return (r.conEmail ? uno('email', '✉️', 'via email') : '') + uno('whatsapp', '💬', 'su WhatsApp');
+}
+
 function disegnaAzioniScheda(d) {
   const box = $('#cli-azioni');
   const stati = $('#cli-stati');
@@ -7769,7 +7903,7 @@ function disegnaAzioniScheda(d) {
     return;
   }
   if (d.inRubrica) {
-    stati.innerHTML = `<span class="cli-stato">✅ In rubrica come <b>${testoSicuro(d.inRubrica.nome)}</b></span>${stop}`;
+    stati.innerHTML = `<span class="cli-stato">✅ In rubrica come <b>${testoSicuro(d.inRubrica.nome)}</b></span>${statiNovita(d.inRubrica)}${stop}`;
     return;
   }
   if (!d.telefono && !d.email) {

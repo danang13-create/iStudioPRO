@@ -142,6 +142,15 @@ try { db.exec("ALTER TABLE campaigns ADD COLUMN skipped INTEGER NOT NULL DEFAULT
 try { db.exec("ALTER TABLE contacts ADD COLUMN provenienza TEXT NOT NULL DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE contacts ADD COLUMN consenso TEXT NOT NULL DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE contacts ADD COLUMN consenso_at TEXT"); } catch {}
+// IL CONSENSO ALLE NOVITÀ, canale per canale (25 novembre 2026, vedi
+// `puoRicevere`): '' = non chiesto, 'si', 'no'; con la data e da dove viene
+// («detto in chat», «segnato a mano», «NO NEWSLETTER»…), che è quello che si
+// mostra a chi chiede «come avete avuto il mio indirizzo?».
+for (const canale of ['email', 'whatsapp']) {
+  try { db.exec(`ALTER TABLE contacts ADD COLUMN consenso_${canale} TEXT NOT NULL DEFAULT ''`); } catch {}
+  try { db.exec(`ALTER TABLE contacts ADD COLUMN consenso_${canale}_at TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE contacts ADD COLUMN consenso_${canale}_fonte TEXT`); } catch {}
+}
 try { db.exec("ALTER TABLE campaigns ADD COLUMN resume_after TEXT"); } catch {}
 
 // Un invio non sopravvive al riavvio del server, ma ora è ripartibile: i destinatari
@@ -304,6 +313,8 @@ client.on('ready', () => {
   state.me = client.info && client.info.wid ? client.info.wid.user : null;
   console.log('WhatsApp connesso come', state.me);
   mettiLaToppaInvioFile();
+  // Per il collegamento «NO NEWSLETTER» in fondo alle email (vedi `piedeDelleNovita`).
+  if (state.me) { try { setSetting('bot_numero_locale', String(state.me).replace(/\D/g, '')); } catch {} }
   // se un invio si era fermato per il collegamento caduto, riparte da solo
   setTimeout(() => riprendiInviiAutomatici(), 2000);
 });
@@ -631,6 +642,30 @@ function numeroInRubrica(valore) {
   return /^\d{8,15}$/.test(cifre) ? '+' + cifre : originale;
 }
 
+// ---------- Chi può ricevere le novità (25 novembre 2026) ----------
+// Dal titolare: «dobbiamo far accettare l'uso dei dati come email e numero di
+// telefono per il marketing». La regola, in un posto solo (la pagina ne ha una
+// copia, `puoRicevereUI`, che deve dire la stessa cosa):
+//   · chi ha scritto STOP, o ha il «Consenso: No» di sempre (`opt_out`): niente;
+//   · un «no» su quel canale: niente su quel canale;
+//   · chi è entrato in rubrica DA UNA PRENOTAZIONE riceve su un canale solo
+//     col «sì» di quel canale. ⚠️ Per legge prenotare non è un consenso al
+//     marketing: l'email la riceve chi ha detto SÌ alla domanda del bot (o
+//     chi c'era già prima, deciso col titolare: vedi `consensiDiPrima`), e su
+//     WhatsApp le offerte partono solo a chi il locale ha segnato a mano;
+//   · gli altri contatti — la rubrica del locale, i CSV — come sempre.
+function puoRicevere(c, canale) {
+  if (!c || c.opt_out) return false;
+  const detto = String((canale === 'email' ? c.consenso_email : c.consenso_whatsapp) || '');
+  if (detto === 'no') return false;
+  if (c.provenienza === PROVENIENZA_PRENOTAZIONE) return detto === 'si';
+  return true;
+}
+const NON_PUO_RICEVERE = {
+  email: 'Non ha detto sì alle novità via email',
+  whatsapp: 'Non ha detto sì alle novità su WhatsApp',
+};
+
 function renderTemplate(message, contact) {
   return message
     .replace(/[\{\[]nome[\}\]]/gi, contact.nome || '')
@@ -692,6 +727,44 @@ function buildTransporter() {
     secure: port === 465,
     auth: { user, pass },
   });
+}
+
+// La strada per uscire dalle novità, in fondo alle email (25 novembre 2026).
+// iStudio gira sul computer del locale e da internet non si raggiunge: un
+// «clicca qui» normale non arriverebbe a nessuno. Allora il collegamento apre
+// la chat WhatsApp del locale con «NO NEWSLETTER» già scritto, e lì risponde
+// il bot (vedi `togliDalleNovita`). Senza il numero del locale — WhatsApp mai
+// collegato — si dice di rispondere all'email.
+// `quale`: 'newsletter' (perché la ricevi) o 'prenotazione' (che le novità
+// arrivano solo a chi ha detto sì). Le parole sono frasi del bot, in «Frasi e
+// domande»; senza il bot, quelle di partenza.
+function piedeDelleNovita(quale, indirizzoLocale = '') {
+  const cfg = botDisponibile() ? bot.config(db) : {};
+  const frase = (chiave) => {
+    const scritta = String(cfg[chiave] == null ? '' : cfg[chiave]);
+    const base = botDisponibile() ? String(bot.PREDEFINITI[chiave] || '') : '';
+    const t = scritta.trim() ? scritta : base;
+    return botDisponibile() ? bot.riempi(t, { locale: cfg.bot_locale || getSetting('smtp_from_name') || 'noi' }) : t;
+  };
+  const sicuro = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const perche = quale === 'newsletter'
+    ? (frase('bot_t_posta_newsletter') || 'Ricevi questa email perché hai scelto di ricevere le nostre novità.')
+    : (frase('bot_t_posta_novita') || 'Le nostre novità via email arrivano solo a chi ci ha detto sì.');
+  const numero = String(cfg.bot_numero_locale || '').replace(/\D/g, '');
+  const link = numero ? `https://wa.me/${numero}?text=${encodeURIComponent('NO NEWSLETTER')}` : '';
+  const uscita = link
+    ? (frase('bot_t_posta_uscita') || 'Per non riceverle più, scrivici NO NEWSLETTER su WhatsApp.')
+    : 'Per non riceverle più, rispondi a questa email scrivendo NO NEWSLETTER.';
+  const html = '<div style="max-width:600px;margin:14px auto 0;padding:0 12px;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#667781">'
+    + sicuro(perche) + ' '
+    + (link ? `<a href="${sicuro(link)}" style="color:#0f7a6d">${sicuro(uscita)}</a>` : sicuro(uscita))
+    + '</div>';
+  const intestazioni = {};
+  const mail = String(indirizzoLocale || '').trim();
+  if (quale === 'newsletter' && (mail || link)) {
+    intestazioni['List-Unsubscribe'] = [mail ? `<mailto:${mail}?subject=${encodeURIComponent('NO NEWSLETTER')}>` : '', link ? `<${link}>` : ''].filter(Boolean).join(', ');
+  }
+  return { html, testo: `\n\n—\n${perche} ${uscita}${link ? ` ${link}` : ''}`, intestazioni };
 }
 
 function emailHtml(text, conImmagine) {
@@ -903,7 +976,7 @@ async function runCampaign(campaignId, opzioni) {
     );
     const bump = db.prepare('UPDATE campaigns SET sent = sent + ?, failed = failed + ? WHERE id = ?');
     const bumpSaltati = db.prepare('UPDATE campaigns SET skipped = skipped + 1 WHERE id = ?');
-    const eDisiscritto = db.prepare('SELECT opt_out FROM contacts WHERE id = ?');
+    const eDisiscritto = db.prepare('SELECT * FROM contacts WHERE id = ?');
 
     const transporter = viaEmail ? buildTransporter() : null;
     const fromName = viaEmail ? (getSetting('smtp_from_name') || '') : '';
@@ -948,6 +1021,13 @@ async function runCampaign(campaignId, opzioni) {
         bumpSaltati.run(campaignId);
         continue; // niente attesa: non abbiamo contattato nessuno
       }
+      // …o ha tolto il consenso a questo canale (NO NEWSLETTER, mentre l'invio
+      // era in pausa): si ricontrolla adesso, come per lo STOP.
+      if (stato && !puoRicevere(stato, viaEmail ? 'email' : 'whatsapp')) {
+        updateMsg.run('saltato', NON_PUO_RICEVERE[viaEmail ? 'email' : 'whatsapp'], campaignId, contact.id);
+        bumpSaltati.run(campaignId);
+        continue;
+      }
 
       try {
         if (viaEmail) {
@@ -955,12 +1035,18 @@ async function runCampaign(campaignId, opzioni) {
           if (!contact.email) throw new Error('Contatto senza email');
           await verificaEmail(contact.email); // scritta male o dominio inesistente → errore
           const body = renderTemplate(camp.message, contact);
+          // ⚠️ In fondo a OGNI newsletter, la strada per uscire (25 novembre
+          // 2026): per legge ogni email promozionale la deve avere. E
+          // l'intestazione «List-Unsubscribe», con cui Gmail mostra in alto
+          // «Annulla iscrizione»: arriva al locale come email, da segnare a mano.
+          const piede = piedeDelleNovita('newsletter', fromAddr);
           await transporter.sendMail({
             from: fromName ? `"${fromName}" <${fromAddr}>` : fromAddr,
             to: contact.email,
             subject: renderTemplate(camp.subject || '', contact),
-            text: body,
-            html: emailHtml(body, Boolean(immagine)),
+            text: body + piede.testo,
+            html: emailHtml(body, Boolean(immagine)) + piede.html,
+            headers: piede.intestazioni,
             attachments: immagine ? [{
               filename: immagine.filename || 'immagine.png',
               content: Buffer.from(immagine.base64, 'base64'),
@@ -2399,6 +2485,22 @@ function messaggioDuplicato(dup) {
     : `Questo indirizzo email è già in rubrica, intestato a ${nomeCompleto}.`;
 }
 
+// Il consenso alle novità per canale, dalla finestrella del contatto (25
+// novembre 2026): 'si', 'no' o '' (non chiesto). Si scrive solo se la pagina
+// lo manda e se è cambiato: così la data e la fonte di un «sì» detto in chat
+// non si perdono salvando il contatto per correggere il cognome.
+function consensiDallaPagina(id, corpo) {
+  const prima = db.prepare('SELECT consenso_email, consenso_whatsapp FROM contacts WHERE id = ?').get(id) || {};
+  for (const canale of ['email', 'whatsapp']) {
+    const v = corpo ? corpo[`consenso_${canale}`] : undefined;
+    if (v === undefined) continue;
+    const valore = v === 'si' || v === 'no' ? v : '';
+    if (valore === (prima[`consenso_${canale}`] || '')) continue;
+    db.prepare(`UPDATE contacts SET consenso_${canale} = ?, consenso_${canale}_at = ?, consenso_${canale}_fonte = ? WHERE id = ?`)
+      .run(valore, valore ? new Date().toISOString() : null, valore ? 'Segnato a mano' : null, id);
+  }
+}
+
 // Consenso a due stati: 'no' solo se scritto esplicitamente, altrimenti 'si'.
 // Il consenso è la STESSA cosa del «non contattare»: consenso 'no' = opt_out.
 function consensoNegato(v) {
@@ -2422,6 +2524,7 @@ app.post('/api/contacts', (req, res) => {
   if (req.body.daPrenotazione) {
     db.prepare('UPDATE contacts SET provenienza = ? WHERE id = ?').run(PROVENIENZA_PRENOTAZIONE, info.lastInsertRowid);
   }
+  consensiDallaPagina(info.lastInsertRowid, req.body);
   res.json(db.prepare('SELECT * FROM contacts WHERE id = ?').get(info.lastInsertRowid));
 });
 
@@ -2453,6 +2556,7 @@ app.put('/api/contacts/:id', (req, res) => {
       db.prepare("UPDATE contacts SET provenienza = '' WHERE id = ? AND provenienza = ?").run(req.params.id, PROVENIENZA_PRENOTAZIONE);
     }
   }
+  consensiDallaPagina(req.params.id, req.body);
   res.json(db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id));
 });
 
@@ -2568,6 +2672,18 @@ app.post('/api/contacts/import', (req, res) => {
         escluso ? new Date().toISOString() : null,
         escluso ? 'Importato dal CSV' : null,
         String(r.provenienza || '').replace(/\s+/g, ' ').trim().slice(0, 40));
+      // Il consenso alle novità per canale (25 novembre 2026): un backup che lo
+      // perde farebbe uscire dalle newsletter chi aveva detto sì — o rientrare
+      // chi aveva detto no.
+      const nuovo = db.prepare('SELECT last_insert_rowid() AS id').get().id;
+      for (const canale of ['email', 'whatsapp']) {
+        const v = String(r[`novita_${canale}`] || '').trim().toLowerCase();
+        const valore = /^(si|sì|s|yes|1|true|x)$/.test(v) ? 'si' : /^(no|n|0|false)$/.test(v) ? 'no' : '';
+        if (valore) {
+          db.prepare(`UPDATE contacts SET consenso_${canale} = ?, consenso_${canale}_at = ?, consenso_${canale}_fonte = ? WHERE id = ?`)
+            .run(valore, new Date().toISOString(), 'Importato dal CSV', nuovo);
+        }
+      }
       phoneSet.add(phoneKey);
       if (email) emailSet.add(email.toLowerCase());
       importati++;
@@ -2579,13 +2695,15 @@ app.post('/api/contacts/import', (req, res) => {
 
 // Esportazione contatti in CSV
 app.get('/api/contacts/export', (req, res) => {
-  const rows = db.prepare('SELECT nome, cognome, email, telefono, opt_out, provenienza FROM contacts ORDER BY nome COLLATE NOCASE, cognome COLLATE NOCASE').all();
+  const rows = db.prepare('SELECT nome, cognome, email, telefono, opt_out, provenienza, consenso_email, consenso_whatsapp FROM contacts ORDER BY nome COLLATE NOCASE, cognome COLLATE NOCASE').all();
   const quote = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   // La colonna del consenso (= non contattare) viaggia col CSV: un backup che la perde
   // farebbe rientrare negli invii chi aveva consenso "No".
   // …e la provenienza anche (vedi l'importazione): «Prenotazione» resta tale.
-  const csv = ['nome;cognome;email;telefono;non_contattare;provenienza']
-    .concat(rows.map((r) => [r.nome, r.cognome, r.email, r.telefono, r.opt_out ? 'si' : '', r.provenienza || ''].map(quote).join(';')))
+  // …e il consenso alle novità per canale (25 novembre 2026): «si», «no» o vuoto.
+  const csv = ['nome;cognome;email;telefono;non_contattare;provenienza' + ';novita_email;novita_whatsapp']
+    .concat(rows.map((r) => [r.nome, r.cognome, r.email, r.telefono, r.opt_out ? 'si' : '', r.provenienza || '']
+      .concat([r.consenso_email || '', r.consenso_whatsapp || '']).map(quote).join(';')))
     .join('\r\n');
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="contatti.csv"');
@@ -2614,13 +2732,15 @@ app.post('/api/send', (req, res) => {
     return res.status(409).json({ error: 'WhatsApp non è connesso: scansiona prima il QR code' });
   }
   const placeholders = contactIds.map(() => '?').join(',');
-  // I disiscritti non entrano proprio nell'invio
-  const contacts = db.prepare(`SELECT * FROM contacts WHERE id IN (${placeholders}) AND opt_out = 0`).all(...contactIds);
+  // I disiscritti non entrano proprio nell'invio — e nemmeno chi non ha detto
+  // sì alle novità su WhatsApp (vedi `puoRicevere`).
+  const contacts = db.prepare(`SELECT * FROM contacts WHERE id IN (${placeholders}) AND opt_out = 0`).all(...contactIds)
+    .filter((c) => puoRicevere(c, 'whatsapp'));
   const esclusi = contactIds.length - contacts.length;
   if (contacts.length === 0) {
     return res.status(400).json({
       error: esclusi
-        ? 'Tutti i contatti selezionati hanno chiesto di non ricevere più messaggi.'
+        ? 'Nessuno dei contatti selezionati può ricevere le novità su WhatsApp: hanno chiesto di non ricevere più messaggi, o non hanno detto sì.'
         : 'Nessun contatto valido selezionato',
     });
   }
@@ -2729,10 +2849,11 @@ app.post('/api/email/send', (req, res) => {
   const placeholders = contactIds.map(() => '?').join(',');
   const contacts = db
     .prepare(`SELECT * FROM contacts WHERE id IN (${placeholders}) AND email != '' AND opt_out = 0`)
-    .all(...contactIds);
+    .all(...contactIds)
+    .filter((c) => puoRicevere(c, 'email'));
   const esclusi = contactIds.length - contacts.length;
   if (contacts.length === 0) {
-    return res.status(400).json({ error: 'Nessuno dei contatti selezionati ha un indirizzo email, o hanno tutti chiesto di non essere più contattati' });
+    return res.status(400).json({ error: 'Nessuno dei contatti selezionati può ricevere le newsletter: non hanno un indirizzo email, hanno chiesto di non essere più contattati, o non hanno detto sì alle novità' });
   }
 
   // Il tetto delle newsletter NON si sceglie invio per invio come su WhatsApp: vale quello
@@ -5201,6 +5322,18 @@ if (botDisponibile()) {
       if (tipo === 'privata' && !msg.fromMe) await imparaNumero(msg, da);
       if (tipo !== 'privata') return annota('ignorato', `non è una chat singola (${tipo}: ${da})`);
 
+      // «NO NEWSLETTER» (25 novembre 2026): la parola del collegamento in
+      // fondo alle email. ⚠️ Prima del bot, e ANCHE a bot spento o con
+      // l'abbonamento scaduto: le newsletter partono comunque, e chi chiede di
+      // uscirne deve uscirne sempre. Non è STOP: il bot continua a rispondere.
+      // («typeof»: le prove eseguono questo gestore con i soli pezzi che servono.)
+      if (!msg.fromMe && !msg.isStatus && typeof vuoleUscireDalleNovita === 'function' && vuoleUscireDalleNovita(typeof msg.body === 'string' ? msg.body : '')) {
+        const idSubito = msg.id && msg.id._serialized;
+        if (giaVisto(idSubito)) return annota('ignorato', 'già risposto a questo messaggio');
+        await togliDalleNovita(da, await numeroDelMittente(msg, da), (msg._data && msg._data.notifyName) || '');
+        return;
+      }
+
       if (!botAcceso()) {
         // ⚠️ Il silenzio verso i clienti è voluto, quello verso il locale no:
         // chi lavora in sala resterebbe a chiedersi perché tutto tace, e
@@ -5340,6 +5473,11 @@ if (botDisponibile()) {
         // deve MAI fermare una prenotazione o un pagamento.
         try { inRubricaDaSola(esito.prenotazione); } catch (e) { console.error('Rubrica automatica:', e && e.message); }
       }
+      // Il consenso alle novità (25 novembre 2026): la risposta si scrive in
+      // rubrica; la domanda parte DOPO tutto il resto, come ultimo messaggio.
+      // Chi deve pagare se la sente chiedere a pagamento ricevuto.
+      if (esito.consenso && typeof registraConsenso === 'function') registraConsenso(esito.consenso, telefono, chatId);
+      if (esito.prenotazione && !(esito.daPagare && esito.daPagare.obbligatorio) && typeof chiediIlConsensoSeServe === 'function') await chiediIlConsensoSeServe(esito.prenotazione, chatId);
       if (esito.annullata) {
         annota('annullata', `${esito.annullata.data} ${esito.annullata.ora}`);
         await avvisaPrenotazione(esito.annullata, 'annullata');
@@ -5518,6 +5656,106 @@ if (botDisponibile()) {
 // qualcuno se ne accorge»: la scansione delle chat gira ogni dieci minuti e
 // chiede conferma, che va bene per un messaggio scritto chissà quando in una
 // chat qualunque — ma non per una risposta diretta a noi.
+// ---------- Il consenso alle novità (25 novembre 2026) ----------
+// Dal titolare: «dobbiamo far accettare l'uso dei dati come email e numero di
+// telefono per uso marketing». Deciso con lui: il bot chiede un SÌ esplicito
+// per le email, una volta, dopo la prenotazione (o il pagamento); WhatsApp
+// solo a mano; in fondo a ogni email «NO NEWSLETTER» per uscire. Vedi
+// `puoRicevere` per chi riceve cosa.
+const PAROLA_NO_NOVITA = /^(no|basta)\s+(alle\s+|le\s+)?(newsletter|news|novita|novità)\b/i;
+function vuoleUscireDalleNovita(testo) {
+  const t = String(testo || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  return t.length > 0 && t.length <= 40 && PAROLA_NO_NOVITA.test(t);
+}
+// I contatti di una persona: per numero, e per le email delle sue prenotazioni
+// (chi è in rubrica con l'email ma con un altro numero).
+function contattiDellaPersona(chatId, telefono) {
+  const numero = normalizePhone(telefono || '');
+  const email = new Set(db.prepare('SELECT email FROM prenotazioni WHERE (chat_id = ? OR telefono = ?) AND email <> \'\'').all(chatId || '', telefono || chatId || '')
+    .map((r) => String(r.email).trim().toLowerCase()));
+  return db.prepare('SELECT * FROM contacts').all().filter((c) => (numero && normalizePhone(c.telefono) === numero)
+    || (c.email && email.has(String(c.email).trim().toLowerCase())));
+}
+function scriviConsenso(id, canale, valore, fonte) {
+  db.prepare(`UPDATE contacts SET consenso_${canale} = ?, consenso_${canale}_at = ?, consenso_${canale}_fonte = ? WHERE id = ?`)
+    .run(valore, new Date().toISOString(), fonte, id);
+}
+// «NO NEWSLETTER»: fuori dalle novità su tutti e due i canali. Se in rubrica
+// non c'è, la richiesta resta fra quelle da guardare, così il locale la vede.
+async function togliDalleNovita(chatId, telefono, nomeChat) {
+  const trovati = contattiDellaPersona(chatId, telefono);
+  for (const c of trovati) {
+    scriviConsenso(c.id, 'email', 'no', 'Ha scritto NO NEWSLETTER su WhatsApp');
+    scriviConsenso(c.id, 'whatsapp', 'no', 'Ha scritto NO NEWSLETTER su WhatsApp');
+  }
+  if (!trovati.length) {
+    db.prepare("INSERT INTO optout_requests (chat_nome, testo, contact_id, stato) VALUES (?, ?, NULL, 'da_confermare')")
+      .run(nomeChat || (telefono ? '+' + telefono : String(chatId)), 'NO NEWSLETTER — non trovato in rubrica');
+  }
+  annota('novità', `${nomeChat || (telefono ? '+' + telefono : chatId)} ha scritto NO NEWSLETTER: ${trovati.length ? `tolto dalle novità (${trovati.length} in rubrica)` : 'in rubrica non c\'è, richiesta da guardare'}`);
+  // Se il bot aspettava la risposta alla domanda sulle novità, la risposta è questa.
+  if (botDisponibile()) { try { if (bot.statoDi(db, chatId, new Date()).passo === 'consenso') bot.azzeraStato(db, chatId); } catch {} }
+  const cfg = botDisponibile() ? bot.config(db) : {};
+  const frase = String(cfg.bot_t_newsletter_no || '').trim() || 'Fatto ✅ Non riceverai più le nostre novità.';
+  try { await rispondiConRitmo(chatId, frase); } catch (e) { annota('errore', `NO NEWSLETTER segnato, ma la risposta non è partita: ${e.message}`); }
+}
+// La risposta alla domanda del bot, scritta in rubrica. Il contatto di solito
+// c'è già (lo crea `inRubricaDaSola` alla prenotazione); se non c'è e ha detto
+// sì, si crea qui — senza un contatto, quel sì non servirebbe a niente.
+function registraConsenso(c, telefono, chatId) {
+  try {
+    const email = String((c && c.email) || '').trim();
+    const valore = c && c.valore === 'si' ? 'si' : 'no';
+    const fonte = valore === 'si' ? 'Ha detto SÌ in chat dopo la prenotazione' : 'Ha detto NO in chat dopo la prenotazione';
+    const numero = normalizePhone(telefono || '');
+    const trovati = db.prepare('SELECT * FROM contacts').all().filter((x) => (email && String(x.email || '').trim().toLowerCase() === email.toLowerCase())
+      || (numero && normalizePhone(x.telefono) === numero));
+    for (const x of trovati) scriviConsenso(x.id, 'email', valore, fonte);
+    if (!trovati.length && valore === 'si' && email) {
+      const p = c.prenotazione ? db.prepare('SELECT * FROM prenotazioni WHERE id = ?').get(c.prenotazione) : null;
+      const info = db.prepare('INSERT INTO contacts (nome, cognome, email, telefono, provenienza) VALUES (?, ?, ?, ?, ?)')
+        .run(String((p && p.nome) || 'Cliente').trim(), String((p && p.cognome) || '').trim(), email, numeroInRubrica(telefono || (p && p.telefono_contatto) || ''), PROVENIENZA_PRENOTAZIONE);
+      scriviConsenso(info.lastInsertRowid, 'email', 'si', fonte);
+    }
+    annota('novità', `${email || chatId}: ${valore === 'si' ? 'sì' : 'no'} alle novità via email`);
+  } catch (e) { annota('errore', `il consenso alle novità non si è scritto: ${e.message}`); }
+}
+// La domanda, dopo una prenotazione fatta o pagata. Solo a chi ha dato
+// un'email, non ha ancora risposto, non ha chiesto di non essere contattato,
+// e ha una chat aperta col locale (le prenotazioni prese a mano no). Una
+// frase lasciata vuota in «Frasi e domande» spegne la domanda.
+async function chiediIlConsensoSeServe(p, chatId = '') {
+  try {
+    if (!botDisponibile() || !p) return false;
+    const chiave = chatId || p.chat_id || '';
+    if (!chiave || p.origine === 'manuale') return false;
+    if (p.stato !== 'confermata' && p.stato !== 'presentata') return false;
+    const email = String(p.email || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return false;
+    const numero = normalizePhone(p.telefono_contatto || p.telefono || '');
+    if (bot.haDettoBasta(db, chiave, numero)) return false;
+    const suoi = db.prepare('SELECT * FROM contacts').all().filter((x) => String(x.email || '').trim().toLowerCase() === email.toLowerCase()
+      || (numero && normalizePhone(x.telefono) === numero));
+    if (suoi.some((x) => x.opt_out || x.consenso_email === 'si' || x.consenso_email === 'no')) return false;
+    const testo = bot.domandaDelConsenso(db, chiave, p, new Date());
+    if (!testo) return false;
+    await rispondiConRitmo(chiave, testo);
+    return true;
+  } catch (e) {
+    annota('errore', `la domanda sulle novità non è partita: ${e.message}`);
+    return false;
+  }
+}
+// I contatti arrivati dalle prenotazioni PRIMA di oggi (deciso col titolare):
+// dentro le newsletter email, col collegamento per uscire in fondo a ognuna.
+// Una volta sola. WhatsApp no: lì serve un sì, e nessuno l'ha mai chiesto.
+function consensiDiPrima(archivio = db) {
+  const r = archivio.prepare("UPDATE contacts SET consenso_email = 'si', consenso_email_at = ?, consenso_email_fonte = ? "
+    + "WHERE provenienza = ? AND email <> '' AND consenso_email = '' AND opt_out = 0")
+    .run(new Date().toISOString(), 'In rubrica da una prenotazione prima del 25 novembre 2026: inclusi per scelta del locale', PROVENIENZA_PRENOTAZIONE);
+  return r.changes;
+}
+
 async function fermaTutto(chiave, telefono, nomeChat) {
   const numero = normalizePhone(telefono || chiave);
   const contatto = numero
@@ -6651,11 +6889,17 @@ function composizioneEmail(cfg, p, link) {
     || 'La tua prenotazione';
   const testo = bot.riempi(cfg.bot_email_testo, valori);
   const logo = leggiImmagine(cfg.bot_email_logo);
+  // In fondo, la strada per uscire dalle novità (25 novembre 2026, vedi
+  // `piedeDelleNovita`). ⚠️ «typeof»: le prove estraggono questa funzione da
+  // sola, senza il resto del server.
+  const piede = typeof piedeDelleNovita === 'function' ? piedeDelleNovita('prenotazione') : { html: '', testo: '' };
   return {
     oggetto, testo,
+    testoSpedito: testo + piede.testo,
+    piedeHtml: piede.html,
     // Il riquadro NON sta fra i valori del testo: è HTML, e nel testo semplice
     // (e nell'oggetto) non deve poterci finire.
-    html: corpoEmailRiepilogo(cfg, { ...valori, pagamento_html: riquadroPagamento() }, testo, !!logo),
+    html: corpoEmailRiepilogo(cfg, { ...valori, pagamento_html: riquadroPagamento() }, testo, !!logo) + piede.html,
     allegati: logo ? [{ filename: 'logo.png', content: Buffer.from(logo.base64, 'base64'), cid: 'logo-istudio' }] : undefined,
   };
 }
@@ -6689,7 +6933,7 @@ async function mandaEmailPrenotazione(p, link) {
     annota('errore', 'email di riepilogo accesa, ma la posta non è configurata (Impostazioni → Email)');
     return { ok: false, motivo: 'posta non configurata' };
   }
-  const { oggetto, testo, html, allegati } = composizioneEmail(cfg, p, link);
+  const { oggetto, testo, testoSpedito, html, allegati } = composizioneEmail(cfg, p, link);
   const nomeMittente = getSetting('smtp_from_name') || cfg.bot_locale || '';
   const indirizzoMittente = getSetting('smtp_user');
   try {
@@ -6697,7 +6941,7 @@ async function mandaEmailPrenotazione(p, link) {
       from: nomeMittente ? `"${nomeMittente}" <${indirizzoMittente}>` : indirizzoMittente,
       to: dove,
       subject: oggetto,
-      text: testo,
+      text: testoSpedito || testo,
       html,
       attachments: allegati,
     });
@@ -6861,6 +7105,8 @@ async function guardaChiHaPagato() {
       // ricevuto» invece di «il tavolo NON è ancora prenotato». È l'email che
       // il cliente terrà — quella di prima parlava di una cosa da fare.
       await mandaEmailPrenotazione(q);
+      // Adesso il tavolo è suo: è il momento della domanda sulle novità.
+      if (!esito.eraGiaConfermata && typeof chiediIlConsensoSeServe === 'function') await chiediIlConsensoSeServe(q);
     }
     if (confermate.length) annota('pagamento', `${confermate.length} ${confermate.length === 1 ? 'pagamento ricevuto' : 'pagamenti ricevuti'}`);
     return confermate.length;
@@ -7527,10 +7773,15 @@ function contattoInRubrica(telefono, email) {
   const numero = normalizePhone(telefono || '');
   const mail = String(email || '').trim().toLowerCase();
   if (!numero && !mail) return null;
-  const c = db.prepare('SELECT id, nome, cognome, telefono, email, opt_out FROM contacts').all()
+  const c = db.prepare('SELECT * FROM contacts').all()
     .find((x) => (numero && normalizePhone(x.telefono) === numero)
       || (mail && String(x.email || '').trim().toLowerCase() === mail));
-  return c ? { id: c.id, nome: `${c.nome} ${c.cognome}`.trim(), optOut: !!c.opt_out } : null;
+  // Il consenso alle novità per canale (25 novembre 2026): la scheda lo mostra.
+  return c ? {
+    id: c.id, nome: `${c.nome} ${c.cognome}`.trim(), optOut: !!c.opt_out, provenienza: c.provenienza || '', conEmail: !!String(c.email || '').trim(),
+    consensoEmail: c.consenso_email || '', consensoEmailFonte: c.consenso_email_fonte || '', consensoEmailAt: c.consenso_email_at || '',
+    consensoWhatsapp: c.consenso_whatsapp || '', consensoWhatsappFonte: c.consenso_whatsapp_fonte || '', consensoWhatsappAt: c.consenso_whatsapp_at || '',
+  } : null;
 }
 
 const rottaSchedaCliente = (req, res) => {
@@ -8511,6 +8762,13 @@ function numeroDaRubrica(p) {
 // Solo a tavolo CONFERMATO: chi non ha ancora pagato non è un cliente, e se
 // non paga quella riga si annulla da sola.
 const PROVENIENZA_PRENOTAZIONE = 'Prenotazione';
+if (getSetting('consensi_di_prima') !== 'fatto') {
+  try {
+    const quanti = consensiDiPrima();
+    setSetting('consensi_di_prima', 'fatto');
+    if (quanti) console.log(`Novità: ${quanti} contatti dalle prenotazioni di prima, dentro le newsletter email (col collegamento per uscire).`);
+  } catch (e) { console.error('Novità: i contatti di prima non si sono segnati:', e.message); }
+}
 function inRubricaDaSola(p) {
   if (!p) return { fatto: false, motivo: 'nessuna prenotazione' };
   if (p.origine === 'manuale') return { fatto: false, motivo: 'inserita a mano' };
@@ -9334,6 +9592,7 @@ app.post('/api/bot/prenotazioni/:id/pagata', async (req, res) => {
       return res.json({ ok: true, prenotazione: p, avviso: 'Confermata, ma il messaggio al cliente non è partito.' });
     }
     await mandaEmailPrenotazione(p);
+    if (!esito.eraGiaConfermata && typeof chiediIlConsensoSeServe === 'function') await chiediIlConsensoSeServe(p);
   }
   res.json({ ok: true, prenotazione: p });
 });
@@ -9623,6 +9882,14 @@ app.post('/api/bot/simula', async (req, res) => {
     }
   } else if (esito.prenotazione) {
     esito.simulaEmail = await mandaEmailPrenotazione(esito.prenotazione);
+  }
+  // Il consenso alle novità (25 novembre 2026): la domanda dopo la
+  // prenotazione, come nella chat vera. ⚠️ Nel simulatore la risposta NON si
+  // scrive in rubrica: è una prova, e il cliente non esiste.
+  if (esito.consenso) esito.risposte.push(`⚠️ (solo nel simulatore) in rubrica NON si scrive niente: nella chat vera qui il contatto avrebbe ${esito.consenso.valore === 'si' ? 'il sì' : 'il no'} alle novità via email.`);
+  if (esito.prenotazione && !(esito.daPagare && esito.daPagare.obbligatorio) && String(esito.prenotazione.email || '').trim()) {
+    const domanda = bot.domandaDelConsenso(db, telefono, esito.prenotazione, new Date());
+    if (domanda) esito.risposte.push(domanda);
   }
   // ⚠️ L'email parte DAVVERO, all'indirizzo scritto nella prova: è l'unico modo
   // di sapere se la posta è configurata bene PRIMA che ci sia un cliente vero
