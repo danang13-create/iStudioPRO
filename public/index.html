@@ -6083,6 +6083,7 @@ const TESTI_BOT = [
   ['bot_t_scelta_evento', 'La voce degli eventi', 'Il nome della voce degli eventi. C\'è solo con gli eventi accesi.'],
   ['bot_t_scelta_feste', 'La voce delle feste', 'Il nome della voce delle feste, per esempio «🎄 Festeggia il Natale con noi». C\'è solo finché un\'esperienza delle feste si può ancora prenotare (passata, piena o troppo lontana no): dopo l\'ultima sparisce da sola. Chi la sceglie vede solo le esperienze delle feste; chi sceglie il tavolo, solo quelle di tutti i giorni.'],
   ['bot_t_feste_elenco', 'L\'elenco delle feste', 'A chi ha scelto la voce delle feste. <b>{esperienze}</b> è l\'elenco, col giorno e la riga di presentazione di ognuna (scrivi lì il prezzo); <b>{numeri}</b> i numeri da scrivere.'],
+  ['bot_t_festa_chiusa', 'Un giorno di festa che in chat non si prenota', 'A chi scrive un giorno di festa in cui in chat non si prenota: una festività senza menu spuntati con la spunta «in chat quel giorno non si prenota» (Orari e tavoli → Festività), o con menu spuntati che non ci sono più nella scheda Esperienze. <b>{data}</b> è il giorno, <b>{festa}</b> il nome della festività. Con la card «Festività» accesa, sotto la prima riga il bot mette «👉 Scopri di più» col collegamento. Senza quella spunta, una festività senza menu è «solo il tavolo», come sempre.'],
   ['bot_t_feste_scopri', 'Scopri di più, sotto i menu delle feste', 'Con la card «Festività» accesa: la riga che il bot mette sotto i menu delle feste — nella proposta di un giorno di festa, nell\'elenco delle feste e sotto «✨ Per le festività» nell\'elenco di sempre. <b>{link}</b> è il collegamento scritto nella card. Vuota, niente riga; con la card spenta non c\'è mai.'],
   ['bot_t_feste_link', 'Le festività, col collegamento', 'A chi sceglie la voce delle feste quando nella scheda Esperienze, card «Festività», la spunta è accesa (o nomina le feste nel primo messaggio senza parlare di prenotare). <b>{link}</b> è il collegamento scritto nella card: se lo togli dalla frase, il bot lo mette in fondo. Se il cliente scrive poi un giorno, il bot prenota il menu di quel giorno.'],
   ['bot_t_festa_unica', 'Un giorno di festa con un solo menu', 'A chi scrive un giorno di festa che ha UN solo menu (per esempio il 24 dicembre, il Cenone della Vigilia) senza averlo scelto: il menu si fa vedere, col prezzo, prima di prenderlo. SÌ lo prende; NO rimette l\'elenco di tutti i giorni. <b>{data}</b> è il giorno, <b>{festa}</b> il nome della festività, <b>{esperienza}</b> il menu con la sua riga di presentazione (scrivi lì il prezzo). Vuota, il bot lo prende da sé come prima.'],
@@ -9850,6 +9851,7 @@ function mostraFestivita(d) {
     cena: (f.fasce || []).filter((x) => x.servizio === 'cena').map((x) => ({ da: x.da, a: oraDiFineUI(x.a) })),
     slot: { pranzo: ((f.slot || {}).pranzo || []).join(', '), cena: ((f.slot || {}).cena || []).join(', ') },
     esperienze: [...(f.esperienze || [])],
+    nonInChat: f.nonInChat === true,
   }));
   // Per ogni servizio: chiuso, come sempre (gli orari del giorno della
   // settimana in cui cade), oppure con orari suoi.
@@ -9889,7 +9891,9 @@ function anteprimaFestivita(f) {
   const ogni = f.ogniAnno ? ', ogni anno' : '';
   if (!servizi.length) return `${f.nome.trim()}, ${quando}${ogni}: il locale è CHIUSO (nessun turno). Il bot lo dice a chi chiede quel giorno.`;
   const valide = f.esperienze.filter((n) => nomiEsperienzeUI().includes(n));
-  const cosa = valide.length ? `si prenota ${elencoConE(valide.map((n) => `«${n}»`))}` : 'si prenota solo il tavolo, senza scegliere un\'esperienza';
+  const cosa = valide.length ? `si prenota ${elencoConE(valide.map((n) => `«${n}»`))}`
+    : f.nonInChat ? 'in chat NON si prenota: il bot lo dice, e chiede un altro giorno'
+      : 'si prenota solo il tavolo, senza scegliere un\'esperienza';
   return `${f.nome.trim()}, ${quando}${ogni}: ${servizi.join(', ')}. Quel giorno ${cosa}.`;
 }
 function disegnaFestivita() {
@@ -9949,6 +9953,7 @@ function disegnaFestivita() {
       <div class="esp-giorni">
         <div><span style="width:auto;margin-right:6px">Esperienze</span>${spunte}</div>
       </div>
+      <label class="festa-ogni" style="margin:8px 0 0"><input type="checkbox" data-non-in-chat${f.nonInChat ? ' checked' : ''}>Senza un menu spuntato, in chat quel giorno non si prenota (il bot lo dice, con «Scopri di più»)</label>
       <p class="esp-anteprima${ant.startsWith('⚠️') ? ' attenzione' : ''}" data-anteprima-festa>${testoSicuro(ant)}</p>
     </div>`;
   }).join('');
@@ -9964,6 +9969,7 @@ function festivitaDaSalvare() {
     fasce: FESTA_SERVIZI.flatMap(([s]) => (f.modo[s] === 'suoi' ? f[s].map((t) => ({ da: t.da, a: t.a, servizio: s })) : [])),
     slot: { pranzo: f.modo.pranzo === 'suoi' ? orari(f.slot.pranzo) : [], cena: f.modo.cena === 'suoi' ? orari(f.slot.cena) : [] },
     esperienze: f.esperienze.filter((n) => nomi.includes(n)),
+    nonInChat: !!f.nonInChat,
   }));
 }
 function festaDi(el) {
@@ -9985,6 +9991,7 @@ $('#festivita-elenco').addEventListener('input', (e) => {
   const t = e.target;
   if (t.dataset.campo) f[t.dataset.campo] = t.value;
   if (t.hasAttribute('data-ogni-anno')) f.ogniAnno = t.checked;
+  if (t.hasAttribute('data-non-in-chat')) f.nonInChat = t.checked;
   if (t.dataset.campoOra) f[t.closest('[data-servizio]').dataset.servizio][+t.dataset.turno][t.dataset.campoOra] = oraScritta(t.value);
   if (t.dataset.slot) f.slot[t.dataset.slot] = t.value;
   if (t.dataset.esperienza !== undefined) {

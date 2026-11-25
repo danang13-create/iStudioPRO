@@ -1293,6 +1293,9 @@ const PREDEFINITI = {
   // 2026, dal titolare: «il bot manda nella chat tipo scopri di più con il
   // link»). Vuota, niente riga.
   bot_t_feste_scopri: '👉 Scopri di più: {link}',
+  // Un giorno di festa coi suoi menu, ma nessuno prenotabile (spenti, pieni,
+  // tolti): in chat quel giorno non si prenota (25 novembre 2026).
+  bot_t_festa_chiusa: 'Per {data} ({festa}) in chat non si prenota 🎄\n\nVuoi un altro giorno? Scrivimelo pure 😊',
   bot_t_feste_link: 'Che bello festeggiare con noi! 🎄\n\nTrovi i menu e tutte le proposte delle feste qui:\n👉 {link}\n\nSe vuoi prenotare subito, scrivimi il giorno che preferisci 😊',
   bot_t_eventi: 'Che bello! 🎉 Organizziamo eventi privati, cene aziendali, feste e ricorrenze.\n\nTrovi le proposte e il modulo di richiesta qui:\n👉 {link}\n\nSe vuoi anche prenotare un tavolo, scrivi PRENOTA.',
   // A chi prova a CHIAMARE il numero su WhatsApp (23 novembre 2026). Vuota, il
@@ -2584,7 +2587,10 @@ function festivitaValide(valore) {
       if (pulito && !esperienze.some((x) => normalizza(x) === normalizza(pulito))) esperienze.push(pulito);
     }
     buone.push({ nome, dal: comeData(dal), al: comeData(al), ogniAnno: f.ogniAnno === true, fasce, slot,
-      esperienze: esperienze.slice(0, ESPERIENZE_MASSIME), ...(soliti.length ? { soliti } : {}) });
+      esperienze: esperienze.slice(0, ESPERIENZE_MASSIME), ...(soliti.length ? { soliti } : {}),
+      // Senza menu prenotabili quel giorno: in chat non si prenota (25 novembre
+      // 2026). Senza la spunta, «solo il tavolo», come Santo Stefano.
+      ...(f.nonInChat === true ? { nonInChat: true } : {}) });
   }
   return buone.slice(0, FESTIVITA_MASSIME);
 }
@@ -8387,6 +8393,14 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     };
     // Niente da scegliere (una festività senza esperienze, o solo esperienze
     // «da festa» e nessun giorno detto): si va avanti senza chiedere.
+    // ⚠️ Ma non un giorno di festa che ha i SUOI menu, e nessuno prenotabile
+    // (25 novembre 2026, dal titolare, con la chat: spento il Cenone della
+    // Vigilia, «24 dicembre» prenotava lo stesso un tavolo alle 20:30, senza
+    // menu). Quel giorno in chat non si prenota: si dice, col «Scopri di
+    // più» delle feste, e si chiede un altro giorno. Una festività senza menu
+    // suoi (solo orari diversi) va avanti come sempre.
+    const festaSenza = elenco.ristrette && !elenco.valide.length && d.giornoDetto ? festaNonInChat(d.giornoDetto) : null;
+    if (festaSenza) return conTesta(() => festaChiusaInChat(festaSenza, d));
     if (elenco.ristrette && !elenco.valide.length) return conTesta(() => dopoLEsperienza(d, ''));
     // ⚠️ Un giorno di festa con UN solo menu, che il cliente non ha nominato
     // (25 novembre 2026, dal titolare): «prenotare un tavolo», poi «24
@@ -8447,6 +8461,29 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       data: dataItaliana(d.giornoDetto), festa: festa.nome || 'festa',
       esperienza: conScopri(`🎄 *${e.nome}*${e.riga ? `\n${e.riga}` : ''}`),
     }));
+    return esito;
+  }
+  // Il giorno di festa che in chat non si prenota: si dice, e si aspetta un
+  // altro giorno (il passo resta quello dell'esperienza, senza quel giorno).
+  // Il giorno di festa in cui in chat non si prenota, o null: ha i suoi menu
+  // ma nessuno vale (tolti dalla scheda), oppure nessun menu e la spunta «in
+  // chat non si prenota» (Orari e tavoli → Festività). Senza quella spunta,
+  // una festività senza menu è «solo il tavolo», come Santo Stefano.
+  function festaNonInChat(iso) {
+    const festa = iso ? festivitaDelGiorno(cfg, iso) : null;
+    if (!festa) return null;
+    if (esperienze.some((e) => valeIlGiorno(e, iso, null, cfg))) return null;
+    return (festa.esperienze || []).length || festa.nonInChat ? festa : null;
+  }
+  // `passo`: dove si resta ad aspettare un altro giorno — l'esperienza (se
+  // non è ancora scelta) o il giorno.
+  function festaChiusaInChat(festa, d, iso = d.giornoDetto, passo = 'esperienza') {
+    const { scelte, giornoDetto, festaProposta, data, turni, ...resto } = d;
+    salvaStato(db, telefono, passo, resto);
+    const parti = di('bot_t_festa_chiusa', { data: dataItaliana(iso), festa: festa.nome || 'festa' }).trim().split('\n\n');
+    const scopri = scopriDiPiu();
+    if (scopri) parti.splice(1, 0, scopri);
+    risposte.push(parti.join('\n\n'));
     return esito;
   }
   // «No» a «Perfetto, business lunch 👍»: l'elenco di nuovo, tutte.
@@ -9089,6 +9126,10 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // Il giorno scelto: i suoi turni, o «pieno»/«chiuso» con le alternative.
   // Lo usano il passo del giorno e chi il giorno l'ha detto insieme alle persone.
   function scegliGiorno(d, iso) {
+    // Un giorno di festa in cui in chat non si prenota (vedi `festaNonInChat`):
+    // anche a chi il menu l'aveva già scelto, o il giorno lo dice adesso.
+    const chiusaInChat = festaNonInChat(iso);
+    if (chiusaInChat) return festaChiusaInChat(chiusaInChat, d, iso, 'giorno');
     const turni = turniDisponibili(db, cfg, iso, d.persone, adesso, perEsperienza(d));
     if (!turni.length) {
       // ⚠️ Una FESTIVITÀ ha le sue esperienze. Chi ha scelto «business lunch»
