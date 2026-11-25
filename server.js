@@ -8172,6 +8172,22 @@ app.post('/api/bot/impostazioni', (req, res) => {
     }
   }
 
+  // Le festività (card «Festività»), come gli eventi: accese senza un
+  // collegamento vero non farebbero niente, e il locale crederebbe di sì.
+  if (typeof valori.bot_feste_link === 'string') valori.bot_feste_link = valori.bot_feste_link.trim();
+  if (valori.bot_feste_link !== undefined || valori.bot_feste_attivo !== undefined) {
+    const linkFeste = String(valori.bot_feste_link !== undefined ? valori.bot_feste_link : (dopo.bot_feste_link || '')).trim();
+    const festeAccese = String(valori.bot_feste_attivo !== undefined ? valori.bot_feste_attivo : dopo.bot_feste_attivo) === 'true';
+    if (linkFeste && !bot.linkDiMenu(linkFeste)) {
+      return res.status(400).json({ error: 'Il collegamento alla pagina delle festività deve cominciare con https:// '
+        + '(per esempio https://natale.iltuolocale.it/), senza spazi.' });
+    }
+    if (festeAccese && !linkFeste) {
+      return res.status(400).json({ error: 'Per accendere le festività scrivi il collegamento alla pagina: '
+        + 'senza, il bot non saprebbe dove mandare il cliente.' });
+    }
+  }
+
   // ⚠️ La password della sala si salva SENZA spazi ai bordi. Un campo password
   // non mostra quello che c'è dentro: una password incollata con uno spazio in
   // fondo si salva con lo spazio, e chi la ridigita a mano — senza — si sente

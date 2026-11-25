@@ -2889,6 +2889,38 @@
           <span id="eventi-salvato" class="conteggio" style="margin:0"></span>
         </div>
       </div>
+      <!-- LE FESTIVITÀ (25 novembre 2026): come gli eventi, un collegamento
+           alla pagina delle feste del locale. -->
+      <div class="card" id="pren-card-feste">
+        <h2 style="font-size:1rem;margin:0 0 6px">Festività</h2>
+        <p class="conteggio" style="margin:0 0 14px">
+          Per portare i clienti alla vostra pagina delle feste (Natale, Capodanno…). Accesa, nella prima domanda c'è
+          la voce <b>«🎄 Festeggia le feste con noi»</b>: a chi la sceglie — o nomina le feste nel primo messaggio
+          senza parlare di prenotare — il bot manda un testo col <b>collegamento alla vostra pagina</b>, e lo invita a
+          scrivere il giorno se vuole prenotare subito. Il giorno scritto dopo porta al menu di quel giorno, col prezzo.
+          Chi scrive già «vorrei prenotare per Natale» va dritto alla prenotazione. <b>Spenta</b>, la voce c'è solo
+          finché un menu delle feste si può prenotare, e porta all'elenco di quei menu. Il nome della voce e il testo
+          sono in «Frasi e domande», gruppo «Gli eventi».
+        </p>
+        <label style="display:flex;align-items:center;gap:7px;font-weight:400;cursor:pointer;margin:0 0 12px">
+          <input type="checkbox" id="cfg-bot_feste_attivo" autocomplete="off">
+          Proponi le festività ai clienti
+        </label>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
+          <label>Collegamento alla pagina delle festività
+            <input id="cfg-bot_feste_link" type="url" inputmode="url" autocomplete="off" maxlength="500" placeholder="https://natale.iltuolocale.it/">
+            <span class="conteggio" style="margin:0">Comincia con <b>https://</b>. Senza, le festività non si possono accendere: il bot non saprebbe dove mandare il cliente.</span>
+          </label>
+          <label>Parole che portano alle festività
+            <input id="cfg-bot_feste_parole" autocomplete="off" placeholder="feste, festività, natale, capodanno">
+            <span class="conteggio" style="margin:0">Separate da virgola. Chi ne scrive una nel primo messaggio, senza parlare di prenotare, riceve subito il collegamento. «Vorrei prenotare per Natale» invece prenota.</span>
+          </label>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:8px;align-items:center">
+          <button class="btn" id="feste-salva" type="button">Salva</button>
+          <span id="feste-salvato" class="conteggio" style="margin:0"></span>
+        </div>
+      </div>
       <div class="card" id="pren-card-locali">
         <h2 style="font-size:1rem;margin:0 0 6px">I locali</h2>
         <p class="conteggio" style="margin:0 0 14px">
@@ -5988,6 +6020,10 @@ const CFG_CAMPI = ['bot_locale', 'bot_assistente', 'bot_menu_link', 'bot_menu_de
   'bot_eventi_link', 'bot_eventi_parole',
   'bot_parole_richiesta', 'bot_parole_nessuna', 'bot_parole_altro_nome',
   'bot_avvisi_da', 'bot_avvisi_a', 'bot_sollecito_minuti',
+  // Qui, e non accanto agli eventi (25 novembre 2026): le prove misurano la
+  // distanza di alcune chiavi qui sopra dall'inizio dell'elenco, e quelle
+  // dell'email devono restare in fondo.
+  'bot_feste_link', 'bot_feste_parole',
   'bot_email_oggetto', 'bot_email_testo', 'bot_email_logo', 'bot_email_html'];
 // Cosa mostrare al posto del numero. Con gli indirizzi interni di WhatsApp
 // (@lid, @c.us) il numero può non essere noto: meglio dirlo che far leggere
@@ -6046,6 +6082,7 @@ const TESTI_BOT = [
   ['bot_t_scelta_evento', 'La voce degli eventi', 'Il nome della voce degli eventi. C\'è solo con gli eventi accesi.'],
   ['bot_t_scelta_feste', 'La voce delle feste', 'Il nome della voce delle feste, per esempio «🎄 Festeggia il Natale con noi». C\'è solo finché un\'esperienza delle feste si può ancora prenotare (passata, piena o troppo lontana no): dopo l\'ultima sparisce da sola. Chi la sceglie vede solo le esperienze delle feste; chi sceglie il tavolo, solo quelle di tutti i giorni.'],
   ['bot_t_feste_elenco', 'L\'elenco delle feste', 'A chi ha scelto la voce delle feste. <b>{esperienze}</b> è l\'elenco, col giorno e la riga di presentazione di ognuna (scrivi lì il prezzo); <b>{numeri}</b> i numeri da scrivere.'],
+  ['bot_t_feste_link', 'Le festività, col collegamento', 'A chi sceglie la voce delle feste quando nella scheda Esperienze, card «Festività», la spunta è accesa (o nomina le feste nel primo messaggio senza parlare di prenotare). <b>{link}</b> è il collegamento scritto nella card: se lo togli dalla frase, il bot lo mette in fondo. Se il cliente scrive poi un giorno, il bot prenota il menu di quel giorno.'],
   ['bot_t_festa_unica', 'Un giorno di festa con un solo menu', 'A chi scrive un giorno di festa che ha UN solo menu (per esempio il 24 dicembre, il Cenone della Vigilia) senza averlo scelto: il menu si fa vedere, col prezzo, prima di prenderlo. SÌ lo prende; NO rimette l\'elenco di tutti i giorni. <b>{data}</b> è il giorno, <b>{festa}</b> il nome della festività, <b>{esperienza}</b> il menu con la sua riga di presentazione (scrivi lì il prezzo). Vuota, il bot lo prende da sé come prima.'],
   ['bot_t_scelta', 'La scelta, senza saluto', 'La domanda e basta: a chi scrive RICOMINCIA (sotto «Va bene, ricominciamo da capo!»), a chi alla scelta risponde con un altro saluto, e quando il bot non ha capito la risposta.'],
   ['bot_t_eventi', 'La risposta sugli eventi', 'A chi sceglie 2, o scrive una delle parole degli eventi nel primo messaggio. <b>{link}</b> è il collegamento scritto nella card «Gli eventi»: se lo togli dalla frase, il bot lo mette in fondo. Dopo questa risposta la conversazione è chiusa: se il cliente vuole anche un tavolo scrive <b>PRENOTA</b> (o una frase qualunque che parli di prenotare), e parte la prenotazione.'],
@@ -6235,7 +6272,7 @@ const TESTI_BOT = [
 
 const CFG_SPUNTE = ['bot_chiedi_nome', 'bot_chiedi_telefono', 'bot_chiedi_note', 'bot_chiedi_email',
   'bot_promemoria_attivo', 'bot_recensione_attiva', 'bot_sala_attiva', 'bot_pagamento_attivo',
-  'bot_email_attiva', 'bot_richiamo_attivo', 'bot_eventi_attivo', 'bot_riconosci'];
+  'bot_email_attiva', 'bot_richiamo_attivo', 'bot_eventi_attivo', 'bot_feste_attivo', 'bot_riconosci'];
 
 const NOMI_GIORNI_UI = ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'];
 let simSessione = Date.now() % 100000;
@@ -8929,6 +8966,7 @@ $('#pren-salva').addEventListener('click', () => salvaConfigBot('pren-salvato'))
 $('#promemoria-salva').addEventListener('click', () => salvaConfigBot('promemoria-salvato'));
 $('#meta-salva').addEventListener('click', () => salvaConfigBot('meta-salvato'));
 $('#eventi-salva').addEventListener('click', () => salvaConfigBot('eventi-salvato'));
+$('#feste-salva').addEventListener('click', () => salvaConfigBot('feste-salvato'));
 $('#parole-salva').addEventListener('click', () => salvaConfigBot('parole-salvato'));
 $('#orari-avvisi-salva').addEventListener('click', () => salvaConfigBot('orari-avvisi-salvato'));
 $('#recensioni-salva').addEventListener('click', () => salvaConfigBot('recensioni-salvato'));

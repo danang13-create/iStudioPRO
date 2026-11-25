@@ -816,6 +816,11 @@ const PREDEFINITI = {
   bot_eventi_attivo: 'false',
   bot_eventi_link: '',
   bot_eventi_parole: 'evento, eventi',
+  // Le festività (25 novembre 2026): come gli eventi, un collegamento alla
+  // pagina delle feste del locale (vedi «Le festività, col collegamento»).
+  bot_feste_attivo: 'false',
+  bot_feste_link: '',
+  bot_feste_parole: 'feste, festività, natale, capodanno',
   bot_chiedi_note: 'false',
   bot_chiedi_telefono: 'false',
 
@@ -1283,6 +1288,8 @@ const PREDEFINITI = {
   // Chi scrive un giorno di festa che ha UN solo menu, senza averlo scelto
   // (25 novembre 2026): glielo si fa vedere, col prezzo, prima di prenderlo.
   bot_t_festa_unica: 'Per {data} ({festa}) abbiamo un menu speciale 🎄\n\n{esperienza}\n\nTi va bene? Rispondi SÌ per prenotarlo, oppure scrivimi un altro giorno.',
+  // A chi sceglie la voce delle feste con la card «Festività» accesa.
+  bot_t_feste_link: 'Che bello festeggiare con noi! 🎄\n\nTrovi i menu e tutte le proposte delle feste qui:\n👉 {link}\n\nSe vuoi prenotare subito, scrivimi il giorno che preferisci 😊',
   bot_t_eventi: 'Che bello! 🎉 Organizziamo eventi privati, cene aziendali, feste e ricorrenze.\n\nTrovi le proposte e il modulo di richiesta qui:\n👉 {link}\n\nSe vuoi anche prenotare un tavolo, scrivi PRENOTA.',
   // A chi prova a CHIAMARE il numero su WhatsApp (23 novembre 2026). Vuota, il
   // bot a chi chiama non scrive niente.
@@ -4011,6 +4018,24 @@ function parlaDiEventi(cfg, testo) {
   const t = ` ${normalizza(testo).replace(/[^a-z0-9]+/g, ' ').trim()} `;
   return elencoParole(cfg.bot_eventi_parole || PREDEFINITI.bot_eventi_parole)
     .map((x) => x.replace(/[^a-z0-9]+/g, ' ').trim()).filter(Boolean)
+    .some((x) => t.includes(` ${x} `));
+}
+// ---------------------------------------------------------------------------
+// Le festività, col collegamento (25 novembre 2026, dal titolare: «crea una
+// cosa del genere — come gli eventi — per puntare al sito per le festività di
+// Natale, con tanto di link; chiamala sezione "Festività"»). Accese, e con un
+// collegamento vero: la voce delle feste nella prima domanda c'è anche senza
+// menu delle feste prenotabili in chat, e chi la sceglie — o nomina le feste
+// nel primo messaggio senza parlare di prenotare — riceve il collegamento,
+// con l'invito a scrivere il giorno se vuole prenotare subito. Il giorno
+// scritto dopo porta al menu di quel giorno (vedi `proponiLaFesta`).
+function festeColLink(cfg) {
+  return boolDi(cfg.bot_feste_attivo) && !!linkDiMenu(cfg.bot_feste_link);
+}
+function parlaDiFeste(cfg, testo) {
+  const t = ` ${normalizza(testo).replace(/[^a-z0-9]+/g, ' ').trim()} `;
+  return elencoParole(cfg.bot_feste_parole || PREDEFINITI.bot_feste_parole)
+    .map((x) => normalizza(x).replace(/[^a-z0-9]+/g, ' ').trim()).filter(Boolean)
     .some((x) => t.includes(` ${x} `));
 }
 function annotaEvento(db, telefono, adesso) {
@@ -7262,6 +7287,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   };
   // Gli eventi (vedi «Gli eventi»): accesi solo con un collegamento vero.
   const eventiAttivi = eventiAccesi(cfg);
+  const festeLink = festeColLink(cfg);
   // ⚠️ Chi ha appena ricevuto la risposta sugli eventi è GIÀ in conversazione
   // (12 novembre 2026, dal titolare: «fallo senza ripresentarsi»). La risposta
   // gli dice «se vuoi anche prenotare un tavolo, scrivi PRENOTA», lui lo
@@ -7727,6 +7753,8 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // le esperienze di tutti i giorni e un locale solo: sennò la voce «tavolo»
   // non avrebbe niente da proporre di diverso.
   function festeNellaScelta() {
+    // Con la card «Festività» accesa la voce c'è sempre: porta al collegamento.
+    if (festeLink) return true;
     return conEsperienze && !conLocali && esperienze.some(diTuttiIGiorni) && festeInArrivo().length > 0;
   }
   function vociDellaScelta() {
@@ -7763,6 +7791,20 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       { numeri: numeriDetti(daUnoA(valide.length)) }));
     return esito;
   }
+  // La voce delle feste: col collegamento, se la card «Festività» è accesa;
+  // sennò l'elenco dei menu delle feste, come prima.
+  function rispostaFeste() {
+    if (!festeLink) return proponiLeFeste();
+    const link = linkDiMenu(cfg.bot_feste_link);
+    // Chiusa come dopo gli eventi, ma ancora in conversazione: il giorno
+    // scritto subito dopo non si sente ripresentare il bot.
+    salvaStato(db, telefono, 'inizio', { dopoEventi: quandoLeggibile(adesso) });
+    const scritta = String(cfg.bot_t_feste_link || '');
+    const frase = di('bot_t_feste_link', { link }).trim();
+    risposte.push(scritta.includes('{link}') ? frase : [frase, `👉 ${link}`].filter(Boolean).join('\n\n'));
+    esito.feste = true;
+    return esito;
+  }
   // Il testo lo scrive il locale, il collegamento lo mette il programma: se
   // nella frase {link} non c'è più, va in fondo (come per l'elenco).
   function rispostaEventi() {
@@ -7781,6 +7823,13 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   if (eventiAttivi && (stato.passo === 'inizio' || stato.passo === 'scelta') && parlaDiEventi(cfg, testo)) {
     return rispostaEventi();
   }
+  // Le feste nominate senza parlare di prenotare («cosa fate a Natale?»): il
+  // collegamento. «Vorrei prenotare per Natale», «siamo in 4 il 25»: si
+  // prenota, come sempre.
+  if (festeLink && (stato.passo === 'inizio' || stato.passo === 'scelta') && parlaDiFeste(cfg, testo)
+    && !/(prenot|tavolo|posto|posti|coperti|disponibil|riserv)/.test(t) && personeDette(testo) === null && !giornoDettoInsieme(testo)) {
+    return rispostaFeste();
+  }
   if (stato.passo === 'scelta') {
     // Spenti nel frattempo: si riparte come se fosse il primo messaggio.
     if (!eventiAttivi && !festeNellaScelta()) {
@@ -7796,7 +7845,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const quale = numero ? (voci[numero - 1] || [])[0] : null;
     if (quale === 'tavolo') return presentati(conFeste ? { senzaFeste: true } : {}, true);
     if (quale === 'evento') return rispostaEventi();
-    if (quale === 'feste') return proponiLeFeste();
+    if (quale === 'feste') return rispostaFeste();
     // Il nome di un'esperienza («vigilia», «business lunch»): quella, senza
     // passare da un altro elenco.
     if (conFeste) {
@@ -7805,7 +7854,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     }
     // «Le feste», «Natale», «il cenone di Capodanno»: la voce delle feste. Non
     // «festa»: «una festa di compleanno» è un evento, o un tavolo.
-    if (conFeste && /(feste|festivit|natal|capodann|vigilia|cenone|silvestro|santo stefano|pasqu)/.test(secca)) return proponiLeFeste();
+    if (conFeste && /(feste|festivit|natal|capodann|vigilia|cenone|silvestro|santo stefano|pasqu)/.test(secca)) return rispostaFeste();
     // Un saluto non è una risposta e non è un equivoco: la domanda, di nuovo.
     if (eSaluto(testo) || eSalutoStorto(testo)) {
       risposte.push(testoDellaScelta('bot_t_scelta'));
@@ -9733,7 +9782,7 @@ module.exports = {
   interpretaPersone,
   interpretaData,
   interpretaOra,
-  eventiAccesi, parlaDiEventi, statisticheEventi, linkDiMenu,
+  eventiAccesi, parlaDiEventi, statisticheEventi, linkDiMenu, festeColLink, parlaDiFeste,
   chiamataRicevuta, chiamataRisposta, statisticheChiamate,
   nomeDelFileMenu, orariDelGiorno,
   festivitaValide, erroriFestivita, festivitaDi, festivitaDelGiorno, soloIlTavolo,
