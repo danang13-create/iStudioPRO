@@ -486,6 +486,14 @@ function preparaDatabase(db) {
 // dalla storia del progetto — ogni frase che è stata riscritta lascia qui
 // dietro quella di prima.
 const TESTI_SUPERATI = {
+  // Le voci della prima scelta scritte a mano → {opzioni} (25 novembre 2026):
+  // con le feste le voci possono essere tre, e senza gli eventi due diverse.
+  bot_t_scelta_benvenuto: [
+    '{saluto} ✨\n\nSono {assistente} l\'assistente virtuale di {locale}\n\nCome posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',  ],
+  bot_t_scelta_bentornato: [
+    'Che bello rivederti, {nome}! ✨\n\nCome posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',  ],
+  bot_t_scelta: [
+    'Come posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',  ],
   // «…scrivimi pure.» → «…scrivi PRENOTA.» (12 novembre 2026, chiesto dal
   // titolare il giorno stesso): una parola precisa da scrivere, come MENU e
   // RICOMINCIA. «Prenota» al primo messaggio comincia già una prenotazione.
@@ -1232,9 +1240,17 @@ const PREDEFINITI = {
   bot_t_ripresa_no: 'Va bene, lascio stare quella prenotazione.',
   // Gli eventi: la prima scelta (a chi arriva, a chi torna, e la domanda secca)
   // e la risposta col collegamento.
-  bot_t_scelta_benvenuto: '{saluto} ✨\n\nSono {assistente} l\'assistente virtuale di {locale}\n\nCome posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',
-  bot_t_scelta_bentornato: 'Che bello rivederti, {nome}! ✨\n\nCome posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',
-  bot_t_scelta: 'Come posso aiutarti?\n\n1. Prenotare un tavolo\n2. Organizzare un evento\n\nScrivi 1 o 2.',
+  // Dal 25 novembre 2026 le voci le scrive il bot ({opzioni}): il tavolo, gli
+  // eventi se accesi, e le feste finché se ne può prenotare una. I loro nomi
+  // sono tre frasi qui sotto.
+  bot_t_scelta_benvenuto: '{saluto} ✨\n\nSono {assistente} l\'assistente virtuale di {locale}\n\nCome posso aiutarti?\n\n{opzioni}\n\nScrivi {numeri}.',
+  bot_t_scelta_bentornato: 'Che bello rivederti, {nome}! ✨\n\nCome posso aiutarti?\n\n{opzioni}\n\nScrivi {numeri}.',
+  bot_t_scelta: 'Come posso aiutarti?\n\n{opzioni}\n\nScrivi {numeri}.',
+  bot_t_scelta_tavolo: 'Prenotare un tavolo',
+  bot_t_scelta_evento: 'Organizzare un evento',
+  bot_t_scelta_feste: '🎄 Festeggia le feste con noi',
+  // Chi sceglie le feste: solo le esperienze delle feste ancora prenotabili.
+  bot_t_feste_elenco: 'Ecco cosa abbiamo preparato per le feste 🎄\n\n{esperienze}\n\nQuale ti piacerebbe prenotare? Scrivi il numero: {numeri}.',
   bot_t_eventi: 'Che bello! 🎉 Organizziamo eventi privati, cene aziendali, feste e ricorrenze.\n\nTrovi le proposte e il modulo di richiesta qui:\n👉 {link}\n\nSe vuoi anche prenotare un tavolo, scrivi PRENOTA.',
   // A chi prova a CHIAMARE il numero su WhatsApp (23 novembre 2026). Vuota, il
   // bot a chi chiama non scrive niente.
@@ -7170,6 +7186,8 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // Le esperienze del locale. Con almeno due si chiede; con una vale da sé.
   const esperienze = esperienzeDi(cfg);
   const conEsperienze = esperienze.length >= 2;
+  // Le feste ancora prenotabili, lette una volta per messaggio (vedi `festeInArrivo`).
+  let festeLette = null;
   // Le persone, senza il prezzo di un'esperienza: in «no quello da 45» o
   // «business lunch da 45 per 4» il 45 è il business lunch, non la tavolata
   // (visto in una chat vera, 19 ottobre 2026). Solo «da» + un numero che sta
@@ -7365,7 +7383,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const testa = primaDellaDomanda(di('bot_t_ricominciato')) || riempi(PREDEFINITI.bot_t_ricominciato, valori);
     DA_CAPO.set(esito, testa);
     // Con gli eventi accesi la prima domanda è la scelta: da capo è da lì.
-    return eventiAttivi ? chiediLaScelta(testa) : presentati({}, null, testa);
+    return eventiAttivi || festeNellaScelta() ? chiediLaScelta(testa) : presentati({}, null, testa);
   }
 
   // --- «Non voglio più prenotare» (vedi «vuoleRinunciare») ---
@@ -7654,7 +7672,51 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     salvaStato(db, telefono, 'scelta', {});
     // La domanda secca anche a chi ha appena parlato col bot (vedi «giaInConversazione»).
     const frase = testa || giaInConversazione ? 'bot_t_scelta' : (giaVisto ? 'bot_t_scelta_bentornato' : 'bot_t_scelta_benvenuto');
-    risposte.push([testa, di(frase).trim() || riempi(PREDEFINITI[frase], valori)].filter(Boolean).join('\n\n'));
+    risposte.push([testa, testoDellaScelta(frase)].filter(Boolean).join('\n\n'));
+    return esito;
+  }
+  // ---- Le feste nella prima domanda (dal titolare, 25 novembre 2026) ----
+  // «Dividere le festività già dal primo messaggio, come terza opzione»: finché
+  // c'è un'esperienza delle feste che si può ancora prenotare, la prima
+  // domanda ha una voce per le feste. Con gli eventi spenti la domanda nasce
+  // apposta (tavolo o feste), e sparisce da sola dopo l'ultima festa. Solo con
+  // le esperienze di tutti i giorni e un locale solo: sennò la voce «tavolo»
+  // non avrebbe niente da proporre di diverso.
+  function festeNellaScelta() {
+    return conEsperienze && !conLocali && esperienze.some(diTuttiIGiorni) && festeInArrivo().length > 0;
+  }
+  function vociDellaScelta() {
+    const voci = [['tavolo', di('bot_t_scelta_tavolo').trim() || PREDEFINITI.bot_t_scelta_tavolo]];
+    if (eventiAttivi) voci.push(['evento', di('bot_t_scelta_evento').trim() || PREDEFINITI.bot_t_scelta_evento]);
+    if (festeNellaScelta()) voci.push(['feste', di('bot_t_scelta_feste').trim() || PREDEFINITI.bot_t_scelta_feste]);
+    return voci;
+  }
+  function testoDellaScelta(chiave) {
+    const voci = vociDellaScelta();
+    const opzioni = voci.map(([, nome], i) => `${i + 1}. ${nome}`).join('\n');
+    const numeri = numeriDetti(daUnoA(voci.length));
+    const scritta = String(cfg[chiave] || '');
+    if (scritta.includes('{opzioni}')) return di(chiave, { opzioni, numeri }).trim();
+    // ⚠️ Una frase riscritta PRIMA del 25 novembre, con le due voci a mano: con
+    // gli eventi accesi vale ancora, e la voce delle feste si aggiunge sotto la
+    // seconda; con gli eventi spenti parlerebbe di eventi, e vale quella nuova.
+    if (eventiAttivi && scritta.trim()) {
+      let t = di(chiave).trim();
+      if (voci.some(([k]) => k === 'feste')) {
+        t = t.replace(/^(\s*2[.)][^\n]*)$/m, `$1\n3. ${voci[voci.length - 1][1]}`).replace(/Scrivi 1 o 2/, `Scrivi ${numeri}`);
+      }
+      return t;
+    }
+    return riempi(PREDEFINITI[chiave], { ...valori, opzioni, numeri }).trim();
+  }
+  function proponiLeFeste() {
+    const feste = festeInArrivo();
+    if (!feste.length) return presentati({}, true);
+    if (feste.length === 1) return presaLEsperienza(feste[0].e, {});
+    const valide = feste.map((x) => x.e);
+    salvaStato(db, telefono, 'esperienza', { scelte: valide.map((e) => e.nome) });
+    risposte.push(diConElenco('bot_t_feste_elenco', elencoEsperienze(valide, { giorni: feste.map((x) => giorniCorti(x.giorni)) }),
+      { numeri: numeriDetti(daUnoA(valide.length)) }));
     return esito;
   }
   // Il testo lo scrive il locale, il collegamento lo mette il programma: se
@@ -7677,16 +7739,32 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   }
   if (stato.passo === 'scelta') {
     // Spenti nel frattempo: si riparte come se fosse il primo messaggio.
-    if (!eventiAttivi) {
+    if (!eventiAttivi && !festeNellaScelta()) {
       azzeraStato(db, telefono);
       return rispondiAlMessaggio(db, telefono, testo, adesso, contesto);
     }
     const secca = t.replace(/[^a-z0-9]+/g, ' ').trim();
-    if (/^(1|uno|una|la prima|il primo|prima|primo|numero 1|n 1)$/.test(secca)) return presentati({}, true);
-    if (/^(2|due|la seconda|il secondo|seconda|secondo|numero 2|n 2)$/.test(secca)) return rispostaEventi();
+    const voci = vociDellaScelta();
+    const conFeste = voci.some(([k]) => k === 'feste');
+    const numero = /^(1|uno|una|la prima|il primo|prima|primo|numero 1|n 1)$/.test(secca) ? 1
+      : /^(2|due|la seconda|il secondo|seconda|secondo|numero 2|n 2)$/.test(secca) ? 2
+        : /^(3|tre|la terza|il terzo|terza|terzo|numero 3|n 3)$/.test(secca) ? 3 : 0;
+    const quale = numero ? (voci[numero - 1] || [])[0] : null;
+    if (quale === 'tavolo') return presentati(conFeste ? { senzaFeste: true } : {}, true);
+    if (quale === 'evento') return rispostaEventi();
+    if (quale === 'feste') return proponiLeFeste();
+    // Il nome di un'esperienza («vigilia», «business lunch»): quella, senza
+    // passare da un altro elenco.
+    if (conFeste) {
+      const nominate = esperienzeNominate(testo, esperienze);
+      if (nominate.length === 1) return presaLEsperienza(esperienze[nominate[0]], { senzaFeste: true });
+    }
+    // «Le feste», «Natale», «il cenone di Capodanno»: la voce delle feste. Non
+    // «festa»: «una festa di compleanno» è un evento, o un tavolo.
+    if (conFeste && /(feste|festivit|natal|capodann|vigilia|cenone|silvestro|santo stefano|pasqu)/.test(secca)) return proponiLeFeste();
     // Un saluto non è una risposta e non è un equivoco: la domanda, di nuovo.
     if (eSaluto(testo) || eSalutoStorto(testo)) {
-      risposte.push(di('bot_t_scelta'));
+      risposte.push(testoDellaScelta('bot_t_scelta'));
       return esito;
     }
     // Qualcosa che parla già di prenotare («prenotare», «un tavolo per 4
@@ -7914,7 +7992,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   }
 
   // Alla scelta fra tavolo ed evento, quello che non ha capito nessuno.
-  if (stato.passo === 'scelta') return nonCapito('scelta', dati, di('bot_t_scelta'));
+  if (stato.passo === 'scelta') return nonCapito('scelta', dati, testoDellaScelta('bot_t_scelta'));
 
   // ================= La macchina a stati =================
 
@@ -8089,7 +8167,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       // Un saluto, una domanda su altro. Chi parla di prenotare, o ha già detto
       // un giorno o «a cena», sta prenotando: nessuna domanda in più.
       const haDettoQualcosa = Object.keys({ ...conServizio({}), ...conGiorno }).length > 0;
-      if (eventiAttivi && !gia && !contesto.sceltoIlTavolo && !parlaDiPrenotare && !haDettoQualcosa) {
+      if ((eventiAttivi || festeNellaScelta()) && !gia && !contesto.sceltoIlTavolo && !parlaDiPrenotare && !haDettoQualcosa) {
         return chiediLaScelta();
       }
       return presentati({ ...conServizio({}), ...conGiorno }, gia || !!contesto.sceltoIlTavolo || giaInConversazione);
@@ -8122,12 +8200,15 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // Natale. Senza esperienze di tutti i giorni resta com'era (nessuna scelta
   // da fare a chi scrive «ciao»).
   function festeInArrivo() {
-    return esperienze.filter((e) => !diTuttiIGiorni(e))
+    if (festeLette) return festeLette;
+    return (festeLette = esperienze.filter((e) => !diTuttiIGiorni(e))
       .map((e) => ({ e, giorni: giorniDisponibili(db, cfg, 1, adesso, 3, { esperienza: e }) }))
       .filter((x) => x.giorni.length)
-      .sort((x, y) => x.giorni[0].localeCompare(y.giorni[0]));
+      .sort((x, y) => x.giorni[0].localeCompare(y.giorni[0])));
   }
-  function elencoDiSempre(chiave) {
+  // `senzaFeste`: chi alla prima domanda ha scelto «un tavolo» invece delle
+  // feste (vedi `vociDellaScelta`): le feste le ha già viste a parte.
+  function elencoDiSempre(chiave, senzaFeste = false) {
     const solite = esperienze.filter(diTuttiIGiorni);
     if (solite.length === esperienze.length) {
       return { valide: esperienze, ristrette: false,
@@ -8138,7 +8219,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // ne arrivavano due, e lui ha chiesto di togliere quella del bot.
     const scritta = normalizza(String(cfg[chiave] || '').replace('{esperienze}', ' '));
     const giaScritte = (e) => normalizza(e.nome).length > 3 && scritta.includes(normalizza(e.nome));
-    const feste = solite.length && !esperienze.some((e) => !diTuttiIGiorni(e) && giaScritte(e)) ? festeInArrivo() : [];
+    const feste = solite.length && !senzaFeste && !esperienze.some((e) => !diTuttiIGiorni(e) && giaScritte(e)) ? festeInArrivo() : [];
     const valide = [...solite, ...feste.map((x) => x.e)];
     const righe = [elencoEsperienze(solite)];
     if (feste.length) {
@@ -8153,7 +8234,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   function elencoDaProporre(d) {
     // ⚠️ Senza un giorno si propongono quelle di tutti i giorni (più le feste
     // in arrivo, vedi `elencoDiSempre`).
-    const tutte = elencoDiSempre('bot_t_esperienze');
+    const tutte = elencoDiSempre('bot_t_esperienze', !!d.senzaFeste);
     // Il servizio senza il giorno («a cena»): quelle che a cena ci sono, in
     // qualche giorno (24 ottobre 2026: «A cena» non si capiva).
     if (!d.giornoDetto && d.servizio) {
@@ -8235,7 +8316,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
   // «No» a «Perfetto, business lunch 👍»: l'elenco di nuovo, tutte.
   function sceltaDaCapo(d) {
     const { scelte, esperienza, tentativi, ...resto } = d;
-    const elenco = elencoDiSempre('bot_t_esperienza_altra');
+    const elenco = elencoDiSempre('bot_t_esperienza_altra', !!d.senzaFeste);
     salvaStato(db, telefono, 'esperienza', { ...resto, ...sceltePer(elenco) });
     risposte.push(elenco.testo);
     return esito;
@@ -8497,7 +8578,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
         return dopoLEsperienza({ ...resto, ...conServizio(), esperienza: MENU_AL_TAVOLO }, di('bot_t_esperienza_al_tavolo'));
       }
       // L'elenco di sempre, se è quello proposto: con le feste e i loro giorni.
-      const diSempre = !dati.giornoDetto ? elencoDiSempre('bot_t_esperienza_no') : null;
+      const diSempre = !dati.giornoDetto ? elencoDiSempre('bot_t_esperienza_no', !!dati.senzaFeste) : null;
       if (diSempre && diSempre.valide.map((e) => e.nome).join('|') === proposte.map((e) => e.nome).join('|')) {
         return nonCapito('esperienza', dati, diSempre.testo);
       }

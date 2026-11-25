@@ -6027,7 +6027,7 @@ function numeroPulito(valore) {
 // Le frasi che portano l'elenco delle esperienze. Senza {esperienze} il bot
 // lo mette in fondo da sé (vedi `diConElenco` nel motore), e sotto la casella
 // si dice: chi lo toglie per spostarlo deve capire perché ricompare.
-const FRASI_CON_ELENCO = ['bot_t_esperienze', 'bot_t_esperienze_giorno', 'bot_t_esperienza_no', 'bot_t_esperienza_quale', 'bot_t_esperienza_altra'];
+const FRASI_CON_ELENCO = ['bot_t_esperienze', 'bot_t_esperienze_giorno', 'bot_t_esperienza_no', 'bot_t_esperienza_quale', 'bot_t_esperienza_altra', 'bot_t_feste_elenco'];
 const AVVISO_ELENCO = '⚠️ Qui manca {esperienze}: il bot metterà l\'elenco delle esperienze in fondo alla frase. Scrivilo nel punto dove lo vuoi.';
 // La frase di RICOMINCIA sta sopra la presentazione, che fa la sua domanda: da
 // una riga con «?» in giù il bot non la manda (vedi `primaDellaDomanda` nel
@@ -6040,8 +6040,12 @@ const TESTI_BOT = [
   ['bot_t_quante', 'Chiede le persone a chi conosce già', 'Sostituisce il primo messaggio quando la conversazione è già aperta: chi scrive NUOVA, o chi ha già un tavolo da te. Non ci si ripresenta a chi ha appena letto un nostro messaggio.'],
   ['bot_t_persone_no', 'Non ha capito quante persone', ''],
   [null, 'Gli eventi: «un tavolo o un evento?»'],
-  ['bot_t_scelta_benvenuto', 'Il primo messaggio, con gli eventi accesi', 'Sostituisce «Il primo messaggio» quando nella scheda Esperienze, card «Gli eventi», la spunta è accesa, per chi scrive solo un saluto o una domanda su altro. Chi parla già di prenotare non lo riceve: va dritto alla prenotazione. <b>{saluto}</b>, <b>{assistente}</b> e <b>{locale}</b> come nel primo messaggio. Lascia le due righe numerate: il cliente risponde 1 o 2.'],
+  ['bot_t_scelta_benvenuto', 'Il primo messaggio, con gli eventi accesi', 'Sostituisce «Il primo messaggio» quando nella scheda Esperienze, card «Gli eventi», la spunta è accesa, per chi scrive solo un saluto o una domanda su altro. Chi parla già di prenotare non lo riceve: va dritto alla prenotazione. <b>{saluto}</b>, <b>{assistente}</b> e <b>{locale}</b> come nel primo messaggio. <b>{opzioni}</b> sono le voci numerate, scritte dal bot: il tavolo, gli eventi (se accesi) e le feste finché se ne può prenotare una — i loro nomi si cambiano qui sotto. <b>{numeri}</b> è «1, 2 o 3». Con le feste in arrivo questa domanda arriva anche con gli eventi spenti.'],
   ['bot_t_scelta_bentornato', 'La scelta, a chi torna', 'Come sopra, per chi ha già prenotato da te: <b>{nome}</b> è il suo nome.'],
+  ['bot_t_scelta_tavolo', 'La voce del tavolo', 'Il nome della prima voce della scelta qui sopra.'],
+  ['bot_t_scelta_evento', 'La voce degli eventi', 'Il nome della voce degli eventi. C\'è solo con gli eventi accesi.'],
+  ['bot_t_scelta_feste', 'La voce delle feste', 'Il nome della voce delle feste, per esempio «🎄 Festeggia il Natale con noi». C\'è solo finché un\'esperienza delle feste si può ancora prenotare (passata, piena o troppo lontana no): dopo l\'ultima sparisce da sola. Chi la sceglie vede solo le esperienze delle feste; chi sceglie il tavolo, solo quelle di tutti i giorni.'],
+  ['bot_t_feste_elenco', 'L\'elenco delle feste', 'A chi ha scelto la voce delle feste. <b>{esperienze}</b> è l\'elenco, col giorno e la riga di presentazione di ognuna (scrivi lì il prezzo); <b>{numeri}</b> i numeri da scrivere.'],
   ['bot_t_scelta', 'La scelta, senza saluto', 'La domanda e basta: a chi scrive RICOMINCIA (sotto «Va bene, ricominciamo da capo!»), a chi alla scelta risponde con un altro saluto, e quando il bot non ha capito la risposta.'],
   ['bot_t_eventi', 'La risposta sugli eventi', 'A chi sceglie 2, o scrive una delle parole degli eventi nel primo messaggio. <b>{link}</b> è il collegamento scritto nella card «Gli eventi»: se lo togli dalla frase, il bot lo mette in fondo. Dopo questa risposta la conversazione è chiusa: se il cliente vuole anche un tavolo scrive <b>PRENOTA</b> (o una frase qualunque che parli di prenotare), e parte la prenotazione.'],
   [null, 'Chi chiama invece di scrivere'],
