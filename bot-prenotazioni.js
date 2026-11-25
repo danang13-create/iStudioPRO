@@ -1145,6 +1145,7 @@ const PREDEFINITI = {
   // se va bene. {arrivo} è «alle 12:30, e il tavolo è tuo fino alle 15:30»
   // (o «alle 12:30» se la fine non è scritta); {fascia} è «dalle 12:30 alle
   // 15:30». Senza la parola «turno»: deciso dal titolare (19 ottobre 2026).
+  // Anche {persone} (il numero) ed {esperienza} (vuota se non scelta).
   bot_t_turno_unico: 'Per {data} a {servizio} ti aspettiamo {arrivo}. ✨\n\nTi va bene? Scrivi SÌ per continuare.',
   // Il servizio chiesto è chiuso (o pieno) e dell'altro resta un turno solo:
   // sotto quel turno, la domanda.
@@ -8476,6 +8477,10 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
       risposte.push(di('bot_t_turno_unico', {
         data: dataItaliana(iso), servizio: servizioDellOra(cfg, iso, ora), fascia: fasciaDetta(cfg, iso, ora), ora,
         arrivo: arrivoDetto(cfg, iso, ora),
+        // Dal titolare (25 novembre 2026): il messaggio arriva DOPO la scelta
+        // delle persone e dell'esperienza, e le può riassumere. {esperienza}
+        // è vuota senza un'esperienza scelta.
+        persone: d.persone || '', esperienza: (esperienzaScelta(d) || {}).nome || '',
       }));
       return esito;
     }
