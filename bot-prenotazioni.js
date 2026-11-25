@@ -8219,15 +8219,23 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     // ne arrivavano due, e lui ha chiesto di togliere quella del bot.
     const scritta = normalizza(String(cfg[chiave] || '').replace('{esperienze}', ' '));
     const giaScritte = (e) => normalizza(e.nome).length > 3 && scritta.includes(normalizza(e.nome));
-    const feste = solite.length && !senzaFeste && !esperienze.some((e) => !diTuttiIGiorni(e) && giaScritte(e)) ? festeInArrivo() : [];
+    const festeAMano = esperienze.some((e) => !diTuttiIGiorni(e) && giaScritte(e));
+    const feste = solite.length && !senzaFeste && !festeAMano ? festeInArrivo() : [];
     const valide = [...solite, ...feste.map((x) => x.e)];
     const righe = [elencoEsperienze(solite)];
     if (feste.length) {
       righe.push(di('bot_t_esperienze_feste').trim(), elencoEsperienze(feste.map((x) => x.e),
         { numeri: feste.map((x, i) => solite.length + i + 1), giorni: feste.map((x) => giorniCorti(x.giorni)) }));
     }
-    return { valide, ristrette: true,
-      testo: diConElenco(chiave, righe.filter(Boolean).join('\n\n'), { numeri: numeriDetti(daUnoA(valide.length)) }) };
+    const elenco = righe.filter(Boolean).join('\n\n');
+    const numeri = numeriDetti(daUnoA(valide.length));
+    // ⚠️ Dal titolare (25 novembre 2026): scelto «un tavolo», gli uscivano
+    // ancora le feste — quelle che aveva scritto a mano nella frase. A chi ha
+    // scelto il tavolo quella frase non si manda: si usa quella di partenza.
+    if (senzaFeste && festeAMano && PREDEFINITI[chiave]) {
+      return { valide, ristrette: true, testo: riempi(PREDEFINITI[chiave], { ...valori, esperienze: elenco, numeri }).trim() };
+    }
+    return { valide, ristrette: true, testo: diConElenco(chiave, elenco, { numeri }) };
   }
   // I nomi dell'elenco, da ricordare per i numeri (vedi il passo «esperienza»).
   function sceltePer(elenco) { return elenco.ristrette ? { scelte: elenco.valide.map((e) => e.nome) } : {}; }
