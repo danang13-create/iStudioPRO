@@ -2898,6 +2898,7 @@
           la voce <b>«🎄 Festeggia le feste con noi»</b>: a chi la sceglie — o nomina le feste nel primo messaggio
           senza parlare di prenotare — il bot manda un testo col <b>collegamento alla vostra pagina</b>, e lo invita a
           scrivere il giorno se vuole prenotare subito. Il giorno scritto dopo porta al menu di quel giorno, col prezzo.
+          E sotto ogni menu delle feste che il bot propone in chat c'è <b>«👉 Scopri di più»</b> col collegamento.
           Chi scrive già «vorrei prenotare per Natale» va dritto alla prenotazione. <b>Spenta</b>, la voce c'è solo
           finché un menu delle feste si può prenotare, e porta all'elenco di quei menu. Il nome della voce e il testo
           sono in «Frasi e domande», gruppo «Gli eventi».
@@ -6082,6 +6083,7 @@ const TESTI_BOT = [
   ['bot_t_scelta_evento', 'La voce degli eventi', 'Il nome della voce degli eventi. C\'è solo con gli eventi accesi.'],
   ['bot_t_scelta_feste', 'La voce delle feste', 'Il nome della voce delle feste, per esempio «🎄 Festeggia il Natale con noi». C\'è solo finché un\'esperienza delle feste si può ancora prenotare (passata, piena o troppo lontana no): dopo l\'ultima sparisce da sola. Chi la sceglie vede solo le esperienze delle feste; chi sceglie il tavolo, solo quelle di tutti i giorni.'],
   ['bot_t_feste_elenco', 'L\'elenco delle feste', 'A chi ha scelto la voce delle feste. <b>{esperienze}</b> è l\'elenco, col giorno e la riga di presentazione di ognuna (scrivi lì il prezzo); <b>{numeri}</b> i numeri da scrivere.'],
+  ['bot_t_feste_scopri', 'Scopri di più, sotto i menu delle feste', 'Con la card «Festività» accesa: la riga che il bot mette sotto i menu delle feste — nella proposta di un giorno di festa, nell\'elenco delle feste e sotto «✨ Per le festività» nell\'elenco di sempre. <b>{link}</b> è il collegamento scritto nella card. Vuota, niente riga; con la card spenta non c\'è mai.'],
   ['bot_t_feste_link', 'Le festività, col collegamento', 'A chi sceglie la voce delle feste quando nella scheda Esperienze, card «Festività», la spunta è accesa (o nomina le feste nel primo messaggio senza parlare di prenotare). <b>{link}</b> è il collegamento scritto nella card: se lo togli dalla frase, il bot lo mette in fondo. Se il cliente scrive poi un giorno, il bot prenota il menu di quel giorno.'],
   ['bot_t_festa_unica', 'Un giorno di festa con un solo menu', 'A chi scrive un giorno di festa che ha UN solo menu (per esempio il 24 dicembre, il Cenone della Vigilia) senza averlo scelto: il menu si fa vedere, col prezzo, prima di prenderlo. SÌ lo prende; NO rimette l\'elenco di tutti i giorni. <b>{data}</b> è il giorno, <b>{festa}</b> il nome della festività, <b>{esperienza}</b> il menu con la sua riga di presentazione (scrivi lì il prezzo). Vuota, il bot lo prende da sé come prima.'],
   ['bot_t_scelta', 'La scelta, senza saluto', 'La domanda e basta: a chi scrive RICOMINCIA (sotto «Va bene, ricominciamo da capo!»), a chi alla scelta risponde con un altro saluto, e quando il bot non ha capito la risposta.'],

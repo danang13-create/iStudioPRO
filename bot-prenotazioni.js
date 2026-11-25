@@ -1289,6 +1289,10 @@ const PREDEFINITI = {
   // (25 novembre 2026): glielo si fa vedere, col prezzo, prima di prenderlo.
   bot_t_festa_unica: 'Per {data} ({festa}) abbiamo un menu speciale 🎄\n\n{esperienza}\n\nTi va bene? Rispondi SÌ per prenotarlo, oppure scrivimi un altro giorno.',
   // A chi sceglie la voce delle feste con la card «Festività» accesa.
+  // Sotto i menu delle feste, con la card «Festività» accesa (25 novembre
+  // 2026, dal titolare: «il bot manda nella chat tipo scopri di più con il
+  // link»). Vuota, niente riga.
+  bot_t_feste_scopri: '👉 Scopri di più: {link}',
   bot_t_feste_link: 'Che bello festeggiare con noi! 🎄\n\nTrovi i menu e tutte le proposte delle feste qui:\n👉 {link}\n\nSe vuoi prenotare subito, scrivimi il giorno che preferisci 😊',
   bot_t_eventi: 'Che bello! 🎉 Organizziamo eventi privati, cene aziendali, feste e ricorrenze.\n\nTrovi le proposte e il modulo di richiesta qui:\n👉 {link}\n\nSe vuoi anche prenotare un tavolo, scrivi PRENOTA.',
   // A chi prova a CHIAMARE il numero su WhatsApp (23 novembre 2026). Vuota, il
@@ -7787,10 +7791,17 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     if (feste.length === 1) return presaLEsperienza(feste[0].e, {});
     const valide = feste.map((x) => x.e);
     salvaStato(db, telefono, 'esperienza', { scelte: valide.map((e) => e.nome) });
-    risposte.push(diConElenco('bot_t_feste_elenco', elencoEsperienze(valide, { giorni: feste.map((x) => giorniCorti(x.giorni)) }),
+    risposte.push(diConElenco('bot_t_feste_elenco', conScopri(elencoEsperienze(valide, { giorni: feste.map((x) => giorniCorti(x.giorni)) })),
       { numeri: numeriDetti(daUnoA(valide.length)) }));
     return esito;
   }
+  // «👉 Scopri di più: …» sotto i menu delle feste, con la card «Festività»
+  // accesa e un collegamento vero; sennò niente.
+  function scopriDiPiu() {
+    if (!festeLink) return '';
+    return di('bot_t_feste_scopri', { link: linkDiMenu(cfg.bot_feste_link) }).trim();
+  }
+  function conScopri(elenco) { return [elenco, scopriDiPiu()].filter(Boolean).join('\n\n'); }
   // La voce delle feste: col collegamento, se la card «Festività» è accesa;
   // sennò l'elenco dei menu delle feste, come prima.
   function rispostaFeste() {
@@ -8317,8 +8328,8 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     const valide = [...solite, ...feste.map((x) => x.e)];
     const righe = [elencoEsperienze(solite)];
     if (feste.length) {
-      righe.push(di('bot_t_esperienze_feste').trim(), elencoEsperienze(feste.map((x) => x.e),
-        { numeri: feste.map((x, i) => solite.length + i + 1), giorni: feste.map((x) => giorniCorti(x.giorni)) }));
+      righe.push(di('bot_t_esperienze_feste').trim(), conScopri(elencoEsperienze(feste.map((x) => x.e),
+        { numeri: feste.map((x, i) => solite.length + i + 1), giorni: feste.map((x) => giorniCorti(x.giorni)) })));
     }
     const elenco = righe.filter(Boolean).join('\n\n');
     const numeri = numeriDetti(daUnoA(valide.length));
@@ -8434,7 +8445,7 @@ function rispondiAlMessaggio(db, telefono, testo, adesso = new Date(), contesto 
     salvaStato(db, telefono, 'esperienza', { ...resto, scelte: [e.nome], festaProposta: e.nome });
     risposte.push(di('bot_t_festa_unica', {
       data: dataItaliana(d.giornoDetto), festa: festa.nome || 'festa',
-      esperienza: `🎄 *${e.nome}*${e.riga ? `\n${e.riga}` : ''}`,
+      esperienza: conScopri(`🎄 *${e.nome}*${e.riga ? `\n${e.riga}` : ''}`),
     }));
     return esito;
   }
